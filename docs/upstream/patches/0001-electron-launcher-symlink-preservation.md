@@ -50,7 +50,8 @@ behavior.
 
 ## Commit References
 
-- `pending`: implemented in the current working tree on top of `556c4245`
+- `d3296054`: preserve macOS Electron launcher symlinks
+- `694032c5`: add upstream patch workflow and register this patch
 
 ## Sync Notes
 
