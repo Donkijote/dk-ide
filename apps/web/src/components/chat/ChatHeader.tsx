@@ -142,7 +142,7 @@ export const ChatHeader = memo(function ChatHeader({
                 className="shrink-0"
                 pressed={terminalOpen}
                 onPressedChange={onToggleTerminal}
-                aria-label="Toggle terminal drawer"
+                aria-label="Toggle terminal pane"
                 variant="outline"
                 size="xs"
                 disabled={!terminalAvailable}
@@ -153,10 +153,10 @@ export const ChatHeader = memo(function ChatHeader({
           />
           <TooltipPopup side="bottom">
             {!terminalAvailable
-              ? "Terminal is unavailable until this thread has an active project."
+              ? "Terminal is unavailable until this thread has an active workspace."
               : terminalToggleShortcutLabel
-                ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
-                : "Toggle terminal drawer"}
+                ? `Toggle terminal pane (${terminalToggleShortcutLabel})`
+                : "Toggle terminal pane"}
           </TooltipPopup>
         </Tooltip>
         <Tooltip>
@@ -166,7 +166,7 @@ export const ChatHeader = memo(function ChatHeader({
                 className="shrink-0"
                 pressed={diffOpen}
                 onPressedChange={onToggleDiff}
-                aria-label="Toggle diff panel"
+                aria-label="Toggle diff pane"
                 variant="outline"
                 size="xs"
                 disabled={!isGitRepo && !diffOpen}
@@ -177,10 +177,10 @@ export const ChatHeader = memo(function ChatHeader({
           />
           <TooltipPopup side="bottom">
             {!isGitRepo && !diffOpen
-              ? "Diff panel is unavailable because this project is not a git repository."
+              ? "Diff is unavailable because this workspace is not attached to a git repository."
               : diffToggleShortcutLabel
-                ? `Toggle diff panel (${diffToggleShortcutLabel})`
-                : "Toggle diff panel"}
+                ? `Toggle diff pane (${diffToggleShortcutLabel})`
+                : "Toggle diff pane"}
           </TooltipPopup>
         </Tooltip>
       </div>
