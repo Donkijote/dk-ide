@@ -50,8 +50,10 @@ behavior.
 
 ## Commit References
 
-- `d3296054`: preserve macOS Electron launcher symlinks
-- `694032c5`: add upstream patch workflow and register this patch
+- `f5fe8d00`: squashed mainline commit containing the launcher fix and patch
+  registry documentation
+- `9a6ae066`: first upstream sync merge against `upstream/main` after the patch
+  was introduced
 
 ## Sync Notes
 
@@ -59,3 +61,6 @@ behavior.
   app-bundle renaming behavior, or desktop startup packaging.
 - If upstream adopts a different macOS launch strategy that avoids copying
   `Electron.app`, this patch may become obsolete.
+- Verified during the first upstream sync on 2026-05-14 against upstream commit
+  `ea20e800`; no additional code changes were required to keep the patch
+  active.
