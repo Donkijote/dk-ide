@@ -3,6 +3,12 @@
 Related direction doc:
 [Workspace Reframe](./WORKSPACE_REFRAME.md)
 
+Terminology spec:
+[Workspace Terminology](./WORKSPACE_TERMINOLOGY.md)
+
+Visual framing spec:
+[Workspace Visual Framing](./WORKSPACE_VISUAL_FRAMING.md)
+
 ## Goal
 
 Deliver the first UI-first workspace refactor on top of the existing app
@@ -26,7 +32,7 @@ Preserve the upstream logic spine. Refactor the visible product first.
 
 ## Implementation Tracker
 
-- [ ] Define the initial workspace terminology and visible naming changes
+- [x] Define the initial workspace terminology and visible naming changes
 - [ ] Introduce a workspace shell documentable in the app UI
 - [ ] Reframe sidebar project entries as workspace-oriented navigation
 - [ ] Extract the current chat surface into an explicit AI pane container
@@ -50,9 +56,17 @@ Work:
 
 - define how "workspace", "project", "thread", and "pane" should appear in the
   UI
+- define how the first workspace scenes should read visually
+- define which current chat and terminal capabilities must survive pane
+  extraction unchanged in the first pass
 - decide where current upstream terminology remains acceptable and where it
   should be wrapped or renamed
 - keep backend concepts unchanged while the visible language shifts
+
+Output:
+
+- [Workspace Terminology](./WORKSPACE_TERMINOLOGY.md)
+- [Workspace Visual Framing](./WORKSPACE_VISUAL_FRAMING.md)
 
 Acceptance:
 
@@ -71,6 +85,8 @@ Work:
 - keep the current app logic intact under that shell
 - reserve explicit areas for pane composition rather than one dominant chat
   surface plus accessory drawers
+- keep the current left rail as a temporary workspace/thread navigation surface
+- allow that rail to collapse fully when the user wants more space for panes
 
 Acceptance:
 
@@ -86,8 +102,12 @@ Work:
 
 - wrap the current chat view as the first AI pane
 - wrap the current terminal as a terminal pane instead of a bottom toggle area
+- preserve the current chat view capabilities while it is reframed as an AI pane
+- preserve current terminal actions while allowing new terminals to become new
+  panes in the short term
 - decide whether diff, plan, or environment surfaces should become secondary
   panes in this milestone or remain embedded support views
+- defer grouped terminal behavior until the basic pane model is coherent
 
 Acceptance:
 
@@ -106,6 +126,10 @@ Work:
   them dominate the whole navigation model
 - identify what extra workspace metadata should be visible, such as branch,
   provider state, terminal state, or attached resources
+- preserve a recoverable thread list for each workspace so threads can be
+  reopened or reused later
+- leave room for both thread replacement and multi-AI-pane workflows until the
+  interaction model is finalized
 
 Acceptance:
 
@@ -122,6 +146,8 @@ Work:
 - introduce lightweight local layout state for the first shell
 - do not block on a full persistent spatial system
 - focus on preserving orientation and continuity
+- preserve enough state that collapsing the rail or switching visible panes does
+  not feel like losing the current workspace context
 
 Acceptance:
 

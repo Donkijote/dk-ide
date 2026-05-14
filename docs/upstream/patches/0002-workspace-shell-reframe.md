@@ -37,6 +37,9 @@ not a fixed chat screen with accessory UI.
 
 ## Upstream Touchpoints
 
+- `docs/product/WORKSPACE_TERMINOLOGY.md`
+- `docs/product/WORKSPACE_VISUAL_FRAMING.md`
+- `docs/product/WORKSPACE_PRE_ALPHA_PLAN.md`
 - `apps/web/src/components/`
 - `apps/web/src/routes/`
 - `apps/web/src/*sidebar*`
@@ -57,13 +60,19 @@ composition, which are likely to continue evolving upstream.
 
 ## Commit References
 
-- `pending`: planning only
+- `working tree`: workspace terminology definition and pre-alpha plan updates
 
 ## Sync Notes
 
 - keep this divergence UI-first as long as possible
 - prefer wrappers, adapters, and new shell composition over deep edits in shared
   runtime logic
+- the first concrete step is a terminology layer that changes visible framing
+  without renaming upstream project and thread contracts
+- the same planning layer should define how workspace scenes read before
+  implementation details turn into component churn
+- initial pane extraction should preserve current chat and terminal capabilities
+  while changing shell framing and navigation expectations
 - split future implementation into smaller patch files when the shell reframe
   turns into concrete workstreams such as sidebar mapping, pane extraction, or
   layout persistence

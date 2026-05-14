@@ -12,6 +12,12 @@ reuse the strongest parts of this codebase, especially the provider/runtime
 orchestration, and reshape the visible product so the primary unit of work
 becomes the workspace rather than the thread, project, or chat session.
 
+The concrete visible vocabulary for that shift is defined in
+[Workspace Terminology](./WORKSPACE_TERMINOLOGY.md).
+
+The first visual expectations for how workspace scenes should read are defined
+in [Workspace Visual Framing](./WORKSPACE_VISUAL_FRAMING.md).
+
 In practical terms:
 
 - keep the server/runtime/provider spine
@@ -80,6 +86,10 @@ Desired effect:
 
 - the left rail stops reading like "pick a project to enter a chat"
 - it starts reading like "switch between active workspaces"
+- internal project identifiers can remain in place without dominating the
+  visible copy
+- the rail can be fully collapsed when the user wants more pane space without
+  losing the underlying workspace/thread navigation model
 
 ### 2. Chat View -> AI Pane
 
@@ -91,6 +101,9 @@ This is the single most important reframing:
 - the chat is still real and useful
 - but it is no longer the whole app
 - it becomes one first-class work surface among other panes
+- thread concepts remain available, but as a secondary concept inside the
+  workspace
+- the current chat capabilities should remain intact during the pane extraction
 
 ### 3. Bottom Terminal Toggle -> Terminal Pane
 
@@ -99,6 +112,9 @@ start behaving like a pane with equal structural dignity to the AI pane.
 
 That makes the app feel less like a chat shell with attachments and more like a
 workspace composed of tools.
+
+In the early phase, opening a new terminal can map directly to creating another
+terminal pane while grouped terminal behavior remains a later concern.
 
 ### 4. Existing Secondary Surfaces -> Candidate Pane Types
 
@@ -123,6 +139,8 @@ That means:
 - new UI composition adapts existing data into workspace-oriented view models
 - the first implementation wave should favor wrappers and adapters over invasive
   backend rewrites
+- the shell should establish workspace identity and orientation before any
+  single pane dominates the screen
 
 ## Architectural Interpretation
 
