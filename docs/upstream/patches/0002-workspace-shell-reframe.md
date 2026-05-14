@@ -1,0 +1,69 @@
+# 0002 Workspace Shell Reframe
+
+Status: proposed
+Type: product
+Priority: high
+Owner: local
+
+## Summary
+
+Reframe the upstream app from a conversation-first coding client into a
+workspace-first development environment by changing presentation, composition,
+navigation language, and pane structure before attempting deep backend rewrites.
+
+## Why
+
+The product direction explored in `dk-code` is centered on persistent
+workspaces, multi-context development, and first-class pane composition. This
+repository already has a more mature runtime/orchestration core, so the best
+near-term leverage is to reuse that core and reshape the visible product rather
+than rebuilding the logic stack from scratch.
+
+## Desired Outcome
+
+The app should feel like a workspace-oriented development environment where AI,
+terminal, and future supporting surfaces are peer tools inside a broader shell,
+not a fixed chat screen with accessory UI.
+
+## Local Strategy
+
+- preserve upstream server/runtime/provider logic
+- reinterpret current presentation through a workspace-first shell
+- convert the current chat surface into an AI pane
+- convert the current terminal surface into a terminal pane
+- reinterpret sidebar project navigation as workspace-oriented navigation where
+  possible
+- add local layout/orientation capabilities incrementally
+
+## Upstream Touchpoints
+
+- `apps/web/src/components/`
+- `apps/web/src/routes/`
+- `apps/web/src/*sidebar*`
+- `apps/web/src/*chat*`
+- `apps/web/src/*terminal*`
+- `apps/server/src/` only where small adapters become necessary
+
+## Conflict Risk
+
+High. This change intentionally targets user-facing navigation and core shell
+composition, which are likely to continue evolving upstream.
+
+## Validation
+
+- a user can understand the visible product as a workspace-first environment
+- AI and terminal surfaces can coexist as peer panes
+- the app keeps its current operational runtime behavior while the UI model changes
+
+## Commit References
+
+- `pending`: planning only
+
+## Sync Notes
+
+- keep this divergence UI-first as long as possible
+- prefer wrappers, adapters, and new shell composition over deep edits in shared
+  runtime logic
+- split future implementation into smaller patch files when the shell reframe
+  turns into concrete workstreams such as sidebar mapping, pane extraction, or
+  layout persistence
