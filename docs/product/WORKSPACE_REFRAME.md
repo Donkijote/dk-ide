@@ -12,6 +12,9 @@ reuse the strongest parts of this codebase, especially the provider/runtime
 orchestration, and reshape the visible product so the primary unit of work
 becomes the workspace rather than the thread, project, or chat session.
 
+The concrete visible vocabulary for that shift is defined in
+[Workspace Terminology](./WORKSPACE_TERMINOLOGY.md).
+
 In practical terms:
 
 - keep the server/runtime/provider spine
@@ -80,6 +83,8 @@ Desired effect:
 
 - the left rail stops reading like "pick a project to enter a chat"
 - it starts reading like "switch between active workspaces"
+- internal project identifiers can remain in place without dominating the
+  visible copy
 
 ### 2. Chat View -> AI Pane
 
@@ -91,6 +96,8 @@ This is the single most important reframing:
 - the chat is still real and useful
 - but it is no longer the whole app
 - it becomes one first-class work surface among other panes
+- thread concepts remain available, but as a secondary concept inside the
+  workspace
 
 ### 3. Bottom Terminal Toggle -> Terminal Pane
 

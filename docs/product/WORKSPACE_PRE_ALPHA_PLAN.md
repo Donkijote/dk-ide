@@ -3,6 +3,9 @@
 Related direction doc:
 [Workspace Reframe](./WORKSPACE_REFRAME.md)
 
+Terminology spec:
+[Workspace Terminology](./WORKSPACE_TERMINOLOGY.md)
+
 ## Goal
 
 Deliver the first UI-first workspace refactor on top of the existing app
@@ -26,7 +29,7 @@ Preserve the upstream logic spine. Refactor the visible product first.
 
 ## Implementation Tracker
 
-- [ ] Define the initial workspace terminology and visible naming changes
+- [x] Define the initial workspace terminology and visible naming changes
 - [ ] Introduce a workspace shell documentable in the app UI
 - [ ] Reframe sidebar project entries as workspace-oriented navigation
 - [ ] Extract the current chat surface into an explicit AI pane container
@@ -53,6 +56,10 @@ Work:
 - decide where current upstream terminology remains acceptable and where it
   should be wrapped or renamed
 - keep backend concepts unchanged while the visible language shifts
+
+Output:
+
+- [Workspace Terminology](./WORKSPACE_TERMINOLOGY.md)
 
 Acceptance:
 
