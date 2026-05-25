@@ -1,6 +1,6 @@
 # 0002 Workspace Shell Reframe
 
-Status: proposed
+Status: active
 Type: product
 Priority: high
 Owner: local
@@ -60,7 +60,7 @@ composition, which are likely to continue evolving upstream.
 
 ## Commit References
 
-- `working tree`: workspace terminology definition and pre-alpha plan updates
+- `working tree`: initial workspace shell, AI pane framing, and hosted-shell onboarding updates
 
 ## Sync Notes
 
@@ -71,6 +71,8 @@ composition, which are likely to continue evolving upstream.
   without renaming upstream project and thread contracts
 - the same planning layer should define how workspace scenes read before
   implementation details turn into component churn
+- the first implemented shell pass lives in the web presentation layer and keeps
+  thread, diff, and terminal behavior intact while reserving explicit pane space
 - initial pane extraction should preserve current chat and terminal capabilities
   while changing shell framing and navigation expectations
 - split future implementation into smaller patch files when the shell reframe
