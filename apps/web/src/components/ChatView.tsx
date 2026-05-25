@@ -104,7 +104,7 @@ import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
-import { BotIcon, ChevronDownIcon, TriangleAlertIcon, WifiOffIcon } from "lucide-react";
+import { ChevronDownIcon, TriangleAlertIcon, WifiOffIcon } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
@@ -3494,8 +3494,6 @@ export default function ChatView(props: ChatViewProps) {
     void onRevertToTurnCountRef.current(targetTurnCount);
   }, []);
   const workspaceName = activeProject?.name?.trim() || null;
-  const aiPaneDescription = "Open, git, terminal, and diff controls stay attached to this pane.";
-
   // Empty state: no active thread
   if (!activeThread) {
     return <NoActiveThreadState />;
@@ -3549,6 +3547,7 @@ export default function ChatView(props: ChatViewProps) {
           {...chatHeaderActionProps}
           activeThreadTitle={activeThread.title}
           workspaceName={workspaceName}
+          showThreadTitle={false}
           showActions={false}
         />
       </header>
@@ -3560,10 +3559,7 @@ export default function ChatView(props: ChatViewProps) {
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
         <WorkspacePane
-          label="AI pane"
           title={activeThread.title}
-          description={aiPaneDescription}
-          icon={<BotIcon className="size-3" />}
           actions={<ChatHeaderActions {...chatHeaderActionProps} />}
         >
           <div className="flex min-h-0 min-w-0 flex-1">

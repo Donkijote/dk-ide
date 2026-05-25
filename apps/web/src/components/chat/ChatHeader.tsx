@@ -46,6 +46,7 @@ interface ChatHeaderProps extends ChatHeaderActionsProps {
   activeThreadTitle: string;
   workspaceName: string | null;
   showWorkspaceContext?: boolean;
+  showThreadTitle?: boolean;
   showActions?: boolean;
 }
 
@@ -175,6 +176,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadTitle,
   workspaceName,
   showWorkspaceContext = true,
+  showThreadTitle = true,
   showActions = true,
   ...actionProps
 }: ChatHeaderProps) {
@@ -188,12 +190,14 @@ export const ChatHeader = memo(function ChatHeader({
               {workspaceName}
             </span>
           ) : null}
-          <h2
-            className="min-w-0 shrink truncate text-sm font-medium text-foreground"
-            title={activeThreadTitle}
-          >
-            {activeThreadTitle}
-          </h2>
+          {showThreadTitle ? (
+            <h2
+              className="min-w-0 shrink truncate text-sm font-medium text-foreground"
+              title={activeThreadTitle}
+            >
+              {activeThreadTitle}
+            </h2>
+          ) : null}
         </div>
       ) : (
         <div className="min-w-0 flex-1" />
