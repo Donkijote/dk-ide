@@ -122,10 +122,15 @@ const desktopEnvironmentLayer = DesktopEnvironment.layer(environmentInput).pipe(
 function makeTestLayer(input: {
   readonly window: Electron.BrowserWindow;
   readonly createCount: Ref.Ref<number>;
+  readonly createOptions: Ref.Ref<readonly Electron.BrowserWindowConstructorOptions[]>;
   readonly mainWindow: Ref.Ref<Option.Option<Electron.BrowserWindow>>;
 }) {
   const electronWindowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
-    create: () => Ref.update(input.createCount, (count) => count + 1).pipe(Effect.as(input.window)),
+    create: (options) =>
+      Ref.update(input.createCount, (count) => count + 1).pipe(
+        Effect.andThen(Ref.update(input.createOptions, (entries) => [...entries, options])),
+        Effect.as(input.window),
+      ),
     main: Ref.get(input.mainWindow),
     currentMainOrFirst: Ref.get(input.mainWindow),
     focusedMainOrFirst: Ref.get(input.mainWindow),
@@ -158,10 +163,14 @@ describe("DesktopWindow", () => {
     Effect.gen(function* () {
       const fakeWindow = makeFakeBrowserWindow();
       const createCount = yield* Ref.make(0);
+      const createOptions = yield* Ref.make<readonly Electron.BrowserWindowConstructorOptions[]>(
+        [],
+      );
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
       const layer = makeTestLayer({
         window: fakeWindow.window,
         createCount,
+        createOptions,
         mainWindow,
       });
 
@@ -174,6 +183,32 @@ describe("DesktopWindow", () => {
         assert.equal(yield* Ref.get(createCount), 1);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["http://127.0.0.1:5733/"]);
         assert.equal(fakeWindow.openDevTools.mock.calls.length, 1);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("creates the main window with the larger default launch size", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const createOptions = yield* Ref.make<readonly Electron.BrowserWindowConstructorOptions[]>(
+        [],
+      );
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        createOptions,
+        mainWindow,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady;
+        const createdWindows = yield* Ref.get(createOptions);
+        assert.equal(createdWindows.length, 1);
+        assert.equal(createdWindows[0]?.width, 1360);
+        assert.equal(createdWindows[0]?.height, 900);
       }).pipe(Effect.provide(layer));
     }),
   );

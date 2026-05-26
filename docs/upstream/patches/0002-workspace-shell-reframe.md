@@ -61,6 +61,7 @@ composition, which are likely to continue evolving upstream.
 ## Commit References
 
 - `working tree`: initial workspace shell, AI pane framing, and hosted-shell onboarding updates
+- `21ed1770`: explicit AI pane extraction through a reusable workspace pane frame and shared chat action bar
 
 ## Sync Notes
 
@@ -75,6 +76,10 @@ composition, which are likely to continue evolving upstream.
   thread, diff, and terminal behavior intact while reserving explicit pane space
 - initial pane extraction should preserve current chat and terminal capabilities
   while changing shell framing and navigation expectations
+- keep pane chrome reusable so future terminal and support surfaces can adopt the
+  same workspace framing without copying chat-specific structure
+- keep chat actions extracted from pane framing so upstream chat behavior can
+  evolve without re-entangling workspace shell ownership
 - split future implementation into smaller patch files when the shell reframe
   turns into concrete workstreams such as sidebar mapping, pane extraction, or
   layout persistence

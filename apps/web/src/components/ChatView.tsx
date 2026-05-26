@@ -146,13 +146,14 @@ import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
-import { ChatHeader } from "./chat/ChatHeader";
+import { ChatHeader, ChatHeaderActions } from "./chat/ChatHeader";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
+import { WorkspacePane } from "./workspace/WorkspacePane";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   buildExpiredTerminalContextToastCopy,
@@ -3493,11 +3494,37 @@ export default function ChatView(props: ChatViewProps) {
     void onRevertToTurnCountRef.current(targetTurnCount);
   }, []);
   const workspaceName = activeProject?.name?.trim() || null;
-
   // Empty state: no active thread
   if (!activeThread) {
     return <NoActiveThreadState />;
   }
+
+  const chatHeaderActionProps = {
+    activeThreadEnvironmentId: activeThread.environmentId,
+    activeThreadId: activeThread.id,
+    ...(routeKind === "draft" && draftId ? { draftId } : {}),
+    activeProjectName: activeProject?.name,
+    isGitRepo,
+    openInCwd: gitCwd,
+    activeProjectScripts: activeProject?.scripts,
+    preferredScriptId: activeProject
+      ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
+      : null,
+    keybindings,
+    availableEditors,
+    terminalAvailable: activeProject !== undefined,
+    terminalOpen: terminalState.terminalOpen,
+    terminalToggleShortcutLabel,
+    diffToggleShortcutLabel: diffPanelShortcutLabel,
+    gitCwd,
+    diffOpen,
+    onRunProjectScript: runProjectScript,
+    onAddProjectScript: saveProjectScript,
+    onUpdateProjectScript: updateProjectScript,
+    onDeleteProjectScript: deleteProjectScript,
+    onToggleTerminal: toggleTerminalVisibility,
+    onToggleDiff,
+  };
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
@@ -3517,32 +3544,10 @@ export default function ChatView(props: ChatViewProps) {
         )}
       >
         <ChatHeader
-          activeThreadEnvironmentId={activeThread.environmentId}
-          activeThreadId={activeThread.id}
-          {...(routeKind === "draft" && draftId ? { draftId } : {})}
+          {...chatHeaderActionProps}
           activeThreadTitle={activeThread.title}
-          activeProjectName={activeProject?.name}
           workspaceName={workspaceName}
-          isGitRepo={isGitRepo}
-          openInCwd={gitCwd}
-          activeProjectScripts={activeProject?.scripts}
-          preferredScriptId={
-            activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-          }
-          keybindings={keybindings}
-          availableEditors={availableEditors}
-          terminalAvailable={activeProject !== undefined}
-          terminalOpen={terminalState.terminalOpen}
-          terminalToggleShortcutLabel={terminalToggleShortcutLabel}
-          diffToggleShortcutLabel={diffPanelShortcutLabel}
-          gitCwd={gitCwd}
-          diffOpen={diffOpen}
-          onRunProjectScript={runProjectScript}
-          onAddProjectScript={saveProjectScript}
-          onUpdateProjectScript={updateProjectScript}
-          onDeleteProjectScript={deleteProjectScript}
-          onToggleTerminal={toggleTerminalVisibility}
-          onToggleDiff={onToggleDiff}
+          showThreadTitle={false}
           showActions={false}
         />
       </header>
@@ -3553,38 +3558,10 @@ export default function ChatView(props: ChatViewProps) {
         onDismiss={() => setThreadError(activeThread.id, null)}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border border-border/70 bg-background shadow-[0_20px_50px_-32px_rgba(15,23,42,0.35)]">
-          <header className="border-b border-border/60 px-3 py-2 sm:px-4 sm:py-3">
-            <ChatHeader
-              activeThreadEnvironmentId={activeThread.environmentId}
-              activeThreadId={activeThread.id}
-              {...(routeKind === "draft" && draftId ? { draftId } : {})}
-              activeThreadTitle={activeThread.title}
-              activeProjectName={activeProject?.name}
-              workspaceName={workspaceName}
-              isGitRepo={isGitRepo}
-              openInCwd={gitCwd}
-              activeProjectScripts={activeProject?.scripts}
-              preferredScriptId={
-                activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-              }
-              keybindings={keybindings}
-              availableEditors={availableEditors}
-              terminalAvailable={activeProject !== undefined}
-              terminalOpen={terminalState.terminalOpen}
-              terminalToggleShortcutLabel={terminalToggleShortcutLabel}
-              diffToggleShortcutLabel={diffPanelShortcutLabel}
-              gitCwd={gitCwd}
-              diffOpen={diffOpen}
-              onRunProjectScript={runProjectScript}
-              onAddProjectScript={saveProjectScript}
-              onUpdateProjectScript={updateProjectScript}
-              onDeleteProjectScript={deleteProjectScript}
-              onToggleTerminal={toggleTerminalVisibility}
-              onToggleDiff={onToggleDiff}
-              showWorkspaceContext={false}
-            />
-          </header>
+        <WorkspacePane
+          title={activeThread.title}
+          actions={<ChatHeaderActions {...chatHeaderActionProps} />}
+        >
           <div className="flex min-h-0 min-w-0 flex-1">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <div className="relative flex min-h-0 flex-1 flex-col">
@@ -3770,7 +3747,7 @@ export default function ChatView(props: ChatViewProps) {
               />
             ) : null}
           </div>
-        </section>
+        </WorkspacePane>
       </div>
 
       {mountedTerminalThreadRefs.map(({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
