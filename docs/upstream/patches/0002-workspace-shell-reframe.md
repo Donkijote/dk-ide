@@ -62,6 +62,7 @@ composition, which are likely to continue evolving upstream.
 
 - `working tree`: initial workspace shell, AI pane framing, and hosted-shell onboarding updates
 - `21ed1770`: explicit AI pane extraction through a reusable workspace pane frame and shared chat action bar
+- `ccd33a35`: upstream sync merge against `upstream/main` through `4f0f24f0`
 
 ## Sync Notes
 
@@ -83,3 +84,6 @@ composition, which are likely to continue evolving upstream.
 - split future implementation into smaller patch files when the shell reframe
   turns into concrete workstreams such as sidebar mapping, pane extraction, or
   layout persistence
+- Verified during the 2026-05-26 upstream sync against upstream commit
+  `4f0f24f0`; upstream composer reasoning-selection updates touched shared chat
+  state and UI but did not require local workspace-shell code changes.
