@@ -582,12 +582,21 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
     );
     return nextTerminalIds.length > 0 ? [{ ...terminalGroup, terminalIds: nextTerminalIds }] : [];
   });
+  const paneDeckHeight =
+    Math.max(terminalState.terminalHeight, 220) * Math.max(terminalGroups.length, 1) +
+    Math.max(terminalGroups.length - 1, 0) * 12;
   const terminalLabelById = Object.fromEntries(
     terminalState.terminalIds.map((terminalId, index) => [terminalId, `Terminal ${index + 1}`]),
   );
 
   return (
-    <div className={cn("min-h-0 min-w-0", visible ? "flex flex-1 flex-col gap-3" : "hidden")}>
+    <div
+      className={cn(
+        "min-h-0 min-w-0 overflow-auto",
+        visible ? "flex flex-none flex-col gap-3" : "hidden",
+      )}
+      style={visible ? { height: `${paneDeckHeight}px` } : undefined}
+    >
       {terminalGroups.map((terminalGroup, groupIndex) => {
         const isGroupActive = terminalGroup.terminalIds.includes(terminalState.activeTerminalId);
         const groupActiveTerminalId = isGroupActive
@@ -605,11 +614,11 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
             key={terminalGroup.id}
             title={paneTitle}
             actions={
-              <span className="max-w-48 truncate text-right text-muted-foreground text-xs">
+              <span className="max-w-[60vw] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-muted-foreground">
                 {cwd}
               </span>
             }
-            className="min-h-[16rem] flex-1"
+            className="min-h-0 flex-1"
             bodyClassName="min-h-0"
           >
             <ThreadTerminalDrawer
