@@ -1190,12 +1190,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     visibleProjectThreads,
   ]);
   const workspaceThreadCountLabel = formatSidebarWorkspaceThreadCount(visibleProjectThreads.length);
-  const workspaceEnvironmentLabel =
-    project.environmentPresence === "mixed"
-      ? "Local + remote"
-      : project.environmentPresence === "remote-only"
-        ? project.remoteEnvironmentLabels.join(", ") || "Remote"
-        : "Local";
   const workspaceSourceLabel =
     project.groupedProjectCount > 1 ? `${project.groupedProjectCount} sources` : null;
 
@@ -2025,13 +2019,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
               ) : null}
             </span>
             <span className="flex min-w-0 items-center gap-1.5 text-[10px] leading-3 text-muted-foreground/55">
-              <span className="min-w-0 truncate" title={project.cwd}>
-                {project.cwd}
-              </span>
-              <span className="shrink-0 text-muted-foreground/30">|</span>
               <span className="shrink-0">{workspaceThreadCountLabel}</span>
-              <span className="shrink-0 text-muted-foreground/30">|</span>
-              <span className="shrink-0">{workspaceEnvironmentLabel}</span>
             </span>
           </span>
         </SidebarMenuButton>
