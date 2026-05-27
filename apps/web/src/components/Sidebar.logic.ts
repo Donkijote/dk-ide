@@ -271,31 +271,31 @@ export function formatSidebarWorkspaceThreadCount(threadCount: number): string {
   return `${threadCount} threads`;
 }
 
-export function resolveAdjacentThreadId<T>(input: {
-  threadIds: readonly T[];
-  currentThreadId: T | null;
+export function resolveAdjacentSidebarItemId<T>(input: {
+  itemIds: readonly T[];
+  currentItemId: T | null;
   direction: ThreadTraversalDirection;
 }): T | null {
-  const { currentThreadId, direction, threadIds } = input;
+  const { currentItemId, direction, itemIds } = input;
 
-  if (threadIds.length === 0) {
+  if (itemIds.length === 0) {
     return null;
   }
 
-  if (currentThreadId === null) {
-    return direction === "previous" ? (threadIds.at(-1) ?? null) : (threadIds[0] ?? null);
+  if (currentItemId === null) {
+    return direction === "previous" ? (itemIds.at(-1) ?? null) : (itemIds[0] ?? null);
   }
 
-  const currentIndex = threadIds.indexOf(currentThreadId);
+  const currentIndex = itemIds.indexOf(currentItemId);
   if (currentIndex === -1) {
     return null;
   }
 
   if (direction === "previous") {
-    return currentIndex > 0 ? (threadIds[currentIndex - 1] ?? null) : null;
+    return currentIndex > 0 ? (itemIds[currentIndex - 1] ?? null) : null;
   }
 
-  return currentIndex < threadIds.length - 1 ? (threadIds[currentIndex + 1] ?? null) : null;
+  return currentIndex < itemIds.length - 1 ? (itemIds[currentIndex + 1] ?? null) : null;
 }
 
 export function isContextMenuPointerDown(input: {
