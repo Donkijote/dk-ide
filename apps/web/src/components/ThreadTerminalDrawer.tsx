@@ -20,6 +20,7 @@ import {
 } from "react";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { type TerminalContextSelection } from "~/lib/terminalContext";
+import { cn } from "~/lib/utils";
 import { openInPreferredEditor } from "../editorPreferences";
 import {
   collectWrappedTerminalLinkLine,
@@ -106,11 +107,11 @@ function terminalThemeFromApp(mountElement?: HTMLElement | null): ITheme {
   const isDark = document.documentElement.classList.contains("dark");
   const fallbackBackground = isDark ? "rgb(14, 18, 24)" : "rgb(255, 255, 255)";
   const fallbackForeground = isDark ? "rgb(237, 241, 247)" : "rgb(28, 33, 41)";
-  const drawerSurface =
-    mountElement?.closest(".thread-terminal-drawer") ??
-    document.querySelector(".thread-terminal-drawer") ??
+  const terminalSurface =
+    mountElement?.closest(".thread-terminal-surface") ??
+    document.querySelector(".thread-terminal-surface") ??
     document.body;
-  const drawerStyles = getComputedStyle(drawerSurface);
+  const drawerStyles = getComputedStyle(terminalSurface);
   const bodyStyles = getComputedStyle(document.body);
   const background = normalizeComputedColor(
     drawerStyles.backgroundColor,
@@ -790,6 +791,48 @@ export function TerminalViewport({
       window.cancelAnimationFrame(frame);
     };
   }, [drawerHeight, environmentId, resizeEpoch, terminalId, threadId]);
+
+  useEffect(() => {
+    const api = readEnvironmentApi(environmentId);
+    const mount = containerRef.current;
+    const terminal = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!api || !mount || !terminal || !fitAddon || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    let frame = 0;
+    const syncTerminalSize = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
+        fitAddon.fit();
+        if (wasAtBottom) {
+          terminal.scrollToBottom();
+        }
+        void api.terminal
+          .resize({
+            threadId,
+            terminalId,
+            cols: terminal.cols,
+            rows: terminal.rows,
+          })
+          .catch(() => undefined);
+      });
+    };
+
+    const observer = new ResizeObserver(() => {
+      syncTerminalSize();
+    });
+    observer.observe(mount);
+    syncTerminalSize();
+
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(frame);
+    };
+  }, [environmentId, terminalId, threadId]);
+
   return (
     <div
       ref={containerRef}
@@ -804,12 +847,14 @@ interface ThreadTerminalDrawerProps {
   cwd: string;
   worktreePath?: string | null;
   runtimeEnv?: Record<string, string>;
+  layout?: "drawer" | "pane";
   visible?: boolean;
   height: number;
   terminalIds: string[];
   activeTerminalId: string;
   terminalGroups: ThreadTerminalGroup[];
   activeTerminalGroupId: string;
+  terminalLabelById?: Readonly<Record<string, string>>;
   focusRequestId: number;
   onSplitTerminal: () => void;
   onNewTerminal: () => void;
@@ -858,12 +903,14 @@ export default function ThreadTerminalDrawer({
   cwd,
   worktreePath,
   runtimeEnv,
+  layout = "drawer",
   visible = true,
   height,
   terminalIds,
   activeTerminalId,
   terminalGroups,
   activeTerminalGroupId,
+  terminalLabelById: terminalLabels,
   focusRequestId,
   onSplitTerminal,
   onNewTerminal,
@@ -981,12 +1028,15 @@ export default function ThreadTerminalDrawer({
     resolvedTerminalGroups.length > 1 ||
     resolvedTerminalGroups.some((terminalGroup) => terminalGroup.terminalIds.length > 1);
   const hasReachedSplitLimit = visibleTerminalIds.length >= MAX_TERMINALS_PER_GROUP;
-  const terminalLabelById = useMemo(
+  const resolvedTerminalLabelById = useMemo(
     () =>
       new Map(
-        normalizedTerminalIds.map((terminalId, index) => [terminalId, `Terminal ${index + 1}`]),
+        normalizedTerminalIds.map((terminalId, index) => [
+          terminalId,
+          terminalLabels?.[terminalId] ?? `Terminal ${index + 1}`,
+        ]),
       ),
-    [normalizedTerminalIds],
+    [normalizedTerminalIds, terminalLabels],
   );
   const splitTerminalActionLabel = hasReachedSplitLimit
     ? `Split Terminal (max ${MAX_TERMINALS_PER_GROUP} per group)`
@@ -1111,16 +1161,23 @@ export default function ThreadTerminalDrawer({
 
   return (
     <aside
-      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/80 bg-background"
-      style={{ height: `${drawerHeight}px` }}
+      className={cn(
+        "thread-terminal-surface relative flex min-w-0 flex-col overflow-hidden bg-background",
+        layout === "drawer"
+          ? "thread-terminal-drawer shrink-0 border-t border-border/80"
+          : "thread-terminal-pane min-h-0 flex-1",
+      )}
+      style={layout === "drawer" ? { height: `${drawerHeight}px` } : undefined}
     >
-      <div
-        className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
-        onPointerDown={handleResizePointerDown}
-        onPointerMove={handleResizePointerMove}
-        onPointerUp={handleResizePointerEnd}
-        onPointerCancel={handleResizePointerEnd}
-      />
+      {layout === "drawer" ? (
+        <div
+          className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerEnd}
+          onPointerCancel={handleResizePointerEnd}
+        />
+      ) : null}
 
       {!hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
@@ -1183,7 +1240,7 @@ export default function ThreadTerminalDrawer({
                         threadRef={threadRef}
                         threadId={threadId}
                         terminalId={terminalId}
-                        terminalLabel={terminalLabelById.get(terminalId) ?? "Terminal"}
+                        terminalLabel={resolvedTerminalLabelById.get(terminalId) ?? "Terminal"}
                         cwd={cwd}
                         {...(worktreePath !== undefined ? { worktreePath } : {})}
                         {...(runtimeEnv ? { runtimeEnv } : {})}
@@ -1206,7 +1263,9 @@ export default function ThreadTerminalDrawer({
                   threadRef={threadRef}
                   threadId={threadId}
                   terminalId={resolvedActiveTerminalId}
-                  terminalLabel={terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
+                  terminalLabel={
+                    resolvedTerminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"
+                  }
                   cwd={cwd}
                   {...(worktreePath !== undefined ? { worktreePath } : {})}
                   {...(runtimeEnv ? { runtimeEnv } : {})}
@@ -1286,7 +1345,7 @@ export default function ThreadTerminalDrawer({
                         {terminalGroup.terminalIds.map((terminalId) => {
                           const isActive = terminalId === resolvedActiveTerminalId;
                           const closeTerminalLabel = `Close ${
-                            terminalLabelById.get(terminalId) ?? "terminal"
+                            resolvedTerminalLabelById.get(terminalId) ?? "terminal"
                           }${isActive && closeShortcutLabel ? ` (${closeShortcutLabel})` : ""}`;
                           return (
                             <div
@@ -1307,7 +1366,7 @@ export default function ThreadTerminalDrawer({
                               >
                                 <TerminalSquare className="size-3 shrink-0" />
                                 <span className="truncate">
-                                  {terminalLabelById.get(terminalId) ?? "Terminal"}
+                                  {resolvedTerminalLabelById.get(terminalId) ?? "Terminal"}
                                 </span>
                               </button>
                               {normalizedTerminalIds.length > 1 && (
