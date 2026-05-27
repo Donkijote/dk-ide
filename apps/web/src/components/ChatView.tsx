@@ -612,7 +612,7 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
         return (
           <WorkspacePane
             key={terminalGroup.id}
-            title={paneTitle}
+            title={<span className="block leading-none">{paneTitle}</span>}
             actions={
               <span className="max-w-[60vw] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-muted-foreground">
                 {cwd}
@@ -3810,7 +3810,7 @@ export default function ChatView(props: ChatViewProps) {
           </WorkspacePane>
 
           {visibleTerminalThreadRef ? (
-            <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col">
+            <div className="mt-auto flex min-h-0 min-w-0 w-full flex-none flex-col">
               <PersistentThreadTerminalPaneDeck
                 threadRef={visibleTerminalThreadRef}
                 threadId={visibleTerminalThreadRef.threadId}
