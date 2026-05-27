@@ -146,23 +146,23 @@ function createEnvironmentApi() {
 
 async function mountTerminalViewport(props: {
   threadRef: ReturnType<typeof scopeThreadRef>;
-  drawerBackgroundColor?: string;
-  drawerTextColor?: string;
+  surfaceBackgroundColor?: string;
+  surfaceTextColor?: string;
 }) {
-  const drawer = document.createElement("div");
-  drawer.className = "thread-terminal-drawer";
-  if (props.drawerBackgroundColor) {
-    drawer.style.backgroundColor = props.drawerBackgroundColor;
+  const surface = document.createElement("div");
+  surface.className = "thread-terminal-surface thread-terminal-pane";
+  if (props.surfaceBackgroundColor) {
+    surface.style.backgroundColor = props.surfaceBackgroundColor;
   }
-  if (props.drawerTextColor) {
-    drawer.style.color = props.drawerTextColor;
+  if (props.surfaceTextColor) {
+    surface.style.color = props.surfaceTextColor;
   }
 
   const host = document.createElement("div");
   host.style.width = "800px";
   host.style.height = "400px";
-  drawer.append(host);
-  document.body.append(drawer);
+  surface.append(host);
+  document.body.append(surface);
 
   const screen = await render(
     <TerminalViewport
@@ -203,7 +203,7 @@ async function mountTerminalViewport(props: {
     },
     cleanup: async () => {
       await screen.unmount();
-      drawer.remove();
+      surface.remove();
     },
   };
 }
@@ -290,14 +290,14 @@ describe("TerminalViewport", () => {
     }
   });
 
-  it("uses the drawer surface colors for the terminal theme", async () => {
+  it("uses the terminal surface colors for the terminal theme", async () => {
     const environment = createEnvironmentApi();
     environmentApiById.set("environment-a", environment);
 
     const mounted = await mountTerminalViewport({
       threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
-      drawerBackgroundColor: "rgb(24, 28, 36)",
-      drawerTextColor: "rgb(228, 232, 240)",
+      surfaceBackgroundColor: "rgb(24, 28, 36)",
+      surfaceTextColor: "rgb(228, 232, 240)",
     });
 
     try {
