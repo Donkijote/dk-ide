@@ -139,6 +139,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       thinkingDescriptor?.type === "boolean" ? thinkingDescriptor.currentValue : undefined;
     const fastMode =
       fastModeDescriptor?.type === "boolean" ? fastModeDescriptor.currentValue : undefined;
+    const apiModelId = resolveClaudeApiModelId(modelSelection);
     const settings = {
       ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
       ...(fastMode ? { fastMode: true } : {}),
@@ -161,8 +162,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
           "json",
           "--json-schema",
           jsonSchemaStr,
-          "--model",
-          resolveClaudeApiModelId(modelSelection),
+          ...(apiModelId ? ["--model", apiModelId] : []),
           ...(cliEffort ? ["--effort", cliEffort] : []),
           ...(settingsJson ? ["--settings", settingsJson] : []),
           "--dangerously-skip-permissions",

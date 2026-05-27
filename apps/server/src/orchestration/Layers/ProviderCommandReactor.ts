@@ -13,6 +13,7 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shared/git";
+import { isClaudeProjectConfigModel } from "@t3tools/shared/model";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Duration from "effect/Duration";
@@ -459,6 +460,12 @@ const make = Effect.gen(function* () {
         preferredProvider === "claudeAgent" &&
         requestedModelSelection !== undefined &&
         !Equal.equals(previousModelSelection, requestedModelSelection);
+      const shouldRestartWithoutResumeCursor =
+        shouldRestartForModelChange ||
+        (preferredProvider === "claudeAgent" &&
+          requestedModelSelection !== undefined &&
+          (isClaudeProjectConfigModel(requestedModelSelection.model) ||
+            isClaudeProjectConfigModel(activeSession?.model)));
 
       if (
         !runtimeModeChanged &&
@@ -470,7 +477,7 @@ const make = Effect.gen(function* () {
         return existingSessionThreadId;
       }
 
-      const resumeCursor = shouldRestartForModelChange
+      const resumeCursor = shouldRestartWithoutResumeCursor
         ? undefined
         : (activeSession?.resumeCursor ?? undefined);
       yield* Effect.logInfo("provider command reactor restarting provider session", {
@@ -490,6 +497,7 @@ const make = Effect.gen(function* () {
         instanceChanged,
         shouldRestartForModelChange,
         shouldRestartForModelSelectionChange,
+        shouldRestartWithoutResumeCursor,
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession(

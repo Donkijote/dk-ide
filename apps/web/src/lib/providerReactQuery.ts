@@ -2,12 +2,14 @@ import {
   type EnvironmentId,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetTurnDiffInput,
+  type ProviderDriverKind,
   ThreadId,
 } from "@t3tools/contracts";
 import { queryOptions } from "@tanstack/react-query";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { ensureEnvironmentApi } from "../environmentApi";
+import { readEnvironmentConnection } from "../environments/runtime";
 
 const decodeFullThreadDiffInput = Schema.decodeUnknownOption(OrchestrationGetFullThreadDiffInput);
 const decodeTurnDiffInput = Schema.decodeUnknownOption(OrchestrationGetTurnDiffInput);
@@ -22,8 +24,23 @@ interface CheckpointDiffQueryInput {
   enabled?: boolean;
 }
 
+interface ProviderRuntimeStatusQueryInput {
+  environmentId: EnvironmentId | null;
+  provider: ProviderDriverKind;
+  cwd: string | null | undefined;
+  enabled?: boolean;
+}
+
 export const providerQueryKeys = {
   all: ["providers"] as const,
+  runtimeStatus: (input: ProviderRuntimeStatusQueryInput) =>
+    [
+      "providers",
+      "runtimeStatus",
+      input.environmentId ?? null,
+      input.provider,
+      input.cwd ?? null,
+    ] as const,
   checkpointDiff: (input: CheckpointDiffQueryInput) =>
     [
       "providers",
@@ -36,6 +53,31 @@ export const providerQueryKeys = {
       input.cacheScope ?? null,
     ] as const,
 };
+
+export function providerRuntimeStatusQueryOptions(input: ProviderRuntimeStatusQueryInput) {
+  const cwd = input.cwd?.trim() ?? "";
+
+  return queryOptions({
+    queryKey: providerQueryKeys.runtimeStatus(input),
+    queryFn: async () => {
+      if (!input.environmentId || cwd.length === 0) {
+        throw new Error("Provider runtime status is unavailable.");
+      }
+
+      const connection = readEnvironmentConnection(input.environmentId);
+      if (!connection) {
+        throw new Error(`Environment connection not found for ${input.environmentId}`);
+      }
+
+      return connection.client.server.getProviderRuntimeStatus({
+        provider: input.provider,
+        cwd,
+      });
+    },
+    enabled: (input.enabled ?? true) && !!input.environmentId && cwd.length > 0,
+    staleTime: 15_000,
+  });
+}
 
 function decodeCheckpointDiffRequest(input: CheckpointDiffQueryInput) {
   if (input.fromTurnCount === 0) {

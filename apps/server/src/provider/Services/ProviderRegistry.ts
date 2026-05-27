@@ -9,7 +9,9 @@
 import type {
   ProviderInstanceId,
   ProviderDriverKind,
+  ServerGetProviderRuntimeStatusInput,
   ServerProvider,
+  ServerProviderRuntimeStatus,
   ServerProviderUpdateState,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -68,6 +70,13 @@ export interface ProviderRegistryShape {
     readonly action: ProviderMaintenanceActionKind;
     readonly state: ServerProviderUpdateState | null;
   }) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+  /**
+   * Read provider runtime status for a specific workspace.
+   */
+  readonly getProviderRuntimeStatus: (
+    input: ServerGetProviderRuntimeStatusInput,
+  ) => Effect.Effect<ServerProviderRuntimeStatus>;
 
   /**
    * Stream of provider snapshot updates — one emission per aggregated

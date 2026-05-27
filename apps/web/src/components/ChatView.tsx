@@ -34,6 +34,7 @@ import {
 } from "@t3tools/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { truncate } from "@t3tools/shared/String";
+import { useQuery } from "@tanstack/react-query";
 import { Debouncer } from "@tanstack/react-pacer";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -117,8 +118,12 @@ import {
 import { newCommandId, newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
-import { resolveAppModelSelectionForInstance } from "../modelSelection";
+import {
+  getAppModelOptionConfigForProvider,
+  resolveAppModelSelectionForInstance,
+} from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { providerRuntimeStatusQueryOptions } from "~/lib/providerReactQuery";
 import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
@@ -1310,8 +1315,32 @@ export default function ChatView(props: ChatViewProps) {
     versionMismatchServerLabel,
   ]);
   const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
+  const activeProjectCwd = activeProject?.cwd ?? null;
+  const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
+  const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
+  const claudeRuntimeStatusQuery = useQuery(
+    providerRuntimeStatusQueryOptions({
+      environmentId,
+      provider: ProviderDriverKind.make("claudeAgent"),
+      cwd: activeWorkspaceRoot,
+      enabled: activeWorkspaceRoot !== undefined,
+    }),
+  );
+  const providerStatusesForChat = useMemo<ReadonlyArray<ServerProvider>>(() => {
+    const runtimeClaudeStatus = claudeRuntimeStatusQuery.data;
+    if (!runtimeClaudeStatus) {
+      return providerStatuses as ServerProvider[];
+    }
+
+    return (providerStatuses as ServerProvider[]).map((provider) =>
+      provider.driver === ProviderDriverKind.make("claudeAgent") &&
+      provider.instanceId === ProviderInstanceId.make("claudeAgent")
+        ? runtimeClaudeStatus
+        : provider,
+    );
+  }, [claudeRuntimeStatusQuery.data, providerStatuses]);
   const unlockedSelectedProvider = resolveSelectableProvider(
-    providerStatuses,
+    providerStatusesForChat,
     selectedProviderByThreadId ?? threadProvider ?? ProviderDriverKind.make("codex"),
   );
   const selectedProvider: ProviderDriverKind = lockedProvider ?? unlockedSelectedProvider;
@@ -1698,15 +1727,15 @@ export default function ChatView(props: ChatViewProps) {
   const activeProviderStatus = useMemo(() => {
     if (activeProviderInstanceId) {
       return (
-        providerStatuses.find((status) => status.instanceId === activeProviderInstanceId) ?? null
+        providerStatusesForChat.find((status) => status.instanceId === activeProviderInstanceId) ??
+        null
       );
     }
     const defaultInstanceId = defaultInstanceIdForDriver(selectedProvider);
-    return providerStatuses.find((status) => status.instanceId === defaultInstanceId) ?? null;
-  }, [activeProviderInstanceId, providerStatuses, selectedProvider]);
-  const activeProjectCwd = activeProject?.cwd ?? null;
-  const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
-  const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
+    return (
+      providerStatusesForChat.find((status) => status.instanceId === defaultInstanceId) ?? null
+    );
+  }, [activeProviderInstanceId, providerStatusesForChat, selectedProvider]);
   const activeTerminalLaunchContext =
     terminalLaunchContext?.threadId === activeThreadId
       ? terminalLaunchContext
@@ -3425,7 +3454,7 @@ export default function ChatView(props: ChatViewProps) {
       // Look up the configured instance so model normalization and custom
       // model lookup stay scoped to that exact instance. Unknown instance ids
       // are rejected by returning early; the server remains authoritative too.
-      const entry = providerStatuses.find((snapshot) => snapshot.instanceId === instanceId);
+      const entry = providerStatusesForChat.find((snapshot) => snapshot.instanceId === instanceId);
       const resolvedDriverKind = entry?.driver ?? null;
       if (
         lockedProvider !== null &&
@@ -3436,7 +3465,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
       if (lockedProvider !== null && activeThread.session?.providerInstanceId) {
-        const currentEntry = providerStatuses.find(
+        const currentEntry = providerStatusesForChat.find(
           (snapshot) => snapshot.instanceId === activeThread.session?.providerInstanceId,
         );
         if (
@@ -3451,8 +3480,9 @@ export default function ChatView(props: ChatViewProps) {
       const resolvedModel = resolveAppModelSelectionForInstance(
         instanceId,
         settings,
-        providerStatuses,
+        providerStatusesForChat,
         model,
+        getAppModelOptionConfigForProvider(entry),
       );
       if (!resolvedModel) {
         scheduleComposerFocus();
@@ -3475,7 +3505,7 @@ export default function ChatView(props: ChatViewProps) {
       scheduleComposerFocus,
       setComposerDraftModelSelection,
       setStickyComposerModelSelection,
-      providerStatuses,
+      providerStatusesForChat,
       settings,
     ],
   );
@@ -3711,7 +3741,7 @@ export default function ChatView(props: ChatViewProps) {
                         runtimeMode={runtimeMode}
                         interactionMode={interactionMode}
                         lockedProvider={lockedProvider}
-                        providerStatuses={providerStatuses as ServerProvider[]}
+                        providerStatuses={providerStatusesForChat as ServerProvider[]}
                         activeProjectDefaultModelSelection={activeProject?.defaultModelSelection}
                         activeThreadModelSelection={activeThread?.modelSelection}
                         activeThreadActivities={activeThread?.activities}

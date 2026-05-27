@@ -26,7 +26,9 @@ import {
   defaultInstanceIdForDriver,
   ProviderDriverKind,
   type ProviderInstanceId,
+  type ServerGetProviderRuntimeStatusInput,
   type ServerProvider,
+  type ServerProviderRuntimeStatus,
   type ServerProviderUpdateState,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -41,6 +43,8 @@ import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
 
 import { ServerConfig } from "../../config.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
+import { checkClaudeProviderRuntimeStatus } from "./ClaudeProvider.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry.ts";
 import {
@@ -191,6 +195,7 @@ export const ProviderRegistryLive = Layer.effect(
     const config = yield* ServerConfig;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
+    const serverSettings = yield* ServerSettingsService;
 
     // Aggregator PubSub — consumers (WS gateway, etc.) subscribe here for
     // coalesced updates across every instance.
@@ -474,6 +479,36 @@ export const ProviderRegistryLive = Layer.effect(
       return yield* refreshOneSource(providerSource);
     });
 
+    const getProviderRuntimeStatus = Effect.fn("getProviderRuntimeStatus")(function* (
+      input: ServerGetProviderRuntimeStatusInput,
+    ): Effect.fn.Return<ServerProviderRuntimeStatus, never> {
+      const providers = yield* Ref.get(providersRef);
+      const defaultSnapshot =
+        providers.find(
+          (provider) => provider.instanceId === defaultInstanceIdForDriver(input.provider),
+        ) ?? providers.find((provider) => provider.driver === input.provider);
+      if (!defaultSnapshot) {
+        return yield* Effect.die(
+          new Error(`Provider snapshot not found for runtime status probe: ${input.provider}`),
+        );
+      }
+
+      if (input.provider !== ProviderDriverKind.make("claudeAgent")) {
+        return defaultSnapshot;
+      }
+
+      const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
+      return yield* checkClaudeProviderRuntimeStatus(input, {
+        globalSnapshot: defaultSnapshot,
+        claudeSettings: settings.providers.claudeAgent,
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.tapError(Effect.logError),
+        Effect.orDie,
+      );
+    });
+
     const getProviderMaintenanceCapabilitiesForInstance = Effect.fn(
       "getProviderMaintenanceCapabilitiesForInstance",
     )(function* (instanceId: ProviderInstanceId, provider: ProviderDriverKind) {
@@ -685,6 +720,7 @@ export const ProviderRegistryLive = Layer.effect(
         refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshInstance: (instanceId: ProviderInstanceId) =>
         refreshInstance(instanceId).pipe(Effect.catchCause(recoverRefreshFailure)),
+      getProviderRuntimeStatus,
       getProviderMaintenanceCapabilitiesForInstance,
       setProviderMaintenanceActionState,
       get streamChanges() {

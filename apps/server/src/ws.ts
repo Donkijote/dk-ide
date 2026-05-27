@@ -837,6 +837,12 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {
             "rpc.aggregate": "server",
           }),
+        [WS_METHODS.serverGetProviderRuntimeStatus]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGetProviderRuntimeStatus,
+            providerRegistry.getProviderRuntimeStatus(input),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.serverRefreshProviders]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverRefreshProviders,

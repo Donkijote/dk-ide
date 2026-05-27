@@ -12,6 +12,7 @@ import type {
 } from "@t3tools/contracts";
 import {
   ApprovalRequestId,
+  CLAUDE_PROJECT_CONFIG_MODEL,
   EventId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -1391,6 +1392,91 @@ routing.layer("ProviderServiceLive routing", (it) => {
           assert.equal(startPayload.cwd, "/tmp/project-claude-cwd");
           assert.deepEqual(startPayload.resumeCursor, initial.resumeCursor);
           assert.equal(startPayload.threadId, initial.threadId);
+        }
+
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect(
+    "does not reuse a persisted Claude resume cursor when project config is selected after restart",
+    () =>
+      Effect.gen(function* () {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "t3-provider-service-project-"));
+        const dbPath = path.join(tempDir, "orchestration.sqlite");
+        const persistenceLayer = makeSqlitePersistenceLive(dbPath);
+        const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+          Layer.provide(persistenceLayer),
+        );
+
+        const firstClaude = makeFakeCodexAdapter(CLAUDE_AGENT_DRIVER);
+        const firstRegistry = makeAdapterRegistryMock({
+          [ProviderDriverKind.make("claudeAgent")]: firstClaude.adapter,
+        });
+        const firstDirectoryLayer = ProviderSessionDirectoryLive.pipe(
+          Layer.provide(runtimeRepositoryLayer),
+        );
+        const firstProviderLayer = makeProviderServiceLive().pipe(
+          Layer.provide(Layer.succeed(ProviderAdapterRegistry, firstRegistry)),
+          Layer.provide(firstDirectoryLayer),
+          Layer.provide(defaultServerSettingsLayer),
+          Layer.provide(AnalyticsService.layerTest),
+          Layer.provide(Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers)),
+        );
+
+        const initial = yield* Effect.gen(function* () {
+          const provider = yield* ProviderService;
+          return yield* provider.startSession(asThreadId("thread-claude-project-config"), {
+            provider: ProviderDriverKind.make("claudeAgent"),
+            providerInstanceId: claudeAgentInstanceId,
+            threadId: asThreadId("thread-claude-project-config"),
+            cwd: "/tmp/project-claude-project-config",
+            runtimeMode: "full-access",
+          });
+        }).pipe(Effect.provide(firstProviderLayer));
+
+        const secondClaude = makeFakeCodexAdapter(CLAUDE_AGENT_DRIVER);
+        const secondRegistry = makeAdapterRegistryMock({
+          [ProviderDriverKind.make("claudeAgent")]: secondClaude.adapter,
+        });
+        const secondDirectoryLayer = ProviderSessionDirectoryLive.pipe(
+          Layer.provide(runtimeRepositoryLayer),
+        );
+        const secondProviderLayer = makeProviderServiceLive().pipe(
+          Layer.provide(Layer.succeed(ProviderAdapterRegistry, secondRegistry)),
+          Layer.provide(secondDirectoryLayer),
+          Layer.provide(defaultServerSettingsLayer),
+          Layer.provide(AnalyticsService.layerTest),
+          Layer.provide(Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers)),
+        );
+
+        secondClaude.startSession.mockClear();
+
+        yield* Effect.gen(function* () {
+          const provider = yield* ProviderService;
+          yield* provider.startSession(initial.threadId, {
+            provider: ProviderDriverKind.make("claudeAgent"),
+            providerInstanceId: claudeAgentInstanceId,
+            threadId: initial.threadId,
+            cwd: "/tmp/project-claude-project-config",
+            modelSelection: createModelSelection(
+              claudeAgentInstanceId,
+              CLAUDE_PROJECT_CONFIG_MODEL,
+            ),
+            runtimeMode: "full-access",
+          });
+        }).pipe(Effect.provide(secondProviderLayer));
+
+        assert.equal(secondClaude.startSession.mock.calls.length, 1);
+        const resumedStartInput = secondClaude.startSession.mock.calls[0]?.[0];
+        assert.equal(typeof resumedStartInput === "object" && resumedStartInput !== null, true);
+        if (resumedStartInput && typeof resumedStartInput === "object") {
+          const startPayload = resumedStartInput as {
+            resumeCursor?: unknown;
+            modelSelection?: { model?: string };
+          };
+          assert.equal(startPayload.modelSelection?.model, CLAUDE_PROJECT_CONFIG_MODEL);
+          assert.equal(startPayload.resumeCursor, undefined);
         }
 
         fs.rmSync(tempDir, { recursive: true, force: true });

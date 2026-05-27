@@ -6,6 +6,7 @@ import { ProviderDriverKind } from "./providerInstance.ts";
 
 export const ProviderOptionDescriptorType = Schema.Literals(["select", "boolean"]);
 export type ProviderOptionDescriptorType = typeof ProviderOptionDescriptorType.Type;
+export const CLAUDE_PROJECT_CONFIG_MODEL = "__project_config__";
 
 export const ProviderOptionChoice = Schema.Struct({
   id: TrimmedNonEmptyString,

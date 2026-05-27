@@ -191,6 +191,20 @@ export const ServerProvider = Schema.Struct({
 });
 export type ServerProvider = typeof ServerProvider.Type;
 
+export const ServerProviderRuntimeStatus = Schema.Struct({
+  ...ServerProvider.fields,
+  projectSettingsDetected: Schema.optional(Schema.Boolean),
+  projectSettingsSource: Schema.optional(Schema.Literals(["project", "local"])),
+  projectSettingsModel: Schema.optional(TrimmedNonEmptyString),
+});
+export type ServerProviderRuntimeStatus = typeof ServerProviderRuntimeStatus.Type;
+
+export const ServerGetProviderRuntimeStatusInput = Schema.Struct({
+  provider: ProviderDriverKind,
+  cwd: TrimmedNonEmptyString,
+});
+export type ServerGetProviderRuntimeStatusInput = typeof ServerGetProviderRuntimeStatusInput.Type;
+
 export const ServerProviders = Schema.Array(ServerProvider);
 export type ServerProviders = typeof ServerProviders.Type;
 
