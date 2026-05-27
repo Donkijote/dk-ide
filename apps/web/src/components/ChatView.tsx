@@ -3810,7 +3810,7 @@ export default function ChatView(props: ChatViewProps) {
           </WorkspacePane>
 
           {visibleTerminalThreadRef ? (
-            <div className="mt-auto flex min-h-0 min-w-0 w-full flex-none flex-col">
+            <div className="mt-auto flex min-h-0 min-w-0 w-full max-w-[96rem] self-center flex-none flex-col">
               <PersistentThreadTerminalPaneDeck
                 threadRef={visibleTerminalThreadRef}
                 threadId={visibleTerminalThreadRef.threadId}
