@@ -64,7 +64,7 @@ composition, which are likely to continue evolving upstream.
 - `21ed1770`: explicit AI pane extraction through a reusable workspace pane frame and shared chat action bar
 - `adc6d1b3`: terminal pane extraction that renders terminal groups as peer workspace panes instead of a bottom drawer
 - `ccd33a35`: upstream sync merge against `upstream/main` through `4f0f24f0`
-- `38c50e1f`: sidebar project rows reframed as workspace navigation with source, environment, and recoverable thread-history metadata
+- `f958e8de`: sidebar project rows reframed as workspace navigation with source, environment, and recoverable thread-history metadata
 
 ## Sync Notes
 
