@@ -8,6 +8,7 @@ import {
   resolveAdjacentThreadId,
   getFallbackThreadIdAfterDelete,
   getVisibleThreadsForProject,
+  formatSidebarWorkspaceThreadCount,
   getProjectSortTimestamp,
   hasUnseenCompletion,
   isContextMenuPointerDown,
@@ -140,6 +141,14 @@ describe("getSidebarThreadIdsToPrewarm", () => {
 
   it("returns no thread ids when the limit is zero", () => {
     expect(getSidebarThreadIdsToPrewarm(["t1", "t2"], 0)).toEqual([]);
+  });
+});
+
+describe("formatSidebarWorkspaceThreadCount", () => {
+  it("formats recoverable thread history counts for workspace rows", () => {
+    expect(formatSidebarWorkspaceThreadCount(0)).toBe("No threads");
+    expect(formatSidebarWorkspaceThreadCount(1)).toBe("1 thread");
+    expect(formatSidebarWorkspaceThreadCount(8)).toBe("8 threads");
   });
 });
 

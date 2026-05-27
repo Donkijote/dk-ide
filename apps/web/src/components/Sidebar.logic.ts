@@ -259,6 +259,18 @@ export function getSidebarThreadIdsToPrewarm<TThreadId>(
   return visibleThreadIds.slice(0, Math.max(0, limit));
 }
 
+export function formatSidebarWorkspaceThreadCount(threadCount: number): string {
+  if (threadCount <= 0) {
+    return "No threads";
+  }
+
+  if (threadCount === 1) {
+    return "1 thread";
+  }
+
+  return `${threadCount} threads`;
+}
+
 export function resolveAdjacentThreadId<T>(input: {
   threadIds: readonly T[];
   currentThreadId: T | null;

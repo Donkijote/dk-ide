@@ -64,6 +64,7 @@ composition, which are likely to continue evolving upstream.
 - `21ed1770`: explicit AI pane extraction through a reusable workspace pane frame and shared chat action bar
 - `adc6d1b3`: terminal pane extraction that renders terminal groups as peer workspace panes instead of a bottom drawer
 - `ccd33a35`: upstream sync merge against `upstream/main` through `4f0f24f0`
+- `38c50e1f`: sidebar project rows reframed as workspace navigation with source, environment, and recoverable thread-history metadata
 
 ## Sync Notes
 
@@ -81,6 +82,9 @@ composition, which are likely to continue evolving upstream.
 - terminal groups now project into their own workspace panes so "new terminal"
   follows the pane model while split terminals stay grouped inside a single
   terminal pane
+- sidebar project records remain the runtime-backed source of truth, but the
+  visible rail now presents them as workspace entries and keeps thread history
+  recoverable inside each workspace row
 - keep pane chrome reusable so future terminal and support surfaces can adopt the
   same workspace framing without copying chat-specific structure
 - keep chat actions extracted from pane framing so upstream chat behavior can
