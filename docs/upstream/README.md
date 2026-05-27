@@ -46,6 +46,11 @@ Each patch file should describe:
 7. Update patch docs with new notes and commit references.
 8. Merge the sync branch back into `main`.
 
+When merging a sync branch back into `main`, use a real merge commit. Do not
+squash-merge or rebase-merge upstream sync PRs, because GitHub fork sync status
+tracks commit ancestry and will keep reporting upstream commits as missing even
+when their file changes are already present.
+
 ## Patch Authoring Rules
 
 1. One divergence theme per patch file.
