@@ -6,6 +6,7 @@ This index tracks intentional local divergences from upstream.
 
 - `0001` [Electron Launcher Symlink Preservation](/Users/manuel/Developer/personal/dk-ide/docs/upstream/patches/0001-electron-launcher-symlink-preservation.md)
 - `0002` [Workspace Shell Reframe](/Users/manuel/Developer/personal/dk-ide/docs/upstream/patches/0002-workspace-shell-reframe.md)
+- `0003` [Claude Project Config Model Selection](/Users/manuel/Developer/personal/dk-ide/docs/upstream/patches/0003-claude-project-config-model-selection.md)
 
 ## Proposed Patches
 

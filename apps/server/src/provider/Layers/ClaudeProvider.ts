@@ -3,11 +3,15 @@ import {
   type ModelCapabilities,
   type ModelSelection,
   ProviderDriverKind,
+  type ServerGetProviderRuntimeStatusInput,
+  type ServerProvider,
   type ServerProviderModel,
+  type ServerProviderRuntimeStatus,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Result from "effect/Result";
@@ -17,6 +21,7 @@ import {
   getModelSelectionStringOptionValue,
   getProviderOptionCurrentValue,
   getProviderOptionDescriptors,
+  isClaudeProjectConfigModel,
 } from "@t3tools/shared/model";
 import { compareSemverVersions } from "@t3tools/shared/semver";
 import {
@@ -238,7 +243,10 @@ export function normalizeClaudeCliEffort(effort: string | null | undefined): str
   return effort;
 }
 
-export function resolveClaudeApiModelId(modelSelection: ModelSelection): string {
+export function resolveClaudeApiModelId(modelSelection: ModelSelection): string | undefined {
+  if (isClaudeProjectConfigModel(modelSelection.model)) {
+    return undefined;
+  }
   switch (getModelSelectionStringOptionValue(modelSelection, "contextWindow")) {
     case "1m":
       return `${modelSelection.model}[1m]`;
@@ -348,6 +356,13 @@ function claudeAuthMetadata(input: {
 // ── SDK capability probe ────────────────────────────────────────────
 
 const CAPABILITIES_PROBE_TIMEOUT_MS = 8_000;
+const CLAUDE_PROJECT_SETTINGS_FILENAMES = ["settings.json", "settings.local.json"] as const;
+type ClaudeProjectSettingsSource = "project" | "local";
+type ClaudeProjectSettingsSummary = {
+  readonly detected: boolean;
+  readonly source?: ClaudeProjectSettingsSource;
+  readonly model?: string;
+};
 
 function nonEmptyProbeString(value: string): string | undefined {
   const candidate = value.trim();
@@ -500,6 +515,25 @@ const probeClaudeCapabilities = (
     }),
   );
 };
+
+function isClaudeProjectApiKeyConfigured(account: {
+  readonly tokenSource?: string;
+  readonly apiKeySource?: string;
+}): boolean {
+  return (
+    (typeof account.tokenSource === "string" && account.tokenSource.trim().length > 0) ||
+    (typeof account.apiKeySource === "string" && account.apiKeySource.trim().length > 0)
+  );
+}
+
+function normalizeClaudeProjectSettingsModel(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
 
 const runClaudeCommand = Effect.fn("runClaudeCommand")(function* (
   claudeSettings: ClaudeSettings,
@@ -712,5 +746,196 @@ export const makePendingClaudeProvider = (
       },
     });
   });
+
+const readClaudeProjectSettingsModel = Effect.fn("readClaudeProjectSettingsModel")(function* (
+  settingsPath: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const raw = yield* fileSystem.readFileString(settingsPath).pipe(Effect.orElseSucceed(() => ""));
+
+  return yield* Effect.sync(() => {
+    if (raw.trim().length === 0) {
+      return undefined;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return (
+        normalizeClaudeProjectSettingsModel(parsed.model) ??
+        normalizeClaudeProjectSettingsModel(parsed.defaultModel)
+      );
+    } catch {
+      return undefined;
+    }
+  });
+});
+
+const inspectClaudeProjectSettings = Effect.fn("inspectClaudeProjectSettings")(function* (
+  cwd: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const claudeSettingsDir = path.join(cwd, ".claude");
+  const projectSettingsPath = path.join(claudeSettingsDir, "settings.json");
+  const localSettingsPath = path.join(claudeSettingsDir, "settings.local.json");
+
+  const entries = yield* Effect.all(
+    CLAUDE_PROJECT_SETTINGS_FILENAMES.map((filename) =>
+      fileSystem.stat(path.join(claudeSettingsDir, filename)).pipe(
+        Effect.as(true),
+        Effect.catch(() => Effect.succeed(false)),
+      ),
+    ),
+    { concurrency: "unbounded" },
+  );
+
+  const [projectSettingsDetected, localSettingsDetected] = entries;
+  if (!projectSettingsDetected && !localSettingsDetected) {
+    return {
+      detected: false,
+    } satisfies ClaudeProjectSettingsSummary;
+  }
+
+  const projectModel = projectSettingsDetected
+    ? yield* readClaudeProjectSettingsModel(projectSettingsPath)
+    : undefined;
+  const localModel = localSettingsDetected
+    ? yield* readClaudeProjectSettingsModel(localSettingsPath)
+    : undefined;
+
+  const source =
+    localModel !== undefined
+      ? "local"
+      : projectModel !== undefined
+        ? "project"
+        : localSettingsDetected
+          ? "local"
+          : "project";
+  const model = localModel ?? projectModel;
+
+  return {
+    detected: true,
+    ...(source ? { source } : {}),
+    ...(model ? { model } : {}),
+  } satisfies ClaudeProjectSettingsSummary;
+});
+
+const probeClaudeRuntimeStatus = Effect.fn("probeClaudeRuntimeStatus")(function* (input: {
+  readonly claudeSettings: ClaudeSettings;
+  readonly cwd: string;
+  readonly environment?: NodeJS.ProcessEnv;
+}) {
+  const abort = new AbortController();
+  const claudeEnvironment = yield* makeClaudeEnvironment(
+    input.claudeSettings,
+    input.environment ?? process.env,
+  );
+  return yield* Effect.tryPromise(async () => {
+    const q = claudeQuery({
+      prompt: ".",
+      options: {
+        cwd: input.cwd,
+        persistSession: false,
+        pathToClaudeCodeExecutable: input.claudeSettings.binaryPath,
+        abortController: abort,
+        maxTurns: 0,
+        settingSources: ["user", "project", "local"],
+        allowedTools: [],
+        env: claudeEnvironment,
+        stderr: () => {},
+      },
+    });
+    const init = await q.initializationResult();
+    return init.account;
+  }).pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        if (!abort.signal.aborted) abort.abort();
+      }),
+    ),
+    Effect.timeoutOption(CAPABILITIES_PROBE_TIMEOUT_MS),
+    Effect.result,
+    Effect.map((result) => {
+      if (Result.isFailure(result)) return undefined;
+      return Option.isSome(result.success) ? result.success.value : undefined;
+    }),
+  );
+});
+
+export const checkClaudeProviderRuntimeStatus = Effect.fn("checkClaudeProviderRuntimeStatus")(
+  function* (
+    input: ServerGetProviderRuntimeStatusInput,
+    options: {
+      readonly globalSnapshot: ServerProvider;
+      readonly claudeSettings: ClaudeSettings;
+      readonly environment?: NodeJS.ProcessEnv;
+    },
+  ): Effect.fn.Return<ServerProviderRuntimeStatus, never, FileSystem.FileSystem | Path.Path> {
+    const projectSettings = yield* inspectClaudeProjectSettings(input.cwd);
+    const projectSettingsDetected = projectSettings.detected;
+    const projectSettingsMetadata = {
+      ...(projectSettingsDetected ? { projectSettingsDetected: true } : {}),
+      ...("source" in projectSettings && projectSettings.source
+        ? { projectSettingsSource: projectSettings.source }
+        : {}),
+      ...("model" in projectSettings && projectSettings.model
+        ? { projectSettingsModel: projectSettings.model }
+        : {}),
+    };
+    const baseSnapshot = options.globalSnapshot;
+    if (!projectSettingsDetected) {
+      return baseSnapshot;
+    }
+
+    if (!baseSnapshot.enabled || !baseSnapshot.installed) {
+      return {
+        ...baseSnapshot,
+        ...projectSettingsMetadata,
+      };
+    }
+
+    if (baseSnapshot.status === "ready" && baseSnapshot.auth.status === "authenticated") {
+      return {
+        ...baseSnapshot,
+        ...projectSettingsMetadata,
+      };
+    }
+
+    const runtimeAccount = yield* probeClaudeRuntimeStatus({
+      claudeSettings: options.claudeSettings,
+      cwd: input.cwd,
+      ...(options.environment ? { environment: options.environment } : {}),
+    });
+
+    if (!runtimeAccount) {
+      return {
+        ...baseSnapshot,
+        ...projectSettingsMetadata,
+      };
+    }
+
+    const authMetadata = isClaudeProjectApiKeyConfigured(runtimeAccount)
+      ? {
+          type: "apiKey",
+          label: "Claude API Key",
+        }
+      : claudeAuthMetadata({
+          subscriptionType: runtimeAccount.subscriptionType,
+          authMethod: undefined,
+        });
+
+    return {
+      ...baseSnapshot,
+      status: "ready",
+      auth: {
+        status: "authenticated",
+        ...(authMetadata ? authMetadata : {}),
+      },
+      message: "Claude is available in this workspace via project settings.",
+      checkedAt: DateTime.formatIso(yield* DateTime.now),
+      ...projectSettingsMetadata,
+    };
+  },
+);
 
 export { probeClaudeCapabilities };

@@ -102,7 +102,12 @@ import {
   sortProviderInstanceEntries,
   type ProviderInstanceEntry,
 } from "../../providerInstances";
-import { type AppModelOption, getAppModelOptionsForInstance } from "../../modelSelection";
+import {
+  type AppModelOption,
+  getAppModelOptionConfigForInstanceEntry,
+  getAppModelOptionConfigForProvider,
+  getAppModelOptionsForInstance,
+} from "../../modelSelection";
 import type { UnifiedSettings } from "@t3tools/contracts/settings";
 import type { SessionPhase, Thread } from "../../types";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
@@ -694,6 +699,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProvider,
   ]);
 
+  const claudeProjectConfigAvailable = useMemo(
+    () => providerStatuses.some((provider) => getAppModelOptionConfigForProvider(provider)),
+    [providerStatuses],
+  );
+  const preferClaudeProjectConfig =
+    claudeProjectConfigAvailable &&
+    selectedProvider === ProviderDriverKind.make("claudeAgent") &&
+    selectedInstanceId === ProviderInstanceId.make("claudeAgent");
+
   const { modelOptions: composerModelOptions, selectedModel } = useEffectiveComposerModelState({
     threadRef: composerDraftTarget,
     providers: providerStatuses,
@@ -702,6 +716,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     threadModelSelection: activeThreadModelSelection,
     projectModelSelection: activeProjectDefaultModelSelection,
     settings,
+    preferClaudeProjectConfig,
   });
 
   // Resolve the active instance's snapshot by `instanceId` so a custom
@@ -764,7 +779,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   >(() => {
     const out = new Map<ProviderInstanceId, ReadonlyArray<AppModelOption>>();
     for (const entry of providerInstanceEntries) {
-      out.set(entry.instanceId, getAppModelOptionsForInstance(settings, entry));
+      out.set(
+        entry.instanceId,
+        getAppModelOptionsForInstance(
+          settings,
+          entry,
+          getAppModelOptionConfigForInstanceEntry(entry),
+        ),
+      );
     }
     return out;
   }, [providerInstanceEntries, settings]);

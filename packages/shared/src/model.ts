@@ -1,4 +1,5 @@
 import {
+  CLAUDE_PROJECT_CONFIG_MODEL,
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
   MODEL_SLUG_ALIASES_BY_PROVIDER,
@@ -15,6 +16,90 @@ const DEFAULT_PROVIDER_DRIVER_KIND = ProviderDriverKind.make("codex");
 export interface SelectableModelOption {
   slug: string;
   name: string;
+}
+
+export function isClaudeProjectConfigModel(model: string | null | undefined): boolean {
+  return typeof model === "string" && model.trim() === CLAUDE_PROJECT_CONFIG_MODEL;
+}
+
+function titleCaseWords(value: string): string {
+  return value
+    .split(/[\s_-]+/)
+    .filter((part) => part.length > 0)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(" ");
+}
+
+function formatClaudeConfiguredModelName(rawModel: string): string | undefined {
+  const trimmed = rawModel.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  const modelId = trimmed.includes("/") ? (trimmed.split("/").pop() ?? trimmed) : trimmed;
+  const match = /^claude-([a-z0-9]+)-(\d+(?:[.-]\d+)*)$/i.exec(modelId);
+  if (!match) {
+    return undefined;
+  }
+
+  const familyPart = match[1];
+  const versionPart = match[2];
+  if (!familyPart || !versionPart) {
+    return undefined;
+  }
+
+  const family = titleCaseWords(familyPart);
+  const version = versionPart.replace(/-/g, ".");
+  return `Claude ${family} ${version}`;
+}
+
+function formatClaudeConfiguredModelProvider(rawModel: string): string | undefined {
+  const trimmed = rawModel.trim();
+  if (trimmed.length === 0 || !trimmed.includes("/")) {
+    return undefined;
+  }
+
+  const providerId = trimmed.split("/")[0]?.trim().toLowerCase();
+  if (!providerId) {
+    return undefined;
+  }
+
+  switch (providerId) {
+    case "bedrock":
+      return "Bedrock";
+    case "vertex":
+      return "Vertex";
+    case "foundry":
+      return "Foundry";
+    case "anthropic":
+    case "firstparty":
+    case "first-party":
+      return "Anthropic";
+    default:
+      return titleCaseWords(providerId);
+  }
+}
+
+export function formatClaudeProjectConfigLabel(rawModel: string | null | undefined): string | null {
+  if (typeof rawModel !== "string") {
+    return null;
+  }
+
+  const trimmed = rawModel.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const modelName = formatClaudeConfiguredModelName(trimmed);
+  const providerName = formatClaudeConfiguredModelProvider(trimmed);
+
+  if (modelName && providerName) {
+    return `${modelName} (${providerName})`;
+  }
+  if (modelName) {
+    return modelName;
+  }
+  return providerName ? `${trimmed} (${providerName})` : trimmed;
 }
 
 export function createModelCapabilities(input: {
@@ -243,6 +328,9 @@ export function normalizeModelSlug(
   const trimmed = model.trim();
   if (!trimmed) {
     return null;
+  }
+  if (provider === ProviderDriverKind.make("claudeAgent") && isClaudeProjectConfigModel(trimmed)) {
+    return CLAUDE_PROJECT_CONFIG_MODEL;
   }
 
   const aliases = MODEL_SLUG_ALIASES_BY_PROVIDER[provider] ?? {};

@@ -19,8 +19,8 @@ import {
   ProviderSendTurnInput,
   ProviderSessionStartInput,
   ProviderStopSessionInput,
+  ProviderDriverKind,
   type ProviderInstanceId,
-  type ProviderDriverKind,
   type ProviderRuntimeEvent,
   type ProviderSession,
 } from "@t3tools/contracts";
@@ -45,6 +45,7 @@ import {
   providerTurnMetricAttributes,
   withMetrics,
 } from "../../observability/Metrics.ts";
+import { isClaudeProjectConfigModel } from "@t3tools/shared/model";
 import { type ProviderAdapterError, ProviderValidationError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
@@ -158,6 +159,16 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function shouldReuseResumeCursor(input: {
+  readonly provider: ProviderDriverKind;
+  readonly modelSelection: ModelSelection | undefined;
+}): boolean {
+  return !(
+    input.provider === ProviderDriverKind.make("claudeAgent") &&
+    isClaudeProjectConfigModel(input.modelSelection?.model)
+  );
 }
 
 const dieOnMissingBindingInstanceId = (
@@ -382,6 +393,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
       const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
+      const canReuseResumeCursor = shouldReuseResumeCursor({
+        provider: input.binding.provider,
+        modelSelection: persistedModelSelection,
+      });
 
       const resumed = yield* adapter.startSession({
         threadId: input.binding.threadId,
@@ -389,7 +404,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         providerInstanceId: bindingInstanceId,
         ...(persistedCwd ? { cwd: persistedCwd } : {}),
         ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
-        ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
+        ...(hasResumeCursor && canReuseResumeCursor
+          ? { resumeCursor: input.binding.resumeCursor }
+          : {}),
         runtimeMode: input.binding.runtimeMode ?? "full-access",
       });
       if (resumed.provider !== adapter.provider) {
@@ -535,6 +552,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           threadId,
           provider: resolvedProvider,
         };
+        const canReuseResumeCursor = shouldReuseResumeCursor({
+          provider: resolvedProvider,
+          modelSelection: input.modelSelection,
+        });
         if (!instanceInfo.enabled) {
           return yield* toValidationError(
             "ProviderService.startSession",
@@ -544,7 +565,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
         const effectiveResumeCursor =
           input.resumeCursor ??
-          (persistedBinding?.providerInstanceId === resolvedInstanceId
+          (canReuseResumeCursor && persistedBinding?.providerInstanceId === resolvedInstanceId
             ? persistedBinding.resumeCursor
             : undefined);
         const effectiveCwd =

@@ -1,4 +1,5 @@
 import {
+  CLAUDE_PROJECT_CONFIG_MODEL,
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
@@ -9,6 +10,8 @@ import {
 } from "@t3tools/contracts";
 import {
   createModelSelection,
+  formatClaudeProjectConfigLabel,
+  isClaudeProjectConfigModel,
   normalizeModelSlug,
   resolveSelectableModel,
 } from "@t3tools/shared/model";
@@ -75,6 +78,16 @@ export interface AppModelOption {
   isCustom: boolean;
 }
 
+export interface AppModelOptionConfig {
+  includeClaudeProjectConfig?: boolean;
+}
+
+type ClaudeProjectConfigMetadataCarrier = ServerProvider & {
+  projectSettingsDetected?: boolean;
+  projectSettingsSource?: "project" | "local";
+  projectSettingsModel?: string;
+};
+
 function toAppModelOption(model: ServerProvider["models"][number]): AppModelOption {
   const option: AppModelOption = {
     slug: model.slug,
@@ -84,6 +97,57 @@ function toAppModelOption(model: ServerProvider["models"][number]): AppModelOpti
   if (model.shortName) option.shortName = model.shortName;
   if (model.subProvider) option.subProvider = model.subProvider;
   return option;
+}
+
+function isClaudeProjectConfigEntry(
+  entry: ProviderInstanceEntry,
+  config?: AppModelOptionConfig,
+): boolean {
+  return (
+    config?.includeClaudeProjectConfig === true &&
+    entry.driverKind === ProviderDriverKind.make("claudeAgent") &&
+    entry.instanceId === defaultInstanceIdForDriver(ProviderDriverKind.make("claudeAgent"))
+  );
+}
+
+function getClaudeProjectConfigMetadata(
+  entry: ProviderInstanceEntry,
+): ClaudeProjectConfigMetadataCarrier | undefined {
+  const snapshot = entry.snapshot as ClaudeProjectConfigMetadataCarrier;
+  return snapshot.projectSettingsDetected ? snapshot : undefined;
+}
+
+export function getAppModelOptionConfigForProvider(
+  provider: ServerProvider | null | undefined,
+): AppModelOptionConfig | undefined {
+  const snapshot = provider as ClaudeProjectConfigMetadataCarrier | null | undefined;
+  if (
+    snapshot?.projectSettingsDetected === true &&
+    snapshot.driver === ProviderDriverKind.make("claudeAgent") &&
+    snapshot.instanceId === defaultInstanceIdForDriver(ProviderDriverKind.make("claudeAgent"))
+  ) {
+    return { includeClaudeProjectConfig: true };
+  }
+  return undefined;
+}
+
+export function getAppModelOptionConfigForInstanceEntry(
+  entry: ProviderInstanceEntry | null | undefined,
+): AppModelOptionConfig | undefined {
+  return getAppModelOptionConfigForProvider(entry?.snapshot ?? null);
+}
+
+function getClaudeProjectConfigModelSlug(entry: ProviderInstanceEntry): string | undefined {
+  const configuredModel = getClaudeProjectConfigMetadata(entry)?.projectSettingsModel?.trim();
+  return configuredModel && configuredModel.length > 0 ? configuredModel : undefined;
+}
+
+function getClaudeProjectConfigOptionName(entry: ProviderInstanceEntry): string {
+  const configuredModel = getClaudeProjectConfigModelSlug(entry);
+  if (configuredModel) {
+    return formatClaudeProjectConfigLabel(configuredModel) ?? configuredModel;
+  }
+  return "Project config";
 }
 
 function readInstanceModelPreferences(
@@ -194,8 +258,16 @@ export function getAppModelOptions(
 export function getAppModelOptionsForInstance(
   settings: UnifiedSettings,
   entry: ProviderInstanceEntry,
+  config?: AppModelOptionConfig,
 ): AppModelOption[] {
   const options: AppModelOption[] = entry.models.map(toAppModelOption);
+  if (isClaudeProjectConfigEntry(entry, config)) {
+    options.unshift({
+      slug: CLAUDE_PROJECT_CONFIG_MODEL,
+      name: getClaudeProjectConfigOptionName(entry),
+      isCustom: false,
+    });
+  }
   const seen = new Set(options.map((option) => option.slug));
   const builtInModelSlugs = new Set(
     entry.models.filter((model) => !model.isCustom).map((model) => model.slug),
@@ -223,8 +295,22 @@ export function resolveAppModelSelection(
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
   selectedModel: string | null | undefined,
+  config?: AppModelOptionConfig,
 ): string {
   const resolvedProvider = resolveSelectableProvider(providers, provider);
+  const resolvedEntry = deriveProviderInstanceEntries(providers).find(
+    (entry) => entry.instanceId === defaultInstanceIdForDriver(resolvedProvider),
+  );
+  const normalizedSelectedModel = normalizeModelSlug(selectedModel, resolvedProvider);
+  if (
+    resolvedEntry &&
+    isClaudeProjectConfigEntry(resolvedEntry, config) &&
+    normalizedSelectedModel &&
+    (isClaudeProjectConfigModel(normalizedSelectedModel) ||
+      normalizedSelectedModel === getClaudeProjectConfigModelSlug(resolvedEntry))
+  ) {
+    return CLAUDE_PROJECT_CONFIG_MODEL;
+  }
   const options = getAppModelOptions(settings, providers, resolvedProvider, selectedModel);
   return (
     resolveSelectableModel(resolvedProvider, selectedModel, options) ??
@@ -237,12 +323,21 @@ export function resolveAppModelSelectionForInstance(
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
   selectedModel: string | null | undefined,
+  config?: AppModelOptionConfig,
 ): string | null {
   const entry = deriveProviderInstanceEntries(providers).find(
     (candidate) => candidate.instanceId === instanceId,
   );
   if (!entry) return null;
-  const options = getAppModelOptionsForInstance(settings, entry);
+  const normalizedSelectedModel = normalizeModelSlug(selectedModel, entry.driverKind);
+  if (
+    isClaudeProjectConfigEntry(entry, config) &&
+    normalizedSelectedModel &&
+    normalizedSelectedModel === getClaudeProjectConfigModelSlug(entry)
+  ) {
+    return CLAUDE_PROJECT_CONFIG_MODEL;
+  }
+  const options = getAppModelOptionsForInstance(settings, entry, config);
   return (
     resolveSelectableModel(entry.driverKind, selectedModel, options) ??
     options[0]?.slug ??
@@ -261,10 +356,11 @@ export function getCustomModelOptionsByInstance(
   providers: ReadonlyArray<ServerProvider>,
   _selectedInstanceId?: ProviderInstanceId | null,
   _selectedModel?: string | null,
+  config?: AppModelOptionConfig,
 ): ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>> {
   const out = new Map<ProviderInstanceId, ReadonlyArray<ModelEsque>>();
   for (const entry of deriveProviderInstanceEntries(providers)) {
-    out.set(entry.instanceId, getAppModelOptionsForInstance(settings, entry));
+    out.set(entry.instanceId, getAppModelOptionsForInstance(settings, entry, config));
   }
   return out;
 }

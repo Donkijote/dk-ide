@@ -1,4 +1,5 @@
 import {
+  CLAUDE_PROJECT_CONFIG_MODEL,
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
@@ -853,9 +854,17 @@ export function deriveEffectiveComposerModelState(input: {
   threadModelSelection: ModelSelection | null | undefined;
   projectModelSelection: ModelSelection | null | undefined;
   settings: UnifiedSettings;
+  preferClaudeProjectConfig?: boolean;
 }): EffectiveComposerModelState {
   const baseModelCandidate =
-    input.threadModelSelection?.model ?? input.projectModelSelection?.model ?? null;
+    input.threadModelSelection?.model ??
+    input.projectModelSelection?.model ??
+    (input.preferClaudeProjectConfig ? CLAUDE_PROJECT_CONFIG_MODEL : null);
+  const selectionConfig =
+    input.selectedProvider === ProviderDriverKind.make("claudeAgent") &&
+    input.preferClaudeProjectConfig
+      ? { includeClaudeProjectConfig: true as const }
+      : undefined;
   const baseModel =
     (input.selectedInstanceId
       ? resolveAppModelSelectionForInstance(
@@ -863,6 +872,7 @@ export function deriveEffectiveComposerModelState(input: {
           input.settings,
           input.providers,
           baseModelCandidate,
+          selectionConfig,
         )
       : null) ??
     resolveAppModelSelection(
@@ -870,6 +880,7 @@ export function deriveEffectiveComposerModelState(input: {
       input.settings,
       input.providers,
       baseModelCandidate,
+      selectionConfig,
     ) ??
     normalizeModelSlug(baseModelCandidate, input.selectedProvider) ??
     getDefaultServerModel(input.providers, input.selectedProvider);
@@ -892,12 +903,14 @@ export function deriveEffectiveComposerModelState(input: {
         input.settings,
         input.providers,
         activeSelection.model,
+        selectionConfig,
       ) ??
       resolveAppModelSelection(
         input.selectedProvider,
         input.settings,
         input.providers,
         activeSelection.model,
+        selectionConfig,
       ))
     : baseModel;
   const modelOptions =
@@ -2966,6 +2979,7 @@ export function useEffectiveComposerModelState(input: {
   threadModelSelection: ModelSelection | null | undefined;
   projectModelSelection: ModelSelection | null | undefined;
   settings: UnifiedSettings;
+  preferClaudeProjectConfig?: boolean;
 }): EffectiveComposerModelState {
   const draft = useComposerDraftModelState(input.threadRef ?? input.draftId ?? DraftId.make(""));
 
@@ -2979,6 +2993,9 @@ export function useEffectiveComposerModelState(input: {
         threadModelSelection: input.threadModelSelection,
         projectModelSelection: input.projectModelSelection,
         settings: input.settings,
+        ...(input.preferClaudeProjectConfig !== undefined
+          ? { preferClaudeProjectConfig: input.preferClaudeProjectConfig }
+          : {}),
       }),
     [
       draft,
@@ -2988,6 +3005,7 @@ export function useEffectiveComposerModelState(input: {
       input.selectedInstanceId,
       input.selectedProvider,
       input.threadModelSelection,
+      input.preferClaudeProjectConfig,
     ],
   );
 }

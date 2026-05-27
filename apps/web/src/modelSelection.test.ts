@@ -1,8 +1,14 @@
-import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
+import {
+  CLAUDE_PROJECT_CONFIG_MODEL,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contracts/settings";
 import { describe, expect, it } from "vitest";
 import { deriveProviderInstanceEntries } from "./providerInstances";
 import {
+  getAppModelOptionConfigForProvider,
   getAppModelOptionsForInstance,
   resolveAppModelSelectionForInstance,
   resolveAppModelSelectionState,
@@ -247,5 +253,54 @@ describe("instance-scoped model selection", () => {
       instanceId: ProviderInstanceId.make("claude_openrouter"),
       model: "openai/gpt-5.5",
     });
+  });
+
+  it("surfaces a Claude project-config model option for the default Claude instance", () => {
+    const providers = [
+      {
+        ...provider({
+          provider: ProviderDriverKind.make("claudeAgent"),
+          instanceId: "claudeAgent",
+          models: ["claude-sonnet-4-6"],
+        }),
+        projectSettingsDetected: true,
+        projectSettingsModel: "bedrock/claude-opus-4.6",
+      },
+    ];
+    const stock = deriveProviderInstanceEntries(providers).find(
+      (entry) => entry.instanceId === "claudeAgent",
+    )!;
+
+    expect(
+      getAppModelOptionsForInstance(
+        settingsWithProviderInstances(),
+        stock,
+        getAppModelOptionConfigForProvider(providers[0]),
+      ).map((option) => option.slug),
+    ).toContain(CLAUDE_PROJECT_CONFIG_MODEL);
+  });
+
+  it("normalizes a resolved Claude project-config model back to the project-config sentinel", () => {
+    const providers = [
+      {
+        ...provider({
+          provider: ProviderDriverKind.make("claudeAgent"),
+          instanceId: "claudeAgent",
+          models: ["claude-sonnet-4-6"],
+        }),
+        projectSettingsDetected: true,
+        projectSettingsModel: "bedrock/claude-opus-4.6",
+      },
+    ];
+
+    expect(
+      resolveAppModelSelectionForInstance(
+        ProviderInstanceId.make("claudeAgent"),
+        settingsWithProviderInstances(),
+        providers,
+        "bedrock/claude-opus-4.6",
+        getAppModelOptionConfigForProvider(providers[0]),
+      ),
+    ).toBe(CLAUDE_PROJECT_CONFIG_MODEL);
   });
 });

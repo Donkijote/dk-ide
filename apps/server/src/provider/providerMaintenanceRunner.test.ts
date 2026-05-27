@@ -188,6 +188,7 @@ function makeRegistry(
       getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
         Effect.succeed(lifecycleFor(provider)),
       setProviderMaintenanceActionState,
+      getProviderRuntimeStatus: () => Effect.die("unexpected runtime status request"),
       streamChanges: Stream.empty,
     };
 
