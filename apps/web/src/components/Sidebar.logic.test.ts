@@ -5,9 +5,10 @@ import {
   createThreadJumpHintVisibilityController,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarThreadIds,
-  resolveAdjacentThreadId,
+  resolveAdjacentSidebarItemId,
   getFallbackThreadIdAfterDelete,
   getVisibleThreadsForProject,
+  formatSidebarWorkspaceThreadCount,
   getProjectSortTimestamp,
   hasUnseenCompletion,
   isContextMenuPointerDown,
@@ -140,6 +141,14 @@ describe("getSidebarThreadIdsToPrewarm", () => {
 
   it("returns no thread ids when the limit is zero", () => {
     expect(getSidebarThreadIdsToPrewarm(["t1", "t2"], 0)).toEqual([]);
+  });
+});
+
+describe("formatSidebarWorkspaceThreadCount", () => {
+  it("formats recoverable thread history counts for workspace rows", () => {
+    expect(formatSidebarWorkspaceThreadCount(0)).toBe("No threads");
+    expect(formatSidebarWorkspaceThreadCount(1)).toBe("1 thread");
+    expect(formatSidebarWorkspaceThreadCount(8)).toBe("8 threads");
   });
 });
 
@@ -354,46 +363,42 @@ describe("orderItemsByPreferredIds", () => {
   });
 });
 
-describe("resolveAdjacentThreadId", () => {
-  it("resolves adjacent thread ids in ordered sidebar traversal", () => {
-    const threads = [
-      ThreadId.make("thread-1"),
-      ThreadId.make("thread-2"),
-      ThreadId.make("thread-3"),
-    ];
+describe("resolveAdjacentSidebarItemId", () => {
+  it("resolves adjacent item ids in ordered sidebar traversal", () => {
+    const itemIds = ["workspace-1", "workspace-2", "workspace-3"];
 
     expect(
-      resolveAdjacentThreadId({
-        threadIds: threads,
-        currentThreadId: threads[1] ?? null,
+      resolveAdjacentSidebarItemId({
+        itemIds,
+        currentItemId: itemIds[1] ?? null,
         direction: "previous",
       }),
-    ).toBe(threads[0]);
+    ).toBe(itemIds[0]);
     expect(
-      resolveAdjacentThreadId({
-        threadIds: threads,
-        currentThreadId: threads[1] ?? null,
+      resolveAdjacentSidebarItemId({
+        itemIds,
+        currentItemId: itemIds[1] ?? null,
         direction: "next",
       }),
-    ).toBe(threads[2]);
+    ).toBe(itemIds[2]);
     expect(
-      resolveAdjacentThreadId({
-        threadIds: threads,
-        currentThreadId: null,
+      resolveAdjacentSidebarItemId({
+        itemIds,
+        currentItemId: null,
         direction: "next",
       }),
-    ).toBe(threads[0]);
+    ).toBe(itemIds[0]);
     expect(
-      resolveAdjacentThreadId({
-        threadIds: threads,
-        currentThreadId: null,
+      resolveAdjacentSidebarItemId({
+        itemIds,
+        currentItemId: null,
         direction: "previous",
       }),
-    ).toBe(threads[2]);
+    ).toBe(itemIds[2]);
     expect(
-      resolveAdjacentThreadId({
-        threadIds: threads,
-        currentThreadId: threads[0] ?? null,
+      resolveAdjacentSidebarItemId({
+        itemIds,
+        currentItemId: itemIds[0] ?? null,
         direction: "previous",
       }),
     ).toBeNull();
