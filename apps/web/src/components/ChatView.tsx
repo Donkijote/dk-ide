@@ -604,7 +604,11 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
           <WorkspacePane
             key={terminalGroup.id}
             title={paneTitle}
-            description={cwd}
+            actions={
+              <span className="max-w-48 truncate text-right text-muted-foreground text-xs">
+                {cwd}
+              </span>
+            }
             className="min-h-[16rem] flex-1"
             bodyClassName="min-h-0"
           >
@@ -3603,14 +3607,11 @@ export default function ChatView(props: ChatViewProps) {
         onDismiss={() => setThreadError(activeThread.id, null)}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 xl:flex-row">
+        <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-[112rem] flex-1 flex-col gap-3">
           <WorkspacePane
             title={activeThread.title}
             actions={<ChatHeaderActions {...chatHeaderActionProps} />}
-            className={cn(
-              "min-h-0 flex-1",
-              visibleTerminalThreadRef ? "xl:basis-[62%]" : undefined,
-            )}
+            className="min-h-0 w-full max-w-[96rem] self-center"
           >
             <div className="flex min-h-0 min-w-0 flex-1">
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -3800,7 +3801,7 @@ export default function ChatView(props: ChatViewProps) {
           </WorkspacePane>
 
           {visibleTerminalThreadRef ? (
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col xl:basis-[38%] xl:max-w-[40rem]">
+            <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col">
               <PersistentThreadTerminalPaneDeck
                 threadRef={visibleTerminalThreadRef}
                 threadId={visibleTerminalThreadRef.threadId}
