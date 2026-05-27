@@ -62,6 +62,7 @@ composition, which are likely to continue evolving upstream.
 
 - `working tree`: initial workspace shell, AI pane framing, and hosted-shell onboarding updates
 - `21ed1770`: explicit AI pane extraction through a reusable workspace pane frame and shared chat action bar
+- `adc6d1b3`: terminal pane extraction that renders terminal groups as peer workspace panes instead of a bottom drawer
 - `ccd33a35`: upstream sync merge against `upstream/main` through `4f0f24f0`
 
 ## Sync Notes
@@ -77,6 +78,9 @@ composition, which are likely to continue evolving upstream.
   thread, diff, and terminal behavior intact while reserving explicit pane space
 - initial pane extraction should preserve current chat and terminal capabilities
   while changing shell framing and navigation expectations
+- terminal groups now project into their own workspace panes so "new terminal"
+  follows the pane model while split terminals stay grouped inside a single
+  terminal pane
 - keep pane chrome reusable so future terminal and support surfaces can adopt the
   same workspace framing without copying chat-specific structure
 - keep chat actions extracted from pane framing so upstream chat behavior can
