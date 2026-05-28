@@ -61,7 +61,7 @@ export default function MonacoCodeSurface({
       fontSize: 13,
       lineHeight: 20,
       lineNumbers: "on",
-      minimap: { enabled: true, scale: 1, showSlider: "mouseover" },
+      minimap: { enabled: false },
       model,
       padding: { bottom: 18, top: 14 },
       readOnly: true,
