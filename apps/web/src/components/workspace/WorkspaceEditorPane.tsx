@@ -86,6 +86,16 @@ interface WorkspaceEditorPaneProps {
   readonly onActive?: () => void;
 }
 
+type EditorWorkspaceState = {
+  readonly activePath: string | null;
+  readonly openPaths: readonly string[];
+};
+
+const EMPTY_EDITOR_WORKSPACE_STATE: EditorWorkspaceState = {
+  activePath: null,
+  openPaths: [],
+};
+
 export function WorkspaceEditorPane({
   className,
   environmentId,
@@ -99,10 +109,19 @@ export function WorkspaceEditorPane({
   const searchPopupRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState("");
-  const [activePath, setActivePath] = useState<string | null>(null);
-  const [openPaths, setOpenPaths] = useState<string[]>([]);
+  const [workspaceStateByKey, setWorkspaceStateByKey] = useState<
+    Record<string, EditorWorkspaceState>
+  >({});
   const [searchOpen, setSearchOpen] = useState(false);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
+  const workspaceContextKey =
+    workspaceRoot === undefined ? null : `${environmentId}\u0000${workspaceRoot}`;
+  const workspaceEditorState =
+    workspaceContextKey === null
+      ? EMPTY_EDITOR_WORKSPACE_STATE
+      : (workspaceStateByKey[workspaceContextKey] ?? EMPTY_EDITOR_WORKSPACE_STATE);
+  const activePath = workspaceEditorState.activePath;
+  const openPaths = workspaceEditorState.openPaths;
   const trimmedQuery = query.trim();
   const searchEntriesQuery = useQuery(
     projectSearchEntriesQueryOptions({
@@ -127,17 +146,36 @@ export function WorkspaceEditorPane({
   );
   const activeLanguage = activePath ? languageForPath(activePath) : "plaintext";
   const useMetaForMod = isMacPlatform(navigator.platform);
+  const updateWorkspaceEditorState = useCallback(
+    (update: (currentState: EditorWorkspaceState) => EditorWorkspaceState) => {
+      if (workspaceContextKey === null) {
+        return;
+      }
+
+      setWorkspaceStateByKey((currentStateByKey) => {
+        const currentState = currentStateByKey[workspaceContextKey] ?? EMPTY_EDITOR_WORKSPACE_STATE;
+        const nextState = update(currentState);
+        return {
+          ...currentStateByKey,
+          [workspaceContextKey]: nextState,
+        };
+      });
+    },
+    [workspaceContextKey],
+  );
   const openPath = useCallback(
     (path: string) => {
-      setOpenPaths((currentPaths) =>
-        currentPaths.includes(path) ? currentPaths : [...currentPaths, path],
-      );
-      setActivePath(path);
+      updateWorkspaceEditorState((currentState) => ({
+        activePath: path,
+        openPaths: currentState.openPaths.includes(path)
+          ? currentState.openPaths
+          : [...currentState.openPaths, path],
+      }));
       setQuery("");
       setSearchOpen(false);
       onActive?.();
     },
-    [onActive],
+    [onActive, updateWorkspaceEditorState],
   );
   const openHighlightedPath = useCallback(() => {
     const highlightedFile = files[highlightedFileIndex] ?? files[0];
@@ -148,22 +186,34 @@ export function WorkspaceEditorPane({
   }, [files, highlightedFileIndex, openPath]);
   const activatePath = useCallback(
     (path: string) => {
-      setActivePath(path);
+      updateWorkspaceEditorState((currentState) => ({
+        ...currentState,
+        activePath: path,
+      }));
       onActive?.();
     },
-    [onActive],
+    [onActive, updateWorkspaceEditorState],
   );
   const closePath = useCallback(
     (path: string) => {
       const closedPathIndex = openPaths.indexOf(path);
       const nextOpenPaths = openPaths.filter((openPath) => openPath !== path);
-      setOpenPaths(nextOpenPaths);
-      if (activePath === path) {
-        setActivePath(nextOpenPaths[closedPathIndex] ?? nextOpenPaths[closedPathIndex - 1] ?? null);
-      }
+      updateWorkspaceEditorState((currentState) => ({
+        activePath:
+          currentState.activePath === path
+            ? (nextOpenPaths[closedPathIndex] ?? nextOpenPaths[closedPathIndex - 1] ?? null)
+            : currentState.activePath,
+        openPaths: nextOpenPaths,
+      }));
     },
-    [activePath, openPaths],
+    [openPaths, updateWorkspaceEditorState],
   );
+
+  useEffect(() => {
+    setQuery("");
+    setSearchOpen(false);
+    setHighlightedFileIndex(0);
+  }, [workspaceContextKey]);
 
   useEffect(() => {
     setHighlightedFileIndex(0);
