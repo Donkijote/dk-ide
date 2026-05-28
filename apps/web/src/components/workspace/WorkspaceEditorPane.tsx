@@ -95,12 +95,14 @@ export function WorkspaceEditorPane({
 }: WorkspaceEditorPaneProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const editorPaneSelectedRef = useRef(false);
+  const highlightedFileRef = useRef<HTMLButtonElement | null>(null);
   const searchPopupRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState("");
   const [activePath, setActivePath] = useState<string | null>(null);
   const [openPaths, setOpenPaths] = useState<string[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
   const trimmedQuery = query.trim();
   const searchEntriesQuery = useQuery(
     projectSearchEntriesQueryOptions({
@@ -137,6 +139,13 @@ export function WorkspaceEditorPane({
     },
     [onActive],
   );
+  const openHighlightedPath = useCallback(() => {
+    const highlightedFile = files[highlightedFileIndex] ?? files[0];
+    if (!highlightedFile) {
+      return;
+    }
+    openPath(highlightedFile.path);
+  }, [files, highlightedFileIndex, openPath]);
   const activatePath = useCallback(
     (path: string) => {
       setActivePath(path);
@@ -155,6 +164,23 @@ export function WorkspaceEditorPane({
     },
     [activePath, openPaths],
   );
+
+  useEffect(() => {
+    setHighlightedFileIndex(0);
+  }, [trimmedQuery]);
+
+  useEffect(() => {
+    setHighlightedFileIndex((currentIndex) => {
+      if (files.length === 0) {
+        return 0;
+      }
+      return Math.min(currentIndex, files.length - 1);
+    });
+  }, [files.length]);
+
+  useEffect(() => {
+    highlightedFileRef.current?.scrollIntoView({ block: "nearest" });
+  }, [highlightedFileIndex]);
 
   useEffect(() => {
     if (!searchOpen) {
@@ -289,9 +315,10 @@ export function WorkspaceEditorPane({
           <PopoverPopup
             align="end"
             sideOffset={8}
-            className="w-[min(36rem,calc(100vw-2rem))] overflow-hidden rounded-2xl p-0 before:bg-muted/72"
+            className="w-[min(32rem,calc(100vw-2rem))] overflow-hidden rounded-2xl p-0 before:bg-muted/72"
+            viewportClassName="p-0! [--viewport-inline-padding:0px]"
           >
-            <div ref={searchPopupRef} className="flex max-h-[min(28rem,70vh)] min-w-0 flex-col">
+            <div ref={searchPopupRef} className="flex max-h-[min(34rem,80vh)] min-w-0 flex-col">
               <div className="relative px-2.5 py-1.5">
                 <SearchIcon className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-5 z-10 size-4 text-muted-foreground opacity-80" />
                 <Input
@@ -303,10 +330,23 @@ export function WorkspaceEditorPane({
                     if (event.key === "Escape") {
                       event.preventDefault();
                       setSearchOpen(false);
+                      return;
                     }
-                    if (event.key === "Enter" && files[0]) {
+                    if (event.key === "ArrowDown" && files.length > 0) {
                       event.preventDefault();
-                      openPath(files[0].path);
+                      setHighlightedFileIndex((currentIndex) => (currentIndex + 1) % files.length);
+                      return;
+                    }
+                    if (event.key === "ArrowUp" && files.length > 0) {
+                      event.preventDefault();
+                      setHighlightedFileIndex(
+                        (currentIndex) => (currentIndex - 1 + files.length) % files.length,
+                      );
+                      return;
+                    }
+                    if (event.key === "Enter" && files.length > 0) {
+                      event.preventDefault();
+                      openHighlightedPath();
                     }
                   }}
                   placeholder="Search files"
@@ -326,29 +366,37 @@ export function WorkspaceEditorPane({
                     Searching
                   </div>
                 ) : files.length > 0 ? (
-                  <div className="max-h-72 min-h-0 overflow-auto scroll-py-2 p-2">
+                  <div className="max-h-96 min-h-0 overflow-auto scroll-py-2 p-2">
                     <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
                       Files
                     </div>
-                    {files.map((entry) => (
-                      <button
-                        key={entry.path}
-                        type="button"
-                        className="flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-base outline-none transition-colors hover:bg-accent hover:text-accent-foreground sm:min-h-7 sm:text-sm"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => openPath(entry.path)}
-                      >
-                        <FileCode2Icon className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="truncate text-foreground text-sm">
-                            {basenameOfPath(entry.path)}
+                    {files.map((entry, index) => {
+                      const isHighlighted = index === highlightedFileIndex;
+                      return (
+                        <button
+                          key={entry.path}
+                          ref={isHighlighted ? highlightedFileRef : undefined}
+                          type="button"
+                          className={cn(
+                            "flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-base outline-none transition-colors hover:bg-accent hover:text-accent-foreground sm:min-h-7 sm:text-sm",
+                            isHighlighted && "bg-accent text-accent-foreground",
+                          )}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onMouseEnter={() => setHighlightedFileIndex(index)}
+                          onClick={() => openPath(entry.path)}
+                        >
+                          <FileCode2Icon className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate text-foreground text-sm">
+                              {basenameOfPath(entry.path)}
+                            </span>
+                            <span className="truncate text-muted-foreground/70 text-xs">
+                              {entry.parentPath ?? ""}
+                            </span>
                           </span>
-                          <span className="truncate text-muted-foreground/70 text-xs">
-                            {entry.parentPath ?? ""}
-                          </span>
-                        </span>
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="py-10 text-center text-sm text-muted-foreground">
@@ -363,10 +411,16 @@ export function WorkspaceEditorPane({
                     <span className="text-muted-foreground/80">Open</span>
                   </KbdGroup>
                   {files.length > 0 ? (
-                    <KbdGroup className="items-center gap-1.5">
-                      <Kbd>Enter</Kbd>
-                      <span className="text-muted-foreground/80">Open first result</span>
-                    </KbdGroup>
+                    <>
+                      <KbdGroup className="items-center gap-1.5">
+                        <Kbd>↑ ↓</Kbd>
+                        <span className="text-muted-foreground/80">Navigate</span>
+                      </KbdGroup>
+                      <KbdGroup className="items-center gap-1.5">
+                        <Kbd>Enter</Kbd>
+                        <span className="text-muted-foreground/80">Open selected</span>
+                      </KbdGroup>
+                    </>
                   ) : null}
                   <KbdGroup className="items-center gap-1.5">
                     <Kbd>Esc</Kbd>

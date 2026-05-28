@@ -19,6 +19,7 @@ function PopoverTrigger({ className, children, ...props }: PopoverPrimitive.Trig
 function PopoverPopup({
   children,
   className,
+  viewportClassName,
   side = "bottom",
   align = "center",
   sideOffset = 4,
@@ -33,6 +34,7 @@ function PopoverPopup({
   alignOffset?: PopoverPrimitive.Positioner.Props["alignOffset"];
   tooltipStyle?: boolean;
   anchor?: PopoverPrimitive.Positioner.Props["anchor"];
+  viewportClassName?: string;
 }) {
   return (
     <PopoverPrimitive.Portal>
@@ -61,6 +63,7 @@ function PopoverPopup({
               tooltipStyle
                 ? "py-1 [--viewport-inline-padding:--spacing(2)]"
                 : "not-data-transitioning:overflow-y-auto",
+              viewportClassName,
             )}
             data-slot="popover-viewport"
           >
