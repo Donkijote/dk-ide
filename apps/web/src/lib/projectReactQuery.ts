@@ -1,4 +1,8 @@
-import type { EnvironmentId, ProjectSearchEntriesResult } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProjectReadFileResult,
+  ProjectSearchEntriesResult,
+} from "@t3tools/contracts";
 import { queryOptions } from "@tanstack/react-query";
 import { ensureEnvironmentApi } from "~/environmentApi";
 
@@ -10,6 +14,11 @@ export const projectQueryKeys = {
     query: string,
     limit: number,
   ) => ["projects", "search-entries", environmentId ?? null, cwd, query, limit] as const,
+  readFile: (
+    environmentId: EnvironmentId | null,
+    cwd: string | null,
+    relativePath: string | null,
+  ) => ["projects", "read-file", environmentId ?? null, cwd, relativePath] as const,
 };
 
 const DEFAULT_SEARCH_ENTRIES_LIMIT = 80;
@@ -48,5 +57,32 @@ export function projectSearchEntriesQueryOptions(input: {
       input.query.length > 0,
     staleTime: input.staleTime ?? DEFAULT_SEARCH_ENTRIES_STALE_TIME,
     placeholderData: (previous) => previous ?? EMPTY_SEARCH_ENTRIES_RESULT,
+  });
+}
+
+export function projectReadFileQueryOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  relativePath: string | null;
+  enabled?: boolean;
+}) {
+  return queryOptions<ProjectReadFileResult>({
+    queryKey: projectQueryKeys.readFile(input.environmentId, input.cwd, input.relativePath),
+    queryFn: async () => {
+      if (!input.cwd || !input.environmentId || !input.relativePath) {
+        throw new Error("Workspace file read is unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.projects.readFile({
+        cwd: input.cwd,
+        relativePath: input.relativePath,
+      });
+    },
+    enabled:
+      (input.enabled ?? true) &&
+      input.environmentId !== null &&
+      input.cwd !== null &&
+      input.relativePath !== null,
+    staleTime: 2_000,
   });
 }

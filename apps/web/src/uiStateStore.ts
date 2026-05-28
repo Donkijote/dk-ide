@@ -25,7 +25,7 @@ export interface PersistedUiState {
   workspaceThreadLayoutById?: Record<string, PersistedWorkspaceThreadLayout>;
 }
 
-export type WorkspacePaneId = "ai" | "plan" | "terminal";
+export type WorkspacePaneId = "ai" | "editor" | "plan" | "terminal";
 
 export interface PersistedWorkspaceThreadLayout {
   lastActivePane?: WorkspacePaneId;
@@ -176,6 +176,7 @@ function sanitizePersistedWorkspaceThreadLayout(
     const nextLayout: PersistedWorkspaceThreadLayout = {};
     if (
       layout.lastActivePane === "ai" ||
+      layout.lastActivePane === "editor" ||
       layout.lastActivePane === "plan" ||
       layout.lastActivePane === "terminal"
     ) {
