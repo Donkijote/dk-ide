@@ -6,6 +6,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
+import { Kbd, KbdGroup } from "~/components/ui/kbd";
 import { cn, isMacPlatform } from "~/lib/utils";
 import {
   projectReadFileQueryOptions,
@@ -123,6 +124,7 @@ export function WorkspaceEditorPane({
     }),
   );
   const activeLanguage = activePath ? languageForPath(activePath) : "plaintext";
+  const useMetaForMod = isMacPlatform(navigator.platform);
   const openPath = useCallback(
     (path: string) => {
       setOpenPaths((currentPaths) =>
@@ -284,54 +286,93 @@ export function WorkspaceEditorPane({
           >
             <SearchIcon className="size-4" />
           </PopoverTrigger>
-          <PopoverPopup align="end" sideOffset={8} className="w-[min(28rem,calc(100vw-2rem))] p-0">
-            <div ref={searchPopupRef} className="flex min-w-0 flex-col">
-              <div className="relative border-border/60 border-b">
-                <SearchIcon className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-3 size-3.5 text-muted-foreground" />
+          <PopoverPopup
+            align="end"
+            sideOffset={8}
+            className="w-[min(36rem,calc(100vw-2rem))] overflow-hidden rounded-2xl p-0 before:bg-muted/72"
+          >
+            <div ref={searchPopupRef} className="flex max-h-[min(28rem,70vh)] min-w-0 flex-col">
+              <div className="relative px-2.5 py-1.5">
+                <SearchIcon className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-5 z-10 size-4 text-muted-foreground opacity-80" />
                 <Input
                   ref={searchInputRef}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   onFocus={onActive}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setSearchOpen(false);
+                    }
+                    if (event.key === "Enter" && files[0]) {
+                      event.preventDefault();
+                      openPath(files[0].path);
+                    }
+                  }}
                   placeholder="Search files"
                   disabled={!workspaceRoot}
-                  className="h-10 rounded-none border-0 bg-transparent pl-8 text-sm shadow-none focus-visible:ring-0"
+                  size="lg"
+                  className="border-transparent! bg-transparent! shadow-none before:hidden has-focus-visible:ring-0 *:data-[slot=input]:ps-8"
                 />
               </div>
-              <div className="max-h-72 min-h-0 overflow-auto py-1">
+              <div className="-mx-px relative min-h-0 overflow-hidden rounded-t-xl border border-b-0 bg-popover bg-clip-padding shadow-xs/5 [clip-path:inset(0_1px)] before:pointer-events-none before:absolute before:inset-0 before:rounded-t-[calc(var(--radius-xl)-1px)]">
                 {trimmedQuery.length === 0 ? (
-                  <div className="px-3 py-2 text-muted-foreground text-xs">
+                  <div className="py-10 text-center text-sm text-muted-foreground">
                     Type to search files.
                   </div>
                 ) : searchEntriesQuery.isLoading || searchEntriesQuery.isFetching ? (
-                  <div className="flex items-center gap-2 px-3 py-2 text-muted-foreground text-xs">
-                    <LoaderCircleIcon className="size-3.5 animate-spin" />
+                  <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground text-sm">
+                    <LoaderCircleIcon className="size-4 animate-spin" />
                     Searching
                   </div>
                 ) : files.length > 0 ? (
-                  files.map((entry) => (
-                    <button
-                      key={entry.path}
-                      type="button"
-                      className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
-                      onClick={() => openPath(entry.path)}
-                    >
-                      <FileCode2Icon className="size-3.5 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate font-medium">
-                        {basenameOfPath(entry.path)}
-                      </span>
-                      <span className="min-w-0 max-w-[45%] truncate text-muted-foreground">
-                        {entry.parentPath ?? ""}
-                      </span>
-                    </button>
-                  ))
+                  <div className="max-h-72 min-h-0 overflow-auto scroll-py-2 p-2">
+                    <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
+                      Files
+                    </div>
+                    {files.map((entry) => (
+                      <button
+                        key={entry.path}
+                        type="button"
+                        className="flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-base outline-none transition-colors hover:bg-accent hover:text-accent-foreground sm:min-h-7 sm:text-sm"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => openPath(entry.path)}
+                      >
+                        <FileCode2Icon className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="truncate text-foreground text-sm">
+                            {basenameOfPath(entry.path)}
+                          </span>
+                          <span className="truncate text-muted-foreground/70 text-xs">
+                            {entry.parentPath ?? ""}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 ) : (
-                  <div className="px-3 py-2 text-muted-foreground text-xs">No files found</div>
+                  <div className="py-10 text-center text-sm text-muted-foreground">
+                    No files found.
+                  </div>
                 )}
               </div>
-              <div className="border-border/60 border-t px-3 py-2 text-muted-foreground text-[11px]">
-                Press {isMacPlatform(navigator.platform) ? "⌘K" : "Ctrl+K"} while the editor is
-                focused to search.
+              <div className="flex items-center justify-between gap-2 rounded-b-[calc(var(--radius-2xl)-1px)] border-t px-5 py-3 text-muted-foreground text-xs">
+                <div className="flex items-center gap-3">
+                  <KbdGroup className="items-center gap-1.5">
+                    <Kbd>{useMetaForMod ? "\u2318 K" : "Ctrl K"}</Kbd>
+                    <span className="text-muted-foreground/80">Open</span>
+                  </KbdGroup>
+                  {files.length > 0 ? (
+                    <KbdGroup className="items-center gap-1.5">
+                      <Kbd>Enter</Kbd>
+                      <span className="text-muted-foreground/80">Open first result</span>
+                    </KbdGroup>
+                  ) : null}
+                  <KbdGroup className="items-center gap-1.5">
+                    <Kbd>Esc</Kbd>
+                    <span className="text-muted-foreground/80">Close</span>
+                  </KbdGroup>
+                </div>
               </div>
             </div>
           </PopoverPopup>
