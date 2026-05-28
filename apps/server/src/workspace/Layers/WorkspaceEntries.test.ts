@@ -313,6 +313,33 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
     );
   });
 
+  describe("listDirectory", () => {
+    it.effect("returns immediate directories before files for a workspace path", () =>
+      Effect.gen(function* () {
+        const workspaceEntries = yield* WorkspaceEntries;
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-list-directory-" });
+        yield* writeTextFile(cwd, "apps/web/src/main.tsx", "export {};\n");
+        yield* writeTextFile(cwd, "apps/server/src/ws.ts", "export {};\n");
+        yield* writeTextFile(cwd, "README.md", "# Test\n");
+
+        const rootResult = yield* workspaceEntries.listDirectory({ cwd });
+        const appsResult = yield* workspaceEntries.listDirectory({
+          cwd,
+          relativePath: "apps",
+        });
+
+        expect(rootResult.entries).toEqual([
+          { path: "apps", kind: "directory" },
+          { path: "README.md", kind: "file" },
+        ]);
+        expect(appsResult.entries).toEqual([
+          { path: "apps/server", kind: "directory", parentPath: "apps" },
+          { path: "apps/web", kind: "directory", parentPath: "apps" },
+        ]);
+      }),
+    );
+  });
+
   describe("browse", () => {
     it.effect("returns matching directories and excludes files", () =>
       Effect.gen(function* () {

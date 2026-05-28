@@ -68,6 +68,8 @@ composition, which are likely to continue evolving upstream.
 - `feature/ghi#6`: lightweight local workspace layout state for the shell rail,
   plan pane visibility, and terminal pane activity
 - `c462f71c`: Monaco-based editor pane foundation with workspace-root-guarded file reads
+- `feature/ghi#23`: workspace-bound editor file navigation with directory
+  listing, active-file continuity, and git changed-file indicators
 
 ## Sync Notes
 
@@ -93,6 +95,9 @@ composition, which are likely to continue evolving upstream.
   does not destructively reset the current shell arrangement
 - the first editor pane now sits beside the AI pane and loads Monaco lazily after
   a workspace file is selected through a guarded project file-read adapter
+- the editor pane now owns lightweight workspace file navigation through a
+  project directory-listing adapter, keeping file browsing and changed-file
+  awareness inside the editor surface instead of the AI pane
 - keep pane chrome reusable so future terminal and support surfaces can adopt the
   same workspace framing without copying chat-specific structure
 - keep chat actions extracted from pane framing so upstream chat behavior can

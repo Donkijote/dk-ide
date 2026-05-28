@@ -1,14 +1,26 @@
 import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircleIcon, FileCode2Icon, LoaderCircleIcon, SearchIcon, XIcon } from "lucide-react";
+import {
+  AlertCircleIcon,
+  ArrowLeftIcon,
+  ChevronRightIcon,
+  FileCode2Icon,
+  FolderIcon,
+  FolderOpenIcon,
+  LoaderCircleIcon,
+  SearchIcon,
+  XIcon,
+} from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Kbd, KbdGroup } from "~/components/ui/kbd";
+import { useGitStatus } from "~/lib/gitStatusState";
 import { cn, isMacPlatform } from "~/lib/utils";
 import {
+  projectListDirectoryQueryOptions,
   projectReadFileQueryOptions,
   projectSearchEntriesQueryOptions,
 } from "../../lib/projectReactQuery";
@@ -61,12 +73,67 @@ function basenameOfPath(path: string): string {
   return path;
 }
 
+function dirnameOfPath(path: string): string {
+  const normalizedPath = path.replace(/\\/g, "/").replace(/\/+$/g, "");
+  const separatorIndex = normalizedPath.lastIndexOf("/");
+  return separatorIndex === -1 ? "" : normalizedPath.slice(0, separatorIndex);
+}
+
+function normalizeRelativePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+}
+
+function buildDirectoryTrail(path: string): Array<{ path: string; label: string }> {
+  const segments = normalizeRelativePath(path).split("/").filter(Boolean);
+  const trail = [{ path: "", label: "Root" }];
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    if (!segment) {
+      continue;
+    }
+    trail.push({
+      path: segments.slice(0, index + 1).join("/"),
+      label: segment,
+    });
+  }
+  return trail;
+}
+
 function asErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unable to open file.";
 }
 
 function firstSearchableFiles(entries: readonly ProjectEntry[]): ProjectEntry[] {
   return entries.filter((entry) => entry.kind === "file").slice(0, SEARCH_LIMIT);
+}
+
+type ChangedFile = {
+  readonly path: string;
+  readonly insertions: number;
+  readonly deletions: number;
+};
+
+type ChangedPathState = {
+  readonly changedFileByPath: ReadonlyMap<string, ChangedFile>;
+  readonly changedDirectoryPaths: ReadonlySet<string>;
+};
+
+function buildChangedPathState(files: readonly ChangedFile[]): ChangedPathState {
+  const changedFileByPath = new Map<string, ChangedFile>();
+  const changedDirectoryPaths = new Set<string>();
+
+  for (const file of files) {
+    const normalizedPath = normalizeRelativePath(file.path);
+    changedFileByPath.set(normalizedPath, { ...file, path: normalizedPath });
+
+    let parentPath = dirnameOfPath(normalizedPath);
+    while (parentPath) {
+      changedDirectoryPaths.add(parentPath);
+      parentPath = dirnameOfPath(parentPath);
+    }
+  }
+
+  return { changedFileByPath, changedDirectoryPaths };
 }
 
 function isFileSearchShortcut(event: KeyboardEvent): boolean {
@@ -112,6 +179,7 @@ export function WorkspaceEditorPane({
   const [workspaceStateByKey, setWorkspaceStateByKey] = useState<
     Record<string, EditorWorkspaceState>
   >({});
+  const [currentDirectoryPath, setCurrentDirectoryPath] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
   const workspaceContextKey =
@@ -123,6 +191,14 @@ export function WorkspaceEditorPane({
   const activePath = workspaceEditorState.activePath;
   const openPaths = workspaceEditorState.openPaths;
   const trimmedQuery = query.trim();
+  const directoryQuery = useQuery(
+    projectListDirectoryQueryOptions({
+      environmentId,
+      cwd: workspaceRoot ?? null,
+      relativePath: currentDirectoryPath,
+      enabled: workspaceRoot !== undefined,
+    }),
+  );
   const searchEntriesQuery = useQuery(
     projectSearchEntriesQueryOptions({
       environmentId,
@@ -144,6 +220,19 @@ export function WorkspaceEditorPane({
       enabled: workspaceRoot !== undefined && activePath !== null,
     }),
   );
+  const gitStatus = useGitStatus({
+    environmentId,
+    cwd: workspaceRoot ?? null,
+  });
+  const changedPathState = useMemo(
+    () => buildChangedPathState(gitStatus.data?.workingTree.files ?? []),
+    [gitStatus.data?.workingTree.files],
+  );
+  const currentDirectoryTrail = useMemo(
+    () => buildDirectoryTrail(currentDirectoryPath),
+    [currentDirectoryPath],
+  );
+  const currentDirectoryEntries = directoryQuery.data?.entries ?? [];
   const activeLanguage = activePath ? languageForPath(activePath) : "plaintext";
   const useMetaForMod = isMacPlatform(navigator.platform);
   const updateWorkspaceEditorState = useCallback(
@@ -171,6 +260,7 @@ export function WorkspaceEditorPane({
           ? currentState.openPaths
           : [...currentState.openPaths, path],
       }));
+      setCurrentDirectoryPath(dirnameOfPath(path));
       setQuery("");
       setSearchOpen(false);
       onActive?.();
@@ -190,6 +280,7 @@ export function WorkspaceEditorPane({
         ...currentState,
         activePath: path,
       }));
+      setCurrentDirectoryPath(dirnameOfPath(path));
       onActive?.();
     },
     [onActive, updateWorkspaceEditorState],
@@ -208,10 +299,22 @@ export function WorkspaceEditorPane({
     },
     [openPaths, updateWorkspaceEditorState],
   );
+  const navigateDirectory = useCallback(
+    (path: string) => {
+      setCurrentDirectoryPath(normalizeRelativePath(path));
+      onActive?.();
+    },
+    [onActive],
+  );
+  const navigateToParentDirectory = useCallback(() => {
+    setCurrentDirectoryPath((path) => dirnameOfPath(path));
+    onActive?.();
+  }, [onActive]);
 
   useEffect(() => {
     setQuery("");
     setSearchOpen(false);
+    setCurrentDirectoryPath("");
     setHighlightedFileIndex(0);
   }, [workspaceContextKey]);
 
@@ -483,71 +586,188 @@ export function WorkspaceEditorPane({
         </Popover>
       </div>
 
-      <div className="relative flex min-h-0 min-w-0 flex-1 bg-background">
-        {!workspaceRoot ? (
-          <div className="m-auto max-w-sm px-4 text-center text-muted-foreground text-sm">
-            Workspace unavailable
-          </div>
-        ) : activePath === null ? (
-          <div className="m-auto flex max-w-sm flex-col items-center gap-3 px-4 text-center">
-            <div className="flex size-10 items-center justify-center rounded-md border border-border/70 bg-muted text-muted-foreground">
-              <FileCode2Icon className="size-5" />
+      <div className="flex min-h-0 min-w-0 flex-1 bg-background">
+        <aside className="flex w-[38%] min-w-32 max-w-56 shrink-0 flex-col border-border/60 border-r bg-muted/20">
+          <div className="flex min-h-10 items-center gap-1.5 border-border/60 border-b px-2">
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="size-7 shrink-0"
+              disabled={!workspaceRoot || currentDirectoryPath.length === 0}
+              aria-label="Open parent directory"
+              title="Open parent directory"
+              onClick={navigateToParentDirectory}
+            >
+              <ArrowLeftIcon className="size-3.5" />
+            </Button>
+            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-muted-foreground text-xs">
+              {currentDirectoryTrail.map((item, index) => {
+                const isLast = index === currentDirectoryTrail.length - 1;
+                return (
+                  <div key={item.path || "root"} className="flex min-w-0 items-center gap-1">
+                    {index > 0 ? <ChevronRightIcon className="size-3 shrink-0" /> : null}
+                    <button
+                      type="button"
+                      className={cn(
+                        "min-w-0 truncate rounded-sm px-1 py-0.5 transition hover:bg-accent hover:text-accent-foreground",
+                        isLast && "font-medium text-foreground",
+                      )}
+                      onClick={() => navigateDirectory(item.path)}
+                      title={item.path || workspaceRoot}
+                      disabled={!workspaceRoot}
+                    >
+                      {item.label}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-            <div className="space-y-2">
-              <div className="space-y-1">
-                <p className="font-medium text-foreground text-sm">No file open</p>
-                <p className="text-muted-foreground text-xs">{workspaceRoot}</p>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-1.5">
+            {!workspaceRoot ? (
+              <div className="px-2 py-8 text-center text-muted-foreground text-xs">
+                No workspace root.
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSearchOpen(true);
-                  onActive?.();
-                }}
-                className="h-8"
-              >
-                <SearchIcon className="size-3.5" />
-                Search files
-              </Button>
-            </div>
-          </div>
-        ) : activeFileQuery.isLoading ? (
-          <div className="m-auto flex items-center gap-2 text-muted-foreground text-sm">
-            <LoaderCircleIcon className="size-4 animate-spin" />
-            Loading {basenameOfPath(activePath)}
-          </div>
-        ) : activeFileQuery.isError ? (
-          <div className="m-auto flex max-w-sm items-start gap-3 px-4 text-sm">
-            <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
-            <div className="min-w-0">
-              <p className="font-medium text-foreground">
-                Could not open {basenameOfPath(activePath)}
-              </p>
-              <p className="mt-1 text-muted-foreground text-xs">
-                {asErrorMessage(activeFileQuery.error)}
-              </p>
-            </div>
-          </div>
-        ) : activeFileQuery.data ? (
-          <Suspense
-            fallback={
-              <div className="m-auto flex items-center gap-2 text-muted-foreground text-sm">
-                <LoaderCircleIcon className="size-4 animate-spin" />
-                Loading editor
+            ) : directoryQuery.isLoading ? (
+              <div className="flex items-center gap-2 px-2 py-3 text-muted-foreground text-xs">
+                <LoaderCircleIcon className="size-3.5 animate-spin" />
+                Loading files
               </div>
-            }
-          >
-            <MonacoCodeSurface
-              key={activeFileQuery.data.relativePath}
-              contents={activeFileQuery.data.contents}
-              language={activeLanguage}
-              path={activeFileQuery.data.relativePath}
-              theme={resolvedTheme}
-            />
-          </Suspense>
-        ) : null}
+            ) : directoryQuery.isError ? (
+              <div className="px-2 py-3 text-destructive text-xs">
+                {asErrorMessage(directoryQuery.error)}
+              </div>
+            ) : currentDirectoryEntries.length > 0 ? (
+              <div className="space-y-0.5">
+                {currentDirectoryEntries.map((entry) => {
+                  const changedFile = changedPathState.changedFileByPath.get(entry.path);
+                  const containsChangedFile =
+                    entry.kind === "directory" &&
+                    changedPathState.changedDirectoryPaths.has(entry.path);
+                  const isActiveFile = entry.kind === "file" && entry.path === activePath;
+                  const Icon = entry.kind === "directory" ? FolderIcon : FileCode2Icon;
+
+                  return (
+                    <button
+                      key={entry.path}
+                      type="button"
+                      className={cn(
+                        "group flex min-h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+                        isActiveFile
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      )}
+                      title={entry.path}
+                      onClick={() => {
+                        if (entry.kind === "directory") {
+                          navigateDirectory(entry.path);
+                        } else {
+                          openPath(entry.path);
+                        }
+                      }}
+                    >
+                      <Icon
+                        className={cn(
+                          "size-3.5 shrink-0",
+                          entry.kind === "directory" && containsChangedFile && "text-amber-500",
+                          entry.kind === "file" && changedFile && "text-amber-500",
+                        )}
+                      />
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {basenameOfPath(entry.path)}
+                      </span>
+                      {entry.kind === "directory" ? (
+                        <ChevronRightIcon className="size-3 shrink-0 opacity-45 transition group-hover:opacity-80" />
+                      ) : changedFile ? (
+                        <span
+                          className="size-1.5 shrink-0 rounded-full bg-amber-500"
+                          title={`Changed: +${changedFile.insertions} -${changedFile.deletions}`}
+                        />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="px-2 py-8 text-center text-muted-foreground text-xs">
+                Empty directory.
+              </div>
+            )}
+          </div>
+          {directoryQuery.data?.truncated ? (
+            <div className="border-border/60 border-t px-3 py-2 text-muted-foreground text-xs">
+              Some files are hidden because the workspace index is truncated.
+            </div>
+          ) : null}
+        </aside>
+
+        <div className="relative flex min-h-0 min-w-0 flex-1">
+          {!workspaceRoot ? (
+            <div className="m-auto max-w-sm px-4 text-center text-muted-foreground text-sm">
+              Workspace unavailable
+            </div>
+          ) : activePath === null ? (
+            <div className="m-auto flex max-w-sm flex-col items-center gap-3 px-4 text-center">
+              <div className="flex size-10 items-center justify-center rounded-md border border-border/70 bg-muted text-muted-foreground">
+                <FolderOpenIcon className="size-5" />
+              </div>
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <p className="font-medium text-foreground text-sm">No file open</p>
+                  <p className="text-muted-foreground text-xs">{workspaceRoot}</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSearchOpen(true);
+                    onActive?.();
+                  }}
+                  className="h-8"
+                >
+                  <SearchIcon className="size-3.5" />
+                  Search files
+                </Button>
+              </div>
+            </div>
+          ) : activeFileQuery.isLoading ? (
+            <div className="m-auto flex items-center gap-2 text-muted-foreground text-sm">
+              <LoaderCircleIcon className="size-4 animate-spin" />
+              Loading {basenameOfPath(activePath)}
+            </div>
+          ) : activeFileQuery.isError ? (
+            <div className="m-auto flex max-w-sm items-start gap-3 px-4 text-sm">
+              <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
+              <div className="min-w-0">
+                <p className="font-medium text-foreground">
+                  Could not open {basenameOfPath(activePath)}
+                </p>
+                <p className="mt-1 text-muted-foreground text-xs">
+                  {asErrorMessage(activeFileQuery.error)}
+                </p>
+              </div>
+            </div>
+          ) : activeFileQuery.data ? (
+            <Suspense
+              fallback={
+                <div className="m-auto flex items-center gap-2 text-muted-foreground text-sm">
+                  <LoaderCircleIcon className="size-4 animate-spin" />
+                  Loading editor
+                </div>
+              }
+            >
+              <MonacoCodeSurface
+                key={activeFileQuery.data.relativePath}
+                contents={activeFileQuery.data.contents}
+                language={activeLanguage}
+                path={activeFileQuery.data.relativePath}
+                theme={resolvedTheme}
+              />
+            </Suspense>
+          ) : null}
+        </div>
       </div>
     </div>
   );
