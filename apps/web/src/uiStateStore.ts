@@ -21,6 +21,15 @@ export interface PersistedUiState {
   projectOrderCwds?: string[];
   defaultAdvertisedEndpointKey?: string | null;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
+  workspaceShellSidebarOpen?: boolean;
+  workspaceThreadLayoutById?: Record<string, PersistedWorkspaceThreadLayout>;
+}
+
+export type WorkspacePaneId = "ai" | "plan" | "terminal";
+
+export interface PersistedWorkspaceThreadLayout {
+  lastActivePane?: WorkspacePaneId;
+  planSidebarOpen?: boolean;
 }
 
 export interface UiProjectState {
@@ -37,7 +46,13 @@ export interface UiEndpointState {
   defaultAdvertisedEndpointKey: string | null;
 }
 
-export interface UiState extends UiProjectState, UiThreadState, UiEndpointState {}
+export interface UiWorkspaceLayoutState {
+  workspaceShellSidebarOpen: boolean;
+  workspaceThreadLayoutById: Record<string, PersistedWorkspaceThreadLayout>;
+}
+
+export interface UiState
+  extends UiProjectState, UiThreadState, UiEndpointState, UiWorkspaceLayoutState {}
 
 export interface SyncProjectInput {
   /** Physical project key (env + cwd). Used for manual sort order. */
@@ -58,6 +73,8 @@ const initialState: UiState = {
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
+  workspaceShellSidebarOpen: true,
+  workspaceThreadLayoutById: {},
 };
 
 const persistedCollapsedProjectCwds = new Set<string>();
@@ -102,6 +119,13 @@ function readPersistedState(): UiState {
       threadChangedFilesExpandedById: sanitizePersistedThreadChangedFilesExpanded(
         parsed.threadChangedFilesExpandedById,
       ),
+      workspaceShellSidebarOpen:
+        typeof parsed.workspaceShellSidebarOpen === "boolean"
+          ? parsed.workspaceShellSidebarOpen
+          : initialState.workspaceShellSidebarOpen,
+      workspaceThreadLayoutById: sanitizePersistedWorkspaceThreadLayout(
+        parsed.workspaceThreadLayoutById,
+      ),
     };
   } catch {
     return initialState;
@@ -130,6 +154,39 @@ function sanitizePersistedThreadChangedFilesExpanded(
 
     if (Object.keys(nextTurns).length > 0) {
       nextState[threadId] = nextTurns;
+    }
+  }
+
+  return nextState;
+}
+
+function sanitizePersistedWorkspaceThreadLayout(
+  value: PersistedUiState["workspaceThreadLayoutById"],
+): Record<string, PersistedWorkspaceThreadLayout> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const nextState: Record<string, PersistedWorkspaceThreadLayout> = {};
+  for (const [threadId, layout] of Object.entries(value)) {
+    if (!threadId || !layout || typeof layout !== "object") {
+      continue;
+    }
+
+    const nextLayout: PersistedWorkspaceThreadLayout = {};
+    if (
+      layout.lastActivePane === "ai" ||
+      layout.lastActivePane === "plan" ||
+      layout.lastActivePane === "terminal"
+    ) {
+      nextLayout.lastActivePane = layout.lastActivePane;
+    }
+    if (typeof layout.planSidebarOpen === "boolean") {
+      nextLayout.planSidebarOpen = layout.planSidebarOpen;
+    }
+
+    if (Object.keys(nextLayout).length > 0) {
+      nextState[threadId] = nextLayout;
     }
   }
 
@@ -192,6 +249,8 @@ export function persistState(state: UiState): void {
         projectOrderCwds,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         threadChangedFilesExpandedById,
+        workspaceShellSidebarOpen: state.workspaceShellSidebarOpen,
+        workspaceThreadLayoutById: state.workspaceThreadLayoutById,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -416,12 +475,18 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
       retainedThreadIds.has(threadId),
     ),
   );
+  const nextWorkspaceThreadLayoutById = Object.fromEntries(
+    Object.entries(state.workspaceThreadLayoutById).filter(([threadId]) =>
+      retainedThreadIds.has(threadId),
+    ),
+  );
   if (
     recordsEqual(state.threadLastVisitedAtById, nextThreadLastVisitedAtById) &&
     nestedBooleanRecordsEqual(
       state.threadChangedFilesExpandedById,
       nextThreadChangedFilesExpandedById,
-    )
+    ) &&
+    workspaceThreadLayoutsEqual(state.workspaceThreadLayoutById, nextWorkspaceThreadLayoutById)
   ) {
     return state;
   }
@@ -429,6 +494,7 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
     ...state,
     threadLastVisitedAtById: nextThreadLastVisitedAtById,
     threadChangedFilesExpandedById: nextThreadChangedFilesExpandedById,
+    workspaceThreadLayoutById: nextWorkspaceThreadLayoutById,
   };
 }
 
@@ -481,17 +547,79 @@ export function markThreadUnread(
 export function clearThreadUi(state: UiState, threadId: string): UiState {
   const hasVisitedState = threadId in state.threadLastVisitedAtById;
   const hasChangedFilesState = threadId in state.threadChangedFilesExpandedById;
-  if (!hasVisitedState && !hasChangedFilesState) {
+  const hasWorkspaceLayoutState = threadId in state.workspaceThreadLayoutById;
+  if (!hasVisitedState && !hasChangedFilesState && !hasWorkspaceLayoutState) {
     return state;
   }
   const nextThreadLastVisitedAtById = { ...state.threadLastVisitedAtById };
   const nextThreadChangedFilesExpandedById = { ...state.threadChangedFilesExpandedById };
+  const nextWorkspaceThreadLayoutById = { ...state.workspaceThreadLayoutById };
   delete nextThreadLastVisitedAtById[threadId];
   delete nextThreadChangedFilesExpandedById[threadId];
+  delete nextWorkspaceThreadLayoutById[threadId];
   return {
     ...state,
     threadLastVisitedAtById: nextThreadLastVisitedAtById,
     threadChangedFilesExpandedById: nextThreadChangedFilesExpandedById,
+    workspaceThreadLayoutById: nextWorkspaceThreadLayoutById,
+  };
+}
+
+function workspaceThreadLayoutEqual(
+  left: PersistedWorkspaceThreadLayout | undefined,
+  right: PersistedWorkspaceThreadLayout | undefined,
+): boolean {
+  return (
+    (left?.lastActivePane ?? undefined) === (right?.lastActivePane ?? undefined) &&
+    (left?.planSidebarOpen === true) === (right?.planSidebarOpen === true)
+  );
+}
+
+function workspaceThreadLayoutsEqual(
+  left: Record<string, PersistedWorkspaceThreadLayout>,
+  right: Record<string, PersistedWorkspaceThreadLayout>,
+): boolean {
+  const leftEntries = Object.entries(left);
+  const rightEntries = Object.entries(right);
+  if (leftEntries.length !== rightEntries.length) {
+    return false;
+  }
+  for (const [key, value] of leftEntries) {
+    if (!workspaceThreadLayoutEqual(value, right[key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isDefaultWorkspaceThreadLayout(layout: PersistedWorkspaceThreadLayout): boolean {
+  return layout.planSidebarOpen !== true && layout.lastActivePane === undefined;
+}
+
+function updateWorkspaceThreadLayout(
+  state: UiState,
+  threadId: string,
+  updater: (layout: PersistedWorkspaceThreadLayout) => PersistedWorkspaceThreadLayout,
+): UiState {
+  if (threadId.length === 0) {
+    return state;
+  }
+
+  const current = state.workspaceThreadLayoutById[threadId] ?? {};
+  const next = updater(current);
+  if (workspaceThreadLayoutEqual(current, next)) {
+    return state;
+  }
+
+  const nextWorkspaceThreadLayoutById = { ...state.workspaceThreadLayoutById };
+  if (isDefaultWorkspaceThreadLayout(next)) {
+    delete nextWorkspaceThreadLayoutById[threadId];
+  } else {
+    nextWorkspaceThreadLayoutById[threadId] = next;
+  }
+  return {
+    ...state,
+    workspaceThreadLayoutById: nextWorkspaceThreadLayoutById,
   };
 }
 
@@ -553,6 +681,45 @@ export function setDefaultAdvertisedEndpointKey(state: UiState, key: string | nu
     ...state,
     defaultAdvertisedEndpointKey: nextKey,
   };
+}
+
+export function setWorkspaceShellSidebarOpen(state: UiState, open: boolean): UiState {
+  if (state.workspaceShellSidebarOpen === open) {
+    return state;
+  }
+  return {
+    ...state,
+    workspaceShellSidebarOpen: open,
+  };
+}
+
+export function setWorkspaceThreadPlanSidebarOpen(
+  state: UiState,
+  threadId: string,
+  open: boolean,
+): UiState {
+  return updateWorkspaceThreadLayout(state, threadId, (layout) => {
+    if (open) {
+      return {
+        ...layout,
+        lastActivePane: "plan",
+        planSidebarOpen: true,
+      };
+    }
+    const { planSidebarOpen: _planSidebarOpen, ...nextLayout } = layout;
+    return nextLayout;
+  });
+}
+
+export function setWorkspaceThreadLastActivePane(
+  state: UiState,
+  threadId: string,
+  pane: WorkspacePaneId,
+): UiState {
+  return updateWorkspaceThreadLayout(state, threadId, (layout) => ({
+    ...layout,
+    lastActivePane: pane,
+  }));
 }
 
 export function toggleProject(state: UiState, projectId: string): UiState {
@@ -630,6 +797,9 @@ interface UiStateStore extends UiState {
   clearThreadUi: (threadId: string) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
+  setWorkspaceShellSidebarOpen: (open: boolean) => void;
+  setWorkspaceThreadPlanSidebarOpen: (threadId: string, open: boolean) => void;
+  setWorkspaceThreadLastActivePane: (threadId: string, pane: WorkspacePaneId) => void;
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
   reorderProjects: (
@@ -651,6 +821,11 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setThreadChangedFilesExpanded(state, threadId, turnId, expanded)),
   setDefaultAdvertisedEndpointKey: (key) =>
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
+  setWorkspaceShellSidebarOpen: (open) => set((state) => setWorkspaceShellSidebarOpen(state, open)),
+  setWorkspaceThreadPlanSidebarOpen: (threadId, open) =>
+    set((state) => setWorkspaceThreadPlanSidebarOpen(state, threadId, open)),
+  setWorkspaceThreadLastActivePane: (threadId, pane) =>
+    set((state) => setWorkspaceThreadLastActivePane(state, threadId, pane)),
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),

@@ -471,6 +471,9 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
   const terminalState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadKey, threadRef),
   );
+  const storeSetWorkspaceThreadLastActivePane = useUiStateStore(
+    (state) => state.setWorkspaceThreadLastActivePane,
+  );
   const storeSetTerminalHeight = useTerminalStateStore((state) => state.setTerminalHeight);
   const storeSplitTerminal = useTerminalStateStore((state) => state.splitTerminal);
   const storeNewTerminal = useTerminalStateStore((state) => state.newTerminal);
@@ -522,20 +525,23 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
 
   const splitTerminal = useCallback(() => {
     storeSplitTerminal(threadRef, `terminal-${randomUUID()}`);
+    storeSetWorkspaceThreadLastActivePane(scopedThreadKey(threadRef), "terminal");
     bumpFocusRequestId();
-  }, [bumpFocusRequestId, storeSplitTerminal, threadRef]);
+  }, [bumpFocusRequestId, storeSetWorkspaceThreadLastActivePane, storeSplitTerminal, threadRef]);
 
   const createNewTerminal = useCallback(() => {
     storeNewTerminal(threadRef, `terminal-${randomUUID()}`);
+    storeSetWorkspaceThreadLastActivePane(scopedThreadKey(threadRef), "terminal");
     bumpFocusRequestId();
-  }, [bumpFocusRequestId, storeNewTerminal, threadRef]);
+  }, [bumpFocusRequestId, storeNewTerminal, storeSetWorkspaceThreadLastActivePane, threadRef]);
 
   const activateTerminal = useCallback(
     (terminalId: string) => {
       storeSetActiveTerminal(threadRef, terminalId);
+      storeSetWorkspaceThreadLastActivePane(scopedThreadKey(threadRef), "terminal");
       bumpFocusRequestId();
     },
-    [bumpFocusRequestId, storeSetActiveTerminal, threadRef],
+    [bumpFocusRequestId, storeSetActiveTerminal, storeSetWorkspaceThreadLastActivePane, threadRef],
   );
 
   const closeTerminal = useCallback(
@@ -689,6 +695,25 @@ export default function ChatView(props: ChatViewProps) {
   const activeThreadLastVisitedAt = useUiStateStore((store) =>
     routeKind === "server" ? store.threadLastVisitedAtById[routeThreadKey] : undefined,
   );
+  const planSidebarOpen = useUiStateStore(
+    (store) => store.workspaceThreadLayoutById[routeThreadKey]?.planSidebarOpen ?? false,
+  );
+  const storeSetWorkspaceThreadPlanSidebarOpen = useUiStateStore(
+    (store) => store.setWorkspaceThreadPlanSidebarOpen,
+  );
+  const storeSetWorkspaceThreadLastActivePane = useUiStateStore(
+    (store) => store.setWorkspaceThreadLastActivePane,
+  );
+  const setPlanSidebarOpen = useCallback(
+    (value: boolean | ((open: boolean) => boolean)) => {
+      const currentOpen =
+        useUiStateStore.getState().workspaceThreadLayoutById[routeThreadKey]?.planSidebarOpen ??
+        false;
+      const nextOpen = typeof value === "function" ? value(currentOpen) : value;
+      storeSetWorkspaceThreadPlanSidebarOpen(routeThreadKey, nextOpen);
+    },
+    [routeThreadKey, storeSetWorkspaceThreadPlanSidebarOpen],
+  );
   const settings = useSettings();
   const setStickyComposerModelSelection = useComposerDraftStore(
     (store) => store.setStickyModelSelection,
@@ -761,7 +786,6 @@ export default function ChatView(props: ChatViewProps) {
   >({});
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
-  const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
@@ -1876,8 +1900,12 @@ export default function ChatView(props: ChatViewProps) {
     (open: boolean) => {
       if (!activeThreadRef) return;
       storeSetTerminalOpen(activeThreadRef, open);
+      storeSetWorkspaceThreadLastActivePane(
+        scopedThreadKey(activeThreadRef),
+        open ? "terminal" : "ai",
+      );
     },
-    [activeThreadRef, storeSetTerminalOpen],
+    [activeThreadRef, storeSetTerminalOpen, storeSetWorkspaceThreadLastActivePane],
   );
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadRef) return;
@@ -1887,14 +1915,21 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef || hasReachedSplitLimit) return;
     const terminalId = `terminal-${randomUUID()}`;
     storeSplitTerminal(activeThreadRef, terminalId);
+    storeSetWorkspaceThreadLastActivePane(scopedThreadKey(activeThreadRef), "terminal");
     setTerminalFocusRequestId((value) => value + 1);
-  }, [activeThreadRef, hasReachedSplitLimit, storeSplitTerminal]);
+  }, [
+    activeThreadRef,
+    hasReachedSplitLimit,
+    storeSetWorkspaceThreadLastActivePane,
+    storeSplitTerminal,
+  ]);
   const createNewTerminal = useCallback(() => {
     if (!activeThreadRef) return;
     const terminalId = `terminal-${randomUUID()}`;
     storeNewTerminal(activeThreadRef, terminalId);
+    storeSetWorkspaceThreadLastActivePane(scopedThreadKey(activeThreadRef), "terminal");
     setTerminalFocusRequestId((value) => value + 1);
-  }, [activeThreadRef, storeNewTerminal]);
+  }, [activeThreadRef, storeNewTerminal, storeSetWorkspaceThreadLastActivePane]);
   const closeTerminal = useCallback(
     (terminalId: string) => {
       const api = readEnvironmentApi(environmentId);
@@ -2223,12 +2258,12 @@ export default function ChatView(props: ChatViewProps) {
       }
       return !open;
     });
-  }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
+  }, [activePlan?.turnId, setPlanSidebarOpen, sidebarProposedPlan?.turnId]);
   const closePlanSidebar = useCallback(() => {
     setPlanSidebarOpen(false);
     planSidebarDismissedForTurnRef.current =
       activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
-  }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
+  }, [activePlan?.turnId, setPlanSidebarOpen, sidebarProposedPlan?.turnId]);
 
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -2316,10 +2351,9 @@ export default function ChatView(props: ChatViewProps) {
       setPlanSidebarOpen(true);
     } else {
       planSidebarOpenOnNextThreadRef.current = false;
-      setPlanSidebarOpen(false);
     }
     planSidebarDismissedForTurnRef.current = null;
-  }, [activeThread?.id]);
+  }, [activeThread?.id, setPlanSidebarOpen]);
 
   // Auto-open the plan sidebar when plan/todo steps arrive for the current turn.
   // Don't auto-open for plans carried over from a previous turn (the user can open manually).
@@ -2337,6 +2371,7 @@ export default function ChatView(props: ChatViewProps) {
     activeLatestTurn?.turnId,
     autoOpenPlanSidebar,
     planSidebarOpen,
+    setPlanSidebarOpen,
     sidebarProposedPlan?.turnId,
   ]);
 
@@ -3306,6 +3341,7 @@ export default function ChatView(props: ChatViewProps) {
       resetLocalDispatch,
       runtimeMode,
       setComposerDraftInteractionMode,
+      setPlanSidebarOpen,
       setThreadError,
       autoOpenPlanSidebar,
       environmentId,

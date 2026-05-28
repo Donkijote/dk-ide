@@ -65,6 +65,8 @@ composition, which are likely to continue evolving upstream.
 - `adc6d1b3`: terminal pane extraction that renders terminal groups as peer workspace panes instead of a bottom drawer
 - `ccd33a35`: upstream sync merge against `upstream/main` through `4f0f24f0`
 - `f958e8de`: sidebar project rows reframed as workspace navigation with source, environment, and recoverable thread-history metadata
+- `feature/ghi#6`: lightweight local workspace layout state for the shell rail,
+  plan pane visibility, and terminal pane activity
 
 ## Sync Notes
 
@@ -85,6 +87,9 @@ composition, which are likely to continue evolving upstream.
 - sidebar project records remain the runtime-backed source of truth, but the
   visible rail now presents them as workspace entries and keeps thread history
   recoverable inside each workspace row
+- lightweight local layout state now preserves the workspace rail state and
+  per-thread pane visibility so collapsing navigation or moving between threads
+  does not destructively reset the current shell arrangement
 - keep pane chrome reusable so future terminal and support surfaces can adopt the
   same workspace framing without copying chat-specific structure
 - keep chat actions extracted from pane framing so upstream chat behavior can

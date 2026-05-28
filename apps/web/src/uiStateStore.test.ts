@@ -13,6 +13,9 @@ import {
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
   setThreadChangedFilesExpanded,
+  setWorkspaceShellSidebarOpen,
+  setWorkspaceThreadLastActivePane,
+  setWorkspaceThreadPlanSidebarOpen,
   syncProjects,
   syncThreads,
   type UiState,
@@ -25,6 +28,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
+    workspaceShellSidebarOpen: true,
+    workspaceThreadLayoutById: {},
     ...overrides,
   };
 }
@@ -416,6 +421,52 @@ describe("uiStateStore pure functions", () => {
     expect(next.threadChangedFilesExpandedById).toEqual({});
   });
 
+  it("syncThreads prunes stale workspace pane layout state", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const thread2 = ThreadId.make("thread-2");
+    const initialState = makeUiState({
+      workspaceThreadLayoutById: {
+        [thread1]: { planSidebarOpen: true, lastActivePane: "plan" },
+        [thread2]: { planSidebarOpen: true, lastActivePane: "terminal" },
+      },
+    });
+
+    const next = syncThreads(initialState, [{ key: thread1 }]);
+
+    expect(next.workspaceThreadLayoutById).toEqual({
+      [thread1]: { planSidebarOpen: true, lastActivePane: "plan" },
+    });
+  });
+
+  it("clearThreadUi removes workspace pane layout state for deleted threads", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const initialState = makeUiState({
+      workspaceThreadLayoutById: {
+        [thread1]: { planSidebarOpen: true, lastActivePane: "plan" },
+      },
+    });
+
+    const next = clearThreadUi(initialState, thread1);
+
+    expect(next.workspaceThreadLayoutById).toEqual({});
+  });
+
+  it("stores workspace shell and per-thread pane layout state", () => {
+    const thread1 = ThreadId.make("thread-1");
+    let state = makeUiState();
+
+    state = setWorkspaceShellSidebarOpen(state, false);
+    state = setWorkspaceThreadPlanSidebarOpen(state, thread1, true);
+    state = setWorkspaceThreadLastActivePane(state, thread1, "terminal");
+
+    expect(state.workspaceShellSidebarOpen).toBe(false);
+    expect(state.workspaceThreadLayoutById[thread1]).toEqual({
+      planSidebarOpen: true,
+      lastActivePane: "terminal",
+    });
+    expect(setWorkspaceShellSidebarOpen(state, false)).toBe(state);
+  });
+
   it("setThreadChangedFilesExpanded stores collapsed turns per thread", () => {
     const thread1 = ThreadId.make("thread-1");
     const initialState = makeUiState();
@@ -577,6 +628,24 @@ describe("uiStateStore persistence round-trip", () => {
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
     expect(persisted.defaultAdvertisedEndpointKey).toBe("desktop-core:lan:http");
+  });
+
+  it("persists lightweight workspace layout state", () => {
+    const thread1 = ThreadId.make("thread-1");
+    let state = setWorkspaceShellSidebarOpen(makeUiState(), false);
+    state = setWorkspaceThreadPlanSidebarOpen(state, thread1, true);
+    state = setWorkspaceThreadLastActivePane(state, thread1, "plan");
+
+    persistState(state);
+
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+
+    expect(persisted.workspaceShellSidebarOpen).toBe(false);
+    expect(persisted.workspaceThreadLayoutById).toEqual({
+      [thread1]: { planSidebarOpen: true, lastActivePane: "plan" },
+    });
   });
 
   it("preserves expand state across restart when project's logical key changes", () => {
