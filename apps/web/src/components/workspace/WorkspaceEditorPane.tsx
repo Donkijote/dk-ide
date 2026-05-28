@@ -117,7 +117,7 @@ export function WorkspaceEditorPane({
   );
 
   return (
-    <div className={cn("flex min-h-0 min-w-0 flex-col bg-card/30", className)}>
+    <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col bg-card/30 w-full", className)}>
       <div className="flex min-w-0 items-center gap-2 border-border/60 border-b px-3 py-2">
         <div className="relative min-w-0 flex-1">
           <SearchIcon className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 size-3.5 text-muted-foreground" />

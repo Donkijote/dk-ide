@@ -77,5 +77,5 @@ export default function MonacoCodeSurface({
     };
   }, [contents, language, path, theme]);
 
-  return <div ref={containerRef} className="min-h-0 min-w-0 flex-1" />;
+  return <div ref={containerRef} className="min-h-0 min-w-0 flex-1 w-full" />;
 }
