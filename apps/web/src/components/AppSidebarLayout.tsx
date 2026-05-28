@@ -7,12 +7,15 @@ import {
   clearShortcutModifierState,
   syncShortcutModifierStateFromKeyboardEvent,
 } from "../shortcutModifierState";
+import { useUiStateStore } from "../uiStateStore";
 
 const THREAD_SIDEBAR_WIDTH_STORAGE_KEY = "chat_thread_sidebar_width";
 const THREAD_SIDEBAR_MIN_WIDTH = 13 * 16;
 const THREAD_MAIN_CONTENT_MIN_WIDTH = 40 * 16;
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const sidebarOpen = useUiStateStore((state) => state.workspaceShellSidebarOpen);
+  const setSidebarOpen = useUiStateStore((state) => state.setWorkspaceShellSidebarOpen);
 
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
@@ -54,7 +57,12 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   }, [navigate]);
 
   return (
-    <SidebarProvider className="h-dvh! min-h-0!" defaultOpen>
+    <SidebarProvider
+      className="h-dvh! min-h-0!"
+      defaultOpen
+      onOpenChange={setSidebarOpen}
+      open={sidebarOpen}
+    >
       <Sidebar
         side="left"
         collapsible="offcanvas"
