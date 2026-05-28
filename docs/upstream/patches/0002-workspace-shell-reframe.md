@@ -67,6 +67,7 @@ composition, which are likely to continue evolving upstream.
 - `f958e8de`: sidebar project rows reframed as workspace navigation with source, environment, and recoverable thread-history metadata
 - `feature/ghi#6`: lightweight local workspace layout state for the shell rail,
   plan pane visibility, and terminal pane activity
+- `c462f71c`: Monaco-based editor pane foundation with workspace-root-guarded file reads
 
 ## Sync Notes
 
@@ -90,6 +91,8 @@ composition, which are likely to continue evolving upstream.
 - lightweight local layout state now preserves the workspace rail state and
   per-thread pane visibility so collapsing navigation or moving between threads
   does not destructively reset the current shell arrangement
+- the first editor pane now sits beside the AI pane and loads Monaco lazily after
+  a workspace file is selected through a guarded project file-read adapter
 - keep pane chrome reusable so future terminal and support surfaces can adopt the
   same workspace framing without copying chat-specific structure
 - keep chat actions extracted from pane framing so upstream chat behavior can
