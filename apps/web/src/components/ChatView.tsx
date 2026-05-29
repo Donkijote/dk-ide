@@ -3688,7 +3688,7 @@ export default function ChatView(props: ChatViewProps) {
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
         <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-[112rem] flex-1 flex-col gap-3">
-          <div className="grid min-h-0 min-w-0 w-full flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(21rem,0.72fr)_minmax(0,1.28fr)]">
+          <div className="grid min-h-0 min-w-0 w-full flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(32rem,1.12fr)_minmax(24rem,0.88fr)]">
             <WorkspacePane
               title="Editor"
               className="min-h-[18rem] xl:min-h-0"
