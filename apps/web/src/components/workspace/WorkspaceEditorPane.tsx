@@ -2,7 +2,6 @@ import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircleIcon,
-  ArrowLeftIcon,
   ChevronRightIcon,
   FileCode2Icon,
   FolderIcon,
@@ -307,10 +306,6 @@ export function WorkspaceEditorPane({
     },
     [onActive],
   );
-  const navigateToParentDirectory = useCallback(() => {
-    setCurrentDirectoryPath((path) => dirnameOfPath(path));
-    onActive?.();
-  }, [onActive]);
 
   useEffect(() => {
     setQuery("");
@@ -605,18 +600,6 @@ export function WorkspaceEditorPane({
       <div className="flex min-h-0 min-w-0 flex-1 bg-background">
         <aside className="flex w-[38%] min-w-32 max-w-56 shrink-0 flex-col border-border/60 border-r bg-muted/20">
           <div className="flex min-h-10 items-center gap-1.5 border-border/60 border-b px-2">
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="size-7 shrink-0"
-              disabled={!workspaceRoot || currentDirectoryPath.length === 0}
-              aria-label="Open parent directory"
-              title="Open parent directory"
-              onClick={navigateToParentDirectory}
-            >
-              <ArrowLeftIcon className="size-3.5" />
-            </Button>
             <div
               ref={breadcrumbScrollRef}
               className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
