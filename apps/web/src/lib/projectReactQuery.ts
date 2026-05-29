@@ -1,5 +1,6 @@
 import type {
   EnvironmentId,
+  ProjectListDirectoryResult,
   ProjectReadFileResult,
   ProjectSearchEntriesResult,
 } from "@t3tools/contracts";
@@ -19,6 +20,8 @@ export const projectQueryKeys = {
     cwd: string | null,
     relativePath: string | null,
   ) => ["projects", "read-file", environmentId ?? null, cwd, relativePath] as const,
+  listDirectory: (environmentId: EnvironmentId | null, cwd: string | null, relativePath: string) =>
+    ["projects", "list-directory", environmentId ?? null, cwd, relativePath] as const,
 };
 
 const DEFAULT_SEARCH_ENTRIES_LIMIT = 80;
@@ -84,5 +87,29 @@ export function projectReadFileQueryOptions(input: {
       input.cwd !== null &&
       input.relativePath !== null,
     staleTime: 2_000,
+  });
+}
+
+export function projectListDirectoryQueryOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  relativePath: string;
+  enabled?: boolean;
+  staleTime?: number;
+}) {
+  return queryOptions<ProjectListDirectoryResult>({
+    queryKey: projectQueryKeys.listDirectory(input.environmentId, input.cwd, input.relativePath),
+    queryFn: async () => {
+      if (!input.cwd || !input.environmentId) {
+        throw new Error("Workspace directory listing is unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.projects.listDirectory({
+        cwd: input.cwd,
+        ...(input.relativePath ? { relativePath: input.relativePath } : {}),
+      });
+    },
+    enabled: (input.enabled ?? true) && input.environmentId !== null && input.cwd !== null,
+    staleTime: input.staleTime ?? DEFAULT_SEARCH_ENTRIES_STALE_TIME,
   });
 }

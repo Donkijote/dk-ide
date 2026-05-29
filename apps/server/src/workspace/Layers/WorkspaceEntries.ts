@@ -510,9 +510,45 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
     },
   );
 
+  const listDirectory: WorkspaceEntriesShape["listDirectory"] = Effect.fn(
+    "WorkspaceEntries.listDirectory",
+  )(function* (input) {
+    const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
+    const relativePath = toPosixPath(input.relativePath?.trim() ?? "").replace(/^\/+|\/+$/g, "");
+    const index = yield* Cache.get(workspaceIndexCache, normalizedCwd);
+    const entries = index.entries
+      .filter((entry) => (entry.parentPath ?? "") === relativePath)
+      .map(
+        (entry): ProjectEntry =>
+          entry.parentPath
+            ? {
+                path: entry.path,
+                kind: entry.kind,
+                parentPath: entry.parentPath,
+              }
+            : {
+                path: entry.path,
+                kind: entry.kind,
+              },
+      )
+      .toSorted((left, right) => {
+        if (left.kind !== right.kind) {
+          return left.kind === "directory" ? -1 : 1;
+        }
+        return left.path.localeCompare(right.path);
+      });
+
+    return {
+      relativePath,
+      entries,
+      truncated: index.truncated,
+    };
+  });
+
   return {
     browse,
     invalidate,
+    listDirectory,
     search,
   } satisfies WorkspaceEntriesShape;
 });
