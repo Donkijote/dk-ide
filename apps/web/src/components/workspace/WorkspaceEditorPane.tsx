@@ -173,6 +173,7 @@ export function WorkspaceEditorPane({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const editorPaneSelectedRef = useRef(false);
   const highlightedFileRef = useRef<HTMLButtonElement | null>(null);
+  const breadcrumbScrollRef = useRef<HTMLDivElement | null>(null);
   const searchPopupRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState("");
@@ -334,6 +335,21 @@ export function WorkspaceEditorPane({
   useEffect(() => {
     highlightedFileRef.current?.scrollIntoView({ block: "nearest" });
   }, [highlightedFileIndex]);
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      const breadcrumbScroll = breadcrumbScrollRef.current;
+      if (!breadcrumbScroll) {
+        return;
+      }
+
+      breadcrumbScroll.scrollTo({
+        left: breadcrumbScroll.scrollWidth,
+        behavior: "smooth",
+      });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [currentDirectoryPath]);
 
   useEffect(() => {
     if (!searchOpen) {
@@ -601,27 +617,32 @@ export function WorkspaceEditorPane({
             >
               <ArrowLeftIcon className="size-3.5" />
             </Button>
-            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-muted-foreground text-xs">
-              {currentDirectoryTrail.map((item, index) => {
-                const isLast = index === currentDirectoryTrail.length - 1;
-                return (
-                  <div key={item.path || "root"} className="flex min-w-0 items-center gap-1">
-                    {index > 0 ? <ChevronRightIcon className="size-3 shrink-0" /> : null}
-                    <button
-                      type="button"
-                      className={cn(
-                        "min-w-0 truncate rounded-sm px-1 py-0.5 transition hover:bg-accent hover:text-accent-foreground",
-                        isLast && "font-medium text-foreground",
-                      )}
-                      onClick={() => navigateDirectory(item.path)}
-                      title={item.path || workspaceRoot}
-                      disabled={!workspaceRoot}
-                    >
-                      {item.label}
-                    </button>
-                  </div>
-                );
-              })}
+            <div
+              ref={breadcrumbScrollRef}
+              className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:thin]"
+            >
+              <div className="flex w-max min-w-full items-center gap-1 whitespace-nowrap text-muted-foreground text-xs">
+                {currentDirectoryTrail.map((item, index) => {
+                  const isLast = index === currentDirectoryTrail.length - 1;
+                  return (
+                    <div key={item.path || "root"} className="flex shrink-0 items-center gap-1">
+                      {index > 0 ? <ChevronRightIcon className="size-3 shrink-0" /> : null}
+                      <button
+                        type="button"
+                        className={cn(
+                          "shrink-0 rounded-sm px-1 py-0.5 whitespace-nowrap transition hover:bg-accent hover:text-accent-foreground",
+                          isLast && "font-medium text-foreground",
+                        )}
+                        onClick={() => navigateDirectory(item.path)}
+                        title={item.path || workspaceRoot}
+                        disabled={!workspaceRoot}
+                      >
+                        {item.label}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-1.5">
