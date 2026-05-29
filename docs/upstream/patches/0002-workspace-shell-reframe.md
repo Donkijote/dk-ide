@@ -70,6 +70,8 @@ composition, which are likely to continue evolving upstream.
 - `c462f71c`: Monaco-based editor pane foundation with workspace-root-guarded file reads
 - `feature/ghi#23`: workspace-bound editor file navigation with directory
   listing, active-file continuity, and git changed-file indicators
+- `improvement/ghi#24`: editor-owned project, file, git, diff, and terminal
+  controls so the AI pane remains focused on chat interaction
 
 ## Sync Notes
 
@@ -98,6 +100,8 @@ composition, which are likely to continue evolving upstream.
 - the editor pane now owns lightweight workspace file navigation through a
   project directory-listing adapter, keeping file browsing and changed-file
   awareness inside the editor surface instead of the AI pane
+- file-oriented actions now live in the editor pane chrome, and the active
+  editor tab exposes git line-change counts when status data is available
 - keep pane chrome reusable so future terminal and support surfaces can adopt the
   same workspace framing without copying chat-specific structure
 - keep chat actions extracted from pane framing so upstream chat behavior can

@@ -234,6 +234,7 @@ export function WorkspaceEditorPane({
   );
   const currentDirectoryEntries = directoryQuery.data?.entries ?? [];
   const activeLanguage = activePath ? languageForPath(activePath) : "plaintext";
+  const activeChangedFile = activePath ? changedPathState.changedFileByPath.get(activePath) : null;
   const useMetaForMod = isMacPlatform(navigator.platform);
   const updateWorkspaceEditorState = useCallback(
     (update: (currentState: EditorWorkspaceState) => EditorWorkspaceState) => {
@@ -451,6 +452,16 @@ export function WorkspaceEditorPane({
             <div className="min-w-0 truncate text-muted-foreground text-xs">No open files</div>
           )}
         </div>
+        {activeChangedFile ? (
+          <div
+            className="hidden shrink-0 items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 font-mono text-[0.6875rem] text-amber-700 leading-none dark:text-amber-300 sm:flex"
+            title={`Changed lines in ${activeChangedFile.path}: +${activeChangedFile.insertions} -${activeChangedFile.deletions}`}
+          >
+            <span className="text-success">+{activeChangedFile.insertions}</span>
+            <span className="text-muted-foreground">/</span>
+            <span className="text-destructive">-{activeChangedFile.deletions}</span>
+          </div>
+        ) : null}
         <Popover
           open={searchOpen}
           onOpenChange={(open) => {
