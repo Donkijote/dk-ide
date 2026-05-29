@@ -619,7 +619,7 @@ export function WorkspaceEditorPane({
             </Button>
             <div
               ref={breadcrumbScrollRef}
-              className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:thin]"
+              className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
               <div className="flex w-max min-w-full items-center gap-1 whitespace-nowrap text-muted-foreground text-xs">
                 {currentDirectoryTrail.map((item, index) => {
