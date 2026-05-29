@@ -17,6 +17,7 @@ import { Input } from "~/components/ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Kbd, KbdGroup } from "~/components/ui/kbd";
 import { useGitStatus } from "~/lib/gitStatusState";
+import { gitWorkingTreeFileChangesQueryOptions } from "~/lib/gitReactQuery";
 import { cn, isMacPlatform } from "~/lib/utils";
 import {
   projectListDirectoryQueryOptions,
@@ -235,6 +236,26 @@ export function WorkspaceEditorPane({
   const currentDirectoryEntries = directoryQuery.data?.entries ?? [];
   const activeLanguage = activePath ? languageForPath(activePath) : "plaintext";
   const activeChangedFile = activePath ? changedPathState.changedFileByPath.get(activePath) : null;
+  const activeFileChangesQuery = useQuery(
+    gitWorkingTreeFileChangesQueryOptions({
+      environmentId,
+      cwd: workspaceRoot ?? null,
+      filePath: activePath,
+      enabled: activePath !== null && activeChangedFile !== null && activeChangedFile !== undefined,
+    }),
+  );
+  const changedLineRanges = useMemo(() => {
+    const fileChanges = activeFileChangesQuery.data;
+    if (!fileChanges) {
+      return [];
+    }
+    if (fileChanges.wholeFileChanged) {
+      const contents = activeFileQuery.data?.contents ?? "";
+      const lineCount = Math.max(1, contents.split(/\r?\n/g).length);
+      return [{ startLine: 1, lineCount }];
+    }
+    return fileChanges.lineRanges;
+  }, [activeFileChangesQuery.data, activeFileQuery.data?.contents]);
   const useMetaForMod = isMacPlatform(navigator.platform);
   const updateWorkspaceEditorState = useCallback(
     (update: (currentState: EditorWorkspaceState) => EditorWorkspaceState) => {
@@ -775,6 +796,7 @@ export function WorkspaceEditorPane({
             >
               <MonacoCodeSurface
                 key={activeFileQuery.data.relativePath}
+                changedLineRanges={changedLineRanges}
                 contents={activeFileQuery.data.contents}
                 language={activeLanguage}
                 path={activeFileQuery.data.relativePath}

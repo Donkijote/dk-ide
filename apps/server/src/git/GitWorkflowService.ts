@@ -26,6 +26,8 @@ import {
   type VcsStatusLocalResult,
   type VcsStatusRemoteResult,
   type VcsStatusResult,
+  type VcsWorkingTreeFileChangesInput,
+  type VcsWorkingTreeFileChangesResult,
 } from "@t3tools/contracts";
 
 import { GitManager, type GitRunStackedActionOptions } from "./GitManager.ts";
@@ -57,6 +59,9 @@ export interface GitWorkflowServiceShape {
     input: GitPreparePullRequestThreadInput,
   ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
   readonly listRefs: (input: VcsListRefsInput) => Effect.Effect<VcsListRefsResult, GitCommandError>;
+  readonly workingTreeFileChanges: (
+    input: VcsWorkingTreeFileChangesInput,
+  ) => Effect.Effect<VcsWorkingTreeFileChangesResult, GitCommandError>;
   readonly createWorktree: (
     input: VcsCreateWorktreeInput,
   ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
@@ -288,6 +293,14 @@ export const make = Effect.fn("makeGitWorkflowService")(function* () {
       detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>
           isGitRepository ? git.listRefs(input) : Effect.succeed(nonRepositoryListRefs()),
+        ),
+      ),
+    workingTreeFileChanges: (input) =>
+      detectGitRepositoryForCommand("GitWorkflowService.workingTreeFileChanges", input.cwd).pipe(
+        Effect.flatMap((isGitRepository) =>
+          isGitRepository
+            ? git.workingTreeFileChanges(input)
+            : Effect.succeed({ filePath: input.filePath, lineRanges: [], wholeFileChanged: false }),
         ),
       ),
     createWorktree: (input) =>

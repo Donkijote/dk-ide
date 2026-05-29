@@ -101,7 +101,8 @@ composition, which are likely to continue evolving upstream.
   project directory-listing adapter, keeping file browsing and changed-file
   awareness inside the editor surface instead of the AI pane
 - file-oriented actions now live in the editor pane chrome, and the active
-  editor tab exposes git line-change counts when status data is available
+  editor tab exposes git line-change counts plus changed-line highlights when
+  status data is available
 - keep pane chrome reusable so future terminal and support surfaces can adopt the
   same workspace framing without copying chat-specific structure
 - keep chat actions extracted from pane framing so upstream chat behavior can

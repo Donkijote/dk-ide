@@ -17,6 +17,8 @@ import type {
   VcsStatusInput,
   VcsStatusResult,
   VcsCreateRefResult,
+  VcsWorkingTreeFileChangesInput,
+  VcsWorkingTreeFileChangesResult,
 } from "./git.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type {
@@ -534,6 +536,9 @@ export interface EnvironmentApi {
     createRef: (input: VcsCreateRefInput) => Promise<VcsCreateRefResult>;
     switchRef: (input: VcsSwitchRefInput) => Promise<VcsSwitchRefResult>;
     init: (input: VcsInitInput) => Promise<void>;
+    workingTreeFileChanges: (
+      input: VcsWorkingTreeFileChangesInput,
+    ) => Promise<VcsWorkingTreeFileChangesResult>;
     pull: (input: VcsPullInput) => Promise<VcsPullResult>;
     refreshStatus: (input: VcsStatusInput) => Promise<VcsStatusResult>;
     onStatus: (

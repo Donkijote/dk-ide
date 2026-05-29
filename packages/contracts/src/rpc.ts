@@ -33,6 +33,8 @@ import {
   VcsStatusInput,
   VcsStatusResult,
   VcsStatusStreamEvent,
+  VcsWorkingTreeFileChangesInput,
+  VcsWorkingTreeFileChangesResult,
 } from "./git.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
@@ -132,6 +134,7 @@ export const WS_METHODS = {
   vcsCreateRef: "vcs.createRef",
   vcsSwitchRef: "vcs.switchRef",
   vcsInit: "vcs.init",
+  vcsWorkingTreeFileChanges: "vcs.workingTreeFileChanges",
 
   // Git workflow methods
   gitRunStackedAction: "git.runStackedAction",
@@ -391,6 +394,12 @@ export const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
   error: VcsError,
 });
 
+export const WsVcsWorkingTreeFileChangesRpc = Rpc.make(WS_METHODS.vcsWorkingTreeFileChanges, {
+  payload: VcsWorkingTreeFileChangesInput,
+  success: VcsWorkingTreeFileChangesResult,
+  error: GitCommandError,
+});
+
 export const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -539,6 +548,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsCreateRefRpc,
   WsVcsSwitchRefRpc,
   WsVcsInitRpc,
+  WsVcsWorkingTreeFileChangesRpc,
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,
   WsTerminalResizeRpc,

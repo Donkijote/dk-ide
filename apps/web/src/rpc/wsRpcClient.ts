@@ -100,6 +100,7 @@ export interface WsRpcClient {
     readonly createRef: RpcUnaryMethod<typeof WS_METHODS.vcsCreateRef>;
     readonly switchRef: RpcUnaryMethod<typeof WS_METHODS.vcsSwitchRef>;
     readonly init: RpcUnaryMethod<typeof WS_METHODS.vcsInit>;
+    readonly workingTreeFileChanges: RpcUnaryMethod<typeof WS_METHODS.vcsWorkingTreeFileChanges>;
   };
   /**
    * Git-specific workflows. Local repository mechanics live under `vcs`.
@@ -229,6 +230,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       createRef: (input) => transport.request((client) => client[WS_METHODS.vcsCreateRef](input)),
       switchRef: (input) => transport.request((client) => client[WS_METHODS.vcsSwitchRef](input)),
       init: (input) => transport.request((client) => client[WS_METHODS.vcsInit](input)),
+      workingTreeFileChanges: (input) =>
+        transport.request((client) => client[WS_METHODS.vcsWorkingTreeFileChanges](input)),
     },
     git: {
       runStackedAction: async (input, options) => {
