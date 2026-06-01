@@ -161,6 +161,7 @@ import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import { WorkspaceEditorPane } from "./workspace/WorkspaceEditorPane";
 import { WorkspaceEditorActions } from "./workspace/WorkspaceEditorActions";
+import { buildWorkspaceContextItems } from "./workspace/WorkspaceContextBar.logic";
 import { WorkspacePane } from "./workspace/WorkspacePane";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
@@ -1257,6 +1258,35 @@ export default function ChatView(props: ChatViewProps) {
   }, [
     activeThread,
     hasMultipleRegisteredEnvironments,
+    primaryEnvironmentId,
+    savedEnvironmentRegistry,
+    savedEnvironmentRuntimeById,
+    serverConfig?.environment.label,
+  ]);
+  const activeEnvironmentLabel = useMemo(() => {
+    if (!activeThread) {
+      return null;
+    }
+
+    const matchingLogicalEnvironment = logicalProjectEnvironments.find(
+      (entry) => entry.environmentId === activeThread.environmentId,
+    );
+    if (matchingLogicalEnvironment) {
+      return matchingLogicalEnvironment.label;
+    }
+
+    const isPrimary = activeThread.environmentId === primaryEnvironmentId;
+    const savedRecord = savedEnvironmentRegistry[activeThread.environmentId];
+    const runtimeState = savedEnvironmentRuntimeById[activeThread.environmentId];
+    return resolveEnvironmentOptionLabel({
+      isPrimary,
+      environmentId: activeThread.environmentId,
+      runtimeLabel: runtimeState?.descriptor?.label ?? serverConfig?.environment.label ?? null,
+      savedLabel: savedRecord?.label ?? null,
+    });
+  }, [
+    activeThread,
+    logicalProjectEnvironments,
     primaryEnvironmentId,
     savedEnvironmentRegistry,
     savedEnvironmentRuntimeById,
@@ -3610,6 +3640,17 @@ export default function ChatView(props: ChatViewProps) {
   const hiddenMountedTerminalThreadRefs = mountedTerminalThreadRefs.filter(
     ({ key }) => key !== activeThreadKey,
   );
+  const repositoryLabel =
+    activeProject?.repositoryIdentity?.displayName?.trim() ||
+    activeProject?.repositoryIdentity?.name?.trim() ||
+    workspaceName;
+  const workspaceContextItems = buildWorkspaceContextItems({
+    activeThreadTitle: activeThread.title,
+    branchName: isGitRepo ? activeThreadBranch : null,
+    environmentLabel: activeEnvironmentLabel,
+    repositoryLabel,
+    workspaceRoot: activeWorkspaceRoot,
+  });
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
@@ -3618,7 +3659,7 @@ export default function ChatView(props: ChatViewProps) {
           "border-b border-border",
           isElectron
             ? cn(
-                "drag-region flex h-[52px] items-center pr-3 sm:pr-5 wco:h-[env(titlebar-area-height)]",
+                "drag-region flex min-h-[64px] items-center py-2 pr-3 sm:pr-5 wco:min-h-[env(titlebar-area-height)]",
                 sidebarOpen
                   ? "pl-3 sm:pl-5"
                   : "pl-[90px] sm:pl-[90px] wco:pl-[calc(env(titlebar-area-x)+1em)]",
@@ -3630,6 +3671,7 @@ export default function ChatView(props: ChatViewProps) {
       >
         <ChatHeader
           activeThreadTitle={activeThread.title}
+          workspaceContextItems={workspaceContextItems}
           workspaceName={workspaceName}
           showThreadTitle={false}
         />
