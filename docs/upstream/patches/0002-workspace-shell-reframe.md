@@ -72,8 +72,6 @@ composition, which are likely to continue evolving upstream.
   listing, active-file continuity, and git changed-file indicators
 - `improvement/ghi#24`: editor-owned project, file, git, diff, and terminal
   controls so the AI pane remains focused on chat interaction
-- `improvement/ghi#7`: workspace header context block showing environment,
-  active thread context, attached repository, workspace root, and branch
 
 ## Sync Notes
 
@@ -105,8 +103,6 @@ composition, which are likely to continue evolving upstream.
 - file-oriented actions now live in the editor pane chrome, and the active
   editor tab exposes git line-change counts plus changed-line highlights when
   status data is available
-- the workspace header now projects environment, resource, and active context
-  metadata into compact chrome so the shell is legible beyond a single thread
 - keep pane chrome reusable so future terminal and support surfaces can adopt the
   same workspace framing without copying chat-specific structure
 - keep chat actions extracted from pane framing so upstream chat behavior can
