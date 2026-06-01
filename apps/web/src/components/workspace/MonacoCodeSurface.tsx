@@ -65,6 +65,7 @@ export default function MonacoCodeSurface({
       fontLigatures: false,
       fontSize: 13,
       lineHeight: 20,
+      lineDecorationsWidth: 16,
       lineNumbers: "on",
       minimap: { enabled: false },
       model,
