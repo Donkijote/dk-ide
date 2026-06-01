@@ -1,7 +1,7 @@
 import { EnvironmentId, type VcsStatusResult } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { WsRpcClient } from "../rpc/wsRpcClient";
+import type { WsRpcClient } from "@t3tools/client-runtime";
 import { resetAppAtomRegistryForTests } from "../rpc/atomRegistry";
 import {
   getGitStatusSnapshot,
@@ -15,7 +15,7 @@ const serviceHarness = vi.hoisted(() => ({
   listeners: new Set<() => void>(),
 }));
 
-vi.mock("../environments/runtime/service", () => ({
+vi.mock("../environments/runtime", () => ({
   readEnvironmentConnection: (environmentId: string) =>
     serviceHarness.connections.get(environmentId) ?? null,
   subscribeEnvironmentConnections: (listener: () => void) => {
