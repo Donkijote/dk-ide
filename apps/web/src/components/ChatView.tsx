@@ -105,7 +105,13 @@ import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
-import { ChevronDownIcon, TriangleAlertIcon, WifiOffIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  DiffIcon,
+  TerminalSquareIcon,
+  TriangleAlertIcon,
+  WifiOffIcon,
+} from "lucide-react";
 import { cn, randomHex, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
@@ -159,7 +165,10 @@ import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./Branch
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
-import { WorkspaceEditorPane } from "./workspace/WorkspaceEditorPane";
+import {
+  WorkspaceEditorPane,
+  type WorkspaceEditorOpenFileRequest,
+} from "./workspace/WorkspaceEditorPane";
 import { WorkspaceEditorActions } from "./workspace/WorkspaceEditorActions";
 import { WorkspacePane } from "./workspace/WorkspacePane";
 import {
@@ -196,6 +205,8 @@ import { retainThreadDetailSubscription } from "../environments/runtime/service"
 import { RightPanelSheet } from "./RightPanelSheet";
 import { Button } from "./ui/button";
 import { useSidebar } from "./ui/sidebar";
+import { Toggle } from "./ui/toggle";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
   buildVersionMismatchDismissalKey,
   dismissVersionMismatch,
@@ -217,6 +228,81 @@ type EnvironmentUnavailableState = {
 };
 
 type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
+
+interface WorkspaceHeaderPaneActionsProps {
+  diffOpen: boolean;
+  diffToggleShortcutLabel: string | null;
+  isGitRepo: boolean;
+  terminalAvailable: boolean;
+  terminalOpen: boolean;
+  terminalToggleShortcutLabel: string | null;
+  onToggleDiff: () => void;
+  onToggleTerminal: () => void;
+}
+
+const WorkspaceHeaderPaneActions = memo(function WorkspaceHeaderPaneActions({
+  diffOpen,
+  diffToggleShortcutLabel,
+  isGitRepo,
+  terminalAvailable,
+  terminalOpen,
+  terminalToggleShortcutLabel,
+  onToggleDiff,
+  onToggleTerminal,
+}: WorkspaceHeaderPaneActionsProps) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Toggle
+              className="shrink-0"
+              pressed={terminalOpen}
+              onPressedChange={onToggleTerminal}
+              aria-label="Toggle terminal pane"
+              variant="outline"
+              size="xs"
+              disabled={!terminalAvailable}
+            >
+              <TerminalSquareIcon className="size-3" />
+            </Toggle>
+          }
+        />
+        <TooltipPopup side="bottom">
+          {!terminalAvailable
+            ? "Terminal is unavailable until this thread has an active workspace."
+            : terminalToggleShortcutLabel
+              ? `Toggle terminal pane (${terminalToggleShortcutLabel})`
+              : "Toggle terminal pane"}
+        </TooltipPopup>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Toggle
+              className="shrink-0"
+              pressed={diffOpen}
+              onPressedChange={onToggleDiff}
+              aria-label="Toggle diff panel"
+              variant="outline"
+              size="xs"
+              disabled={!isGitRepo && !diffOpen}
+            >
+              <DiffIcon className="size-3" />
+            </Toggle>
+          }
+        />
+        <TooltipPopup side="bottom">
+          {!isGitRepo && !diffOpen
+            ? "Diff panel is unavailable because this workspace is not a git repository."
+            : diffToggleShortcutLabel
+              ? `Toggle diff panel (${diffToggleShortcutLabel})`
+              : "Toggle diff panel"}
+        </TooltipPopup>
+      </Tooltip>
+    </div>
+  );
+});
 
 function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlanCatalogEntry[] {
   return useStore(
@@ -796,6 +882,8 @@ export default function ChatView(props: ChatViewProps) {
   // Used by "Implement in a new thread" to carry the sidebar-open intent across navigation.
   const planSidebarOpenOnNextThreadRef = useRef(false);
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
+  const [editorOpenFileRequest, setEditorOpenFileRequest] =
+    useState<WorkspaceEditorOpenFileRequest | null>(null);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
   const [terminalLaunchContext, setTerminalLaunchContext] = useState<TerminalLaunchContext | null>(
@@ -1344,6 +1432,9 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
+  useEffect(() => {
+    setEditorOpenFileRequest(null);
+  }, [activeThread?.id, activeWorkspaceRoot]);
   const claudeRuntimeStatusQuery = useQuery(
     providerRuntimeStatusQueryOptions({
       environmentId,
@@ -1934,6 +2025,16 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef) return;
     storeSetWorkspaceThreadLastActivePane(scopedThreadKey(activeThreadRef), "editor");
   }, [activeThreadRef, storeSetWorkspaceThreadLastActivePane]);
+  const onOpenChangedFileInEditor = useCallback(
+    (filePath: string) => {
+      markEditorActive();
+      setEditorOpenFileRequest((currentRequest) => ({
+        id: (currentRequest?.id ?? 0) + 1,
+        path: filePath,
+      }));
+    },
+    [markEditorActive],
+  );
   const closeTerminal = useCallback(
     (terminalId: string) => {
       const api = readEnvironmentApi(environmentId);
@@ -3581,7 +3682,6 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadId: activeThread.id,
     ...(routeKind === "draft" && draftId ? { draftId } : {}),
     activeProjectName: activeProject?.name,
-    isGitRepo,
     openInCwd: gitCwd,
     activeProjectScripts: activeProject?.scripts,
     preferredScriptId: activeProject
@@ -3589,18 +3689,11 @@ export default function ChatView(props: ChatViewProps) {
       : null,
     keybindings,
     availableEditors,
-    terminalAvailable: activeProject !== undefined,
-    terminalOpen: terminalState.terminalOpen,
-    terminalToggleShortcutLabel,
-    diffToggleShortcutLabel: diffPanelShortcutLabel,
     gitCwd,
-    diffOpen,
     onRunProjectScript: runProjectScript,
     onAddProjectScript: saveProjectScript,
     onUpdateProjectScript: updateProjectScript,
     onDeleteProjectScript: deleteProjectScript,
-    onToggleTerminal: toggleTerminalVisibility,
-    onToggleDiff,
   };
   const activeMountedTerminalThreadRef = mountedTerminalThreadRefs.find(
     ({ key }) => key === activeThreadKey,
@@ -3629,6 +3722,18 @@ export default function ChatView(props: ChatViewProps) {
         )}
       >
         <ChatHeader
+          actions={
+            <WorkspaceHeaderPaneActions
+              diffOpen={diffOpen}
+              diffToggleShortcutLabel={diffPanelShortcutLabel}
+              isGitRepo={isGitRepo}
+              terminalAvailable={activeProject !== undefined}
+              terminalOpen={terminalState.terminalOpen}
+              terminalToggleShortcutLabel={terminalToggleShortcutLabel}
+              onToggleDiff={onToggleDiff}
+              onToggleTerminal={toggleTerminalVisibility}
+            />
+          }
           activeThreadTitle={activeThread.title}
           workspaceName={workspaceName}
           showThreadTitle={false}
@@ -3647,14 +3752,42 @@ export default function ChatView(props: ChatViewProps) {
               title="Editor"
               actions={<WorkspaceEditorActions {...workspaceEditorActionProps} />}
               className="min-h-[18rem] xl:min-h-0"
-              bodyClassName="min-h-0"
+              bodyClassName="min-h-0 flex-col"
             >
               <WorkspaceEditorPane
                 environmentId={environmentId}
+                openFileRequest={editorOpenFileRequest}
                 workspaceRoot={activeWorkspaceRoot}
                 resolvedTheme={resolvedTheme}
                 onActive={markEditorActive}
               />
+              {isGitRepo && (
+                <div className="shrink-0 border-t border-border/60 bg-background">
+                  <BranchToolbar
+                    className="max-w-none px-3 py-2 sm:px-4"
+                    environmentId={activeThread.environmentId}
+                    threadId={activeThread.id}
+                    {...(routeKind === "draft" && draftId ? { draftId } : {})}
+                    onEnvModeChange={onEnvModeChange}
+                    {...(canOverrideServerThreadEnvMode
+                      ? { effectiveEnvModeOverride: envMode }
+                      : {})}
+                    {...(canOverrideServerThreadEnvMode
+                      ? {
+                          activeThreadBranchOverride: activeThreadBranch,
+                          onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
+                        }
+                      : {})}
+                    envLocked={envLocked}
+                    onComposerFocusRequest={scheduleComposerFocus}
+                    {...(canCheckoutPullRequestIntoThread
+                      ? { onCheckoutPullRequestRequest: openPullRequestDialog }
+                      : {})}
+                    {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
+                    availableEnvironments={logicalProjectEnvironments}
+                  />
+                </div>
+              )}
             </WorkspacePane>
 
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
@@ -3675,6 +3808,7 @@ export default function ChatView(props: ChatViewProps) {
                         turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
                         activeThreadEnvironmentId={activeThread.environmentId}
                         routeThreadKey={routeThreadKey}
+                        onOpenChangedFileInEditor={onOpenChangedFileInEditor}
                         onOpenTurnDiff={onOpenTurnDiff}
                         revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
                         onRevertUserMessage={onRevertUserMessage}
@@ -3704,10 +3838,7 @@ export default function ChatView(props: ChatViewProps) {
 
                     <div
                       className={cn(
-                        "pl-[calc(env(safe-area-inset-left)+0.75rem)] pr-[calc(env(safe-area-inset-right)+0.75rem)] pt-1.5 sm:pl-[calc(env(safe-area-inset-left)+1.25rem)] sm:pr-[calc(env(safe-area-inset-right)+1.25rem)] sm:pt-2",
-                        isGitRepo
-                          ? "pb-[calc(env(safe-area-inset-bottom)+0.25rem)]"
-                          : "pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:pb-[calc(env(safe-area-inset-bottom)+1rem)]",
+                        "pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pl-[calc(env(safe-area-inset-left)+0.75rem)] pr-[calc(env(safe-area-inset-right)+0.75rem)] pt-1.5 sm:pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:pl-[calc(env(safe-area-inset-left)+1.25rem)] sm:pr-[calc(env(safe-area-inset-right)+1.25rem)] sm:pt-2",
                       )}
                     >
                       <div className="relative isolate">
@@ -3790,30 +3921,6 @@ export default function ChatView(props: ChatViewProps) {
                           />
                         </div>
                       </div>
-                      {isGitRepo && (
-                        <BranchToolbar
-                          environmentId={activeThread.environmentId}
-                          threadId={activeThread.id}
-                          {...(routeKind === "draft" && draftId ? { draftId } : {})}
-                          onEnvModeChange={onEnvModeChange}
-                          {...(canOverrideServerThreadEnvMode
-                            ? { effectiveEnvModeOverride: envMode }
-                            : {})}
-                          {...(canOverrideServerThreadEnvMode
-                            ? {
-                                activeThreadBranchOverride: activeThreadBranch,
-                                onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
-                              }
-                            : {})}
-                          envLocked={envLocked}
-                          onComposerFocusRequest={scheduleComposerFocus}
-                          {...(canCheckoutPullRequestIntoThread
-                            ? { onCheckoutPullRequestRequest: openPullRequestDialog }
-                            : {})}
-                          {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
-                          availableEnvironments={logicalProjectEnvironments}
-                        />
-                      )}
                     </div>
 
                     {pullRequestDialogState ? (

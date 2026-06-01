@@ -26,6 +26,7 @@ import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
 import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
 import { Button } from "./ui/button";
+import { cn } from "~/lib/utils";
 import {
   Menu,
   MenuGroup,
@@ -39,6 +40,7 @@ import {
 import { Separator } from "./ui/separator";
 
 interface BranchToolbarProps {
+  className?: string;
   environmentId: EnvironmentId;
   threadId: ThreadId;
   draftId?: DraftId;
@@ -190,6 +192,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
 });
 
 export const BranchToolbar = memo(function BranchToolbar({
+  className,
   environmentId,
   threadId,
   draftId,
@@ -241,7 +244,12 @@ export const BranchToolbar = memo(function BranchToolbar({
   if (!hasActiveThread || !activeProject) return null;
 
   return (
-    <div className="mx-auto flex w-full max-w-208 items-center gap-2 px-2.5 pb-3 pt-1 sm:px-3">
+    <div
+      className={cn(
+        "mx-auto flex w-full max-w-208 items-center gap-2 px-2.5 pb-3 pt-1 sm:px-3",
+        className,
+      )}
+    >
       {isMobile ? (
         <MobileRunContextSelector
           envLocked={envLocked}

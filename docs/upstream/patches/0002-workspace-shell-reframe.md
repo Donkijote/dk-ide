@@ -72,6 +72,9 @@ composition, which are likely to continue evolving upstream.
   listing, active-file continuity, and git changed-file indicators
 - `improvement/ghi#24`: editor-owned project, file, git, diff, and terminal
   controls so the AI pane remains focused on chat interaction
+- `improvement/ghi#7`: pane chrome alignment, editor-owned checkout/branch
+  controls, app-header ownership for global pane toggles, and changed-file
+  actions that can target either diff review or the editor
 
 ## Sync Notes
 
@@ -103,6 +106,12 @@ composition, which are likely to continue evolving upstream.
 - file-oriented actions now live in the editor pane chrome, and the active
   editor tab exposes git line-change counts plus changed-line highlights when
   status data is available
+- checkout and branch controls now live at the bottom of the editor pane so the
+  AI pane stays focused on conversation and execution feedback
+- terminal and diff visibility controls are now app-header actions because they
+  affect global workspace panes rather than only the editor surface
+- changed-file summaries in the AI pane now keep the user in flow by asking
+  whether a file click should open the diff review surface or the editor pane
 - keep pane chrome reusable so future terminal and support surfaces can adopt the
   same workspace framing without copying chat-specific structure
 - keep chat actions extracted from pane framing so upstream chat behavior can

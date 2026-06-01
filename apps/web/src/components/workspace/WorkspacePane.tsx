@@ -26,8 +26,8 @@ export function WorkspacePane({
         className,
       )}
     >
-      <header className="border-b border-border/60 bg-background">
-        <div className="flex min-w-0 items-center gap-3 px-3 py-2.5 sm:px-4 sm:py-3">
+      <header className="shrink-0 border-b border-border/60 bg-background">
+        <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2 sm:px-4">
           <div className="min-w-0 flex-1">
             <h2 className="truncate font-semibold text-foreground text-sm sm:text-[0.95rem]">
               {title}

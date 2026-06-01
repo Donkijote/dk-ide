@@ -207,8 +207,8 @@ describe("DesktopWindow", () => {
         yield* desktopWindow.handleBackendReady;
         const createdWindows = yield* Ref.get(createOptions);
         assert.equal(createdWindows.length, 1);
-        assert.equal(createdWindows[0]?.width, 1360);
-        assert.equal(createdWindows[0]?.height, 900);
+        assert.equal(createdWindows[0]?.width, 1600);
+        assert.equal(createdWindows[0]?.height, 940);
       }).pipe(Effect.provide(layer));
     }),
   );

@@ -163,8 +163,8 @@ const make = Effect.gen(function* () {
     const iconOption = getIconOption(iconPaths);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
     const window = yield* electronWindow.create({
-      width: 1360,
-      height: 900,
+      width: 1600,
+      height: 940,
       minWidth: 840,
       minHeight: 620,
       show: false,
