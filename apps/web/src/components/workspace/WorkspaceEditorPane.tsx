@@ -148,9 +148,15 @@ function isFileSearchShortcut(event: KeyboardEvent): boolean {
 interface WorkspaceEditorPaneProps {
   readonly className?: string;
   readonly environmentId: EnvironmentId;
+  readonly openFileRequest?: WorkspaceEditorOpenFileRequest | null;
   readonly resolvedTheme: "light" | "dark";
   readonly workspaceRoot: string | undefined;
   readonly onActive?: () => void;
+}
+
+export interface WorkspaceEditorOpenFileRequest {
+  readonly id: number;
+  readonly path: string;
 }
 
 type EditorWorkspaceState = {
@@ -166,6 +172,7 @@ const EMPTY_EDITOR_WORKSPACE_STATE: EditorWorkspaceState = {
 export function WorkspaceEditorPane({
   className,
   environmentId,
+  openFileRequest,
   resolvedTheme,
   workspaceRoot,
   onActive,
@@ -176,6 +183,7 @@ export function WorkspaceEditorPane({
   const breadcrumbScrollRef = useRef<HTMLDivElement | null>(null);
   const searchPopupRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const handledOpenFileRequestIdRef = useRef<number | null>(null);
   const [query, setQuery] = useState("");
   const [workspaceStateByKey, setWorkspaceStateByKey] = useState<
     Record<string, EditorWorkspaceState>
@@ -328,6 +336,18 @@ export function WorkspaceEditorPane({
     },
     [onActive],
   );
+
+  useEffect(() => {
+    if (!openFileRequest || workspaceRoot === undefined) {
+      return;
+    }
+    if (handledOpenFileRequestIdRef.current === openFileRequest.id) {
+      return;
+    }
+
+    handledOpenFileRequestIdRef.current = openFileRequest.id;
+    openPath(openFileRequest.path);
+  }, [openFileRequest, openPath, workspaceRoot]);
 
   useEffect(() => {
     setQuery("");

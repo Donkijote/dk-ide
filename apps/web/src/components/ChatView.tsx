@@ -165,7 +165,10 @@ import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./Branch
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
-import { WorkspaceEditorPane } from "./workspace/WorkspaceEditorPane";
+import {
+  WorkspaceEditorPane,
+  type WorkspaceEditorOpenFileRequest,
+} from "./workspace/WorkspaceEditorPane";
 import { WorkspaceEditorActions } from "./workspace/WorkspaceEditorActions";
 import { WorkspacePane } from "./workspace/WorkspacePane";
 import {
@@ -879,6 +882,8 @@ export default function ChatView(props: ChatViewProps) {
   // Used by "Implement in a new thread" to carry the sidebar-open intent across navigation.
   const planSidebarOpenOnNextThreadRef = useRef(false);
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
+  const [editorOpenFileRequest, setEditorOpenFileRequest] =
+    useState<WorkspaceEditorOpenFileRequest | null>(null);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
   const [terminalLaunchContext, setTerminalLaunchContext] = useState<TerminalLaunchContext | null>(
@@ -1427,6 +1432,9 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
+  useEffect(() => {
+    setEditorOpenFileRequest(null);
+  }, [activeThread?.id, activeWorkspaceRoot]);
   const claudeRuntimeStatusQuery = useQuery(
     providerRuntimeStatusQueryOptions({
       environmentId,
@@ -2017,6 +2025,16 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef) return;
     storeSetWorkspaceThreadLastActivePane(scopedThreadKey(activeThreadRef), "editor");
   }, [activeThreadRef, storeSetWorkspaceThreadLastActivePane]);
+  const onOpenChangedFileInEditor = useCallback(
+    (filePath: string) => {
+      markEditorActive();
+      setEditorOpenFileRequest((currentRequest) => ({
+        id: (currentRequest?.id ?? 0) + 1,
+        path: filePath,
+      }));
+    },
+    [markEditorActive],
+  );
   const closeTerminal = useCallback(
     (terminalId: string) => {
       const api = readEnvironmentApi(environmentId);
@@ -3738,6 +3756,7 @@ export default function ChatView(props: ChatViewProps) {
             >
               <WorkspaceEditorPane
                 environmentId={environmentId}
+                openFileRequest={editorOpenFileRequest}
                 workspaceRoot={activeWorkspaceRoot}
                 resolvedTheme={resolvedTheme}
                 onActive={markEditorActive}
@@ -3789,6 +3808,7 @@ export default function ChatView(props: ChatViewProps) {
                         turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
                         activeThreadEnvironmentId={activeThread.environmentId}
                         routeThreadKey={routeThreadKey}
+                        onOpenChangedFileInEditor={onOpenChangedFileInEditor}
                         onOpenTurnDiff={onOpenTurnDiff}
                         revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
                         onRevertUserMessage={onRevertUserMessage}

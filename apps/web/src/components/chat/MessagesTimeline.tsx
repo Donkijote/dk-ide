@@ -96,6 +96,7 @@ interface TimelineRowSharedState {
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
+  onOpenChangedFileInEditor: (filePath: string) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
 }
 
@@ -125,6 +126,7 @@ interface MessagesTimelineProps {
   completionSummary: string | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
   routeThreadKey: string;
+  onOpenChangedFileInEditor: (filePath: string) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onRevertUserMessage: (messageId: MessageId) => void;
@@ -154,6 +156,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   completionSummary,
   turnDiffSummaryByAssistantMessageId,
   routeThreadKey,
+  onOpenChangedFileInEditor,
   onOpenTurnDiff,
   revertTurnCountByUserMessageId,
   onRevertUserMessage,
@@ -230,6 +233,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadEnvironmentId,
       onRevertUserMessage,
       onImageExpand,
+      onOpenChangedFileInEditor,
       onOpenTurnDiff,
     }),
     [
@@ -242,6 +246,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadEnvironmentId,
       onRevertUserMessage,
       onImageExpand,
+      onOpenChangedFileInEditor,
       onOpenTurnDiff,
     ],
   );
@@ -437,6 +442,8 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           turnSummary={row.assistantTurnDiffSummary}
           routeThreadKey={ctx.routeThreadKey}
           resolvedTheme={ctx.resolvedTheme}
+          workspaceRoot={ctx.workspaceRoot}
+          onOpenChangedFileInEditor={ctx.onOpenChangedFileInEditor}
           onOpenTurnDiff={ctx.onOpenTurnDiff}
         />
         <div className="mt-1.5 flex items-center gap-2">
@@ -658,11 +665,15 @@ const AssistantChangedFilesSection = memo(function AssistantChangedFilesSection(
   turnSummary,
   routeThreadKey,
   resolvedTheme,
+  workspaceRoot,
+  onOpenChangedFileInEditor,
   onOpenTurnDiff,
 }: {
   turnSummary: TurnDiffSummary | undefined;
   routeThreadKey: string;
   resolvedTheme: "light" | "dark";
+  workspaceRoot: string | undefined;
+  onOpenChangedFileInEditor: (filePath: string) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
 }) {
   if (!turnSummary) return null;
@@ -675,6 +686,8 @@ const AssistantChangedFilesSection = memo(function AssistantChangedFilesSection(
       checkpointFiles={checkpointFiles}
       routeThreadKey={routeThreadKey}
       resolvedTheme={resolvedTheme}
+      workspaceRoot={workspaceRoot}
+      onOpenChangedFileInEditor={onOpenChangedFileInEditor}
       onOpenTurnDiff={onOpenTurnDiff}
     />
   );
@@ -687,12 +700,16 @@ function AssistantChangedFilesSectionInner({
   checkpointFiles,
   routeThreadKey,
   resolvedTheme,
+  workspaceRoot,
+  onOpenChangedFileInEditor,
   onOpenTurnDiff,
 }: {
   turnSummary: TurnDiffSummary;
   checkpointFiles: TurnDiffSummary["files"];
   routeThreadKey: string;
   resolvedTheme: "light" | "dark";
+  workspaceRoot: string | undefined;
+  onOpenChangedFileInEditor: (filePath: string) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
 }) {
   const allDirectoriesExpanded = useUiStateStore(
@@ -740,6 +757,8 @@ function AssistantChangedFilesSectionInner({
         files={checkpointFiles}
         allDirectoriesExpanded={allDirectoriesExpanded}
         resolvedTheme={resolvedTheme}
+        canOpenFileInEditor={workspaceRoot !== undefined}
+        onOpenFileInEditor={onOpenChangedFileInEditor}
         onOpenTurnDiff={onOpenTurnDiff}
       />
     </div>

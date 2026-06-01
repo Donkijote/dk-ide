@@ -2,10 +2,17 @@ import { type TurnId } from "@t3tools/contracts";
 import { memo, useCallback, useMemo, useState } from "react";
 import { type TurnDiffFileChange } from "../../types";
 import { buildTurnDiffTree, type TurnDiffTreeNode } from "../../lib/turnDiffTree";
-import { ChevronRightIcon, FolderIcon, FolderClosedIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  DiffIcon,
+  FileCode2Icon,
+  FolderClosedIcon,
+  FolderIcon,
+} from "lucide-react";
 import { cn } from "~/lib/utils";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { VscodeEntryIcon } from "./VscodeEntryIcon";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 
 const EMPTY_DIRECTORY_OVERRIDES: Record<string, boolean> = {};
 
@@ -14,9 +21,19 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
   files: ReadonlyArray<TurnDiffFileChange>;
   allDirectoriesExpanded: boolean;
   resolvedTheme: "light" | "dark";
+  canOpenFileInEditor: boolean;
+  onOpenFileInEditor: (filePath: string) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
 }) {
-  const { files, allDirectoriesExpanded, onOpenTurnDiff, resolvedTheme, turnId } = props;
+  const {
+    files,
+    allDirectoriesExpanded,
+    canOpenFileInEditor,
+    onOpenFileInEditor,
+    onOpenTurnDiff,
+    resolvedTheme,
+    turnId,
+  } = props;
   const treeNodes = useMemo(() => buildTurnDiffTree(files), [files]);
   const directoryPathsKey = useMemo(
     () => collectDirectoryPaths(treeNodes).join("\u0000"),
@@ -95,29 +112,44 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
     }
 
     return (
-      <button
-        key={`file:${node.path}`}
-        type="button"
-        className="group flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left hover:bg-background/80"
-        style={{ paddingLeft: `${leftPadding}px` }}
-        onClick={() => onOpenTurnDiff(turnId, node.path)}
-      >
-        <span aria-hidden="true" className="size-3.5 shrink-0" />
-        <VscodeEntryIcon
-          pathValue={node.path}
-          kind="file"
-          theme={resolvedTheme}
-          className="size-3.5 text-muted-foreground/70"
-        />
-        <span className="truncate font-mono text-[11px] text-muted-foreground/80 group-hover:text-foreground/90">
-          {node.name}
-        </span>
-        {node.stat && (
-          <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums">
-            <DiffStatLabel additions={node.stat.additions} deletions={node.stat.deletions} />
+      <Menu key={`file:${node.path}`} highlightItemOnHover={false}>
+        <MenuTrigger
+          render={
+            <button
+              type="button"
+              className="group flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left hover:bg-background/80"
+              style={{ paddingLeft: `${leftPadding}px` }}
+              aria-label={`Open actions for ${node.path}`}
+            />
+          }
+        >
+          <span aria-hidden="true" className="size-3.5 shrink-0" />
+          <VscodeEntryIcon
+            pathValue={node.path}
+            kind="file"
+            theme={resolvedTheme}
+            className="size-3.5 text-muted-foreground/70"
+          />
+          <span className="truncate font-mono text-[11px] text-muted-foreground/80 group-hover:text-foreground/90">
+            {node.name}
           </span>
-        )}
-      </button>
+          {node.stat && (
+            <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums">
+              <DiffStatLabel additions={node.stat.additions} deletions={node.stat.deletions} />
+            </span>
+          )}
+        </MenuTrigger>
+        <MenuPopup align="start" side="bottom" className="min-w-44">
+          <MenuItem onClick={() => onOpenTurnDiff(turnId, node.path)}>
+            <DiffIcon className="size-4" />
+            Open diff
+          </MenuItem>
+          <MenuItem disabled={!canOpenFileInEditor} onClick={() => onOpenFileInEditor(node.path)}>
+            <FileCode2Icon className="size-4" />
+            Open in editor
+          </MenuItem>
+        </MenuPopup>
+      </Menu>
     );
   };
 
