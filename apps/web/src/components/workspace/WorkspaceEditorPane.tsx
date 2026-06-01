@@ -450,7 +450,7 @@ export function WorkspaceEditorPane({
       }}
     >
       <div className="flex min-w-0 items-center gap-2 border-border/60 border-b px-3 py-2">
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {openPaths.length > 0 ? (
             openPaths.map((path) => {
               const isActive = path === activePath;
