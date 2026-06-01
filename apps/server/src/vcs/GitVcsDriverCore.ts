@@ -16,7 +16,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError, type VcsRef } from "@t3tools/contracts";
+import { GitCommandError, type VcsChangedLineRange, type VcsRef } from "@t3tools/contracts";
 import { dedupeRemoteBranchesWithLocalMatches } from "@t3tools/shared/git";
 import { compactTraceAttributes } from "@t3tools/shared/observability";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
@@ -37,6 +37,7 @@ const PREPARED_COMMIT_PATCH_MAX_OUTPUT_BYTES = 49_000;
 const RANGE_COMMIT_SUMMARY_MAX_OUTPUT_BYTES = 19_000;
 const RANGE_DIFF_SUMMARY_MAX_OUTPUT_BYTES = 19_000;
 const RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES = 59_000;
+const WORKING_TREE_FILE_DIFF_MAX_OUTPUT_BYTES = 256_000;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
 const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
 const STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN = Duration.seconds(5);
@@ -134,6 +135,54 @@ function parsePorcelainPath(line: string): string | null {
   const parts = line.trim().split(/\s+/g);
   const filePath = parts.at(-1) ?? "";
   return filePath.length > 0 ? filePath : null;
+}
+
+function mergeLineRanges(ranges: ReadonlyArray<VcsChangedLineRange>): VcsChangedLineRange[] {
+  const sorted = [...ranges].toSorted((left, right) => left.startLine - right.startLine);
+  const merged: VcsChangedLineRange[] = [];
+
+  for (const range of sorted) {
+    const previous = merged.at(-1);
+    if (!previous) {
+      merged.push(range);
+      continue;
+    }
+
+    const previousEnd = previous.startLine + previous.lineCount - 1;
+    const currentEnd = range.startLine + range.lineCount - 1;
+    if (range.startLine > previousEnd + 1) {
+      merged.push(range);
+      continue;
+    }
+
+    merged[merged.length - 1] = {
+      startLine: previous.startLine,
+      lineCount: Math.max(previousEnd, currentEnd) - previous.startLine + 1,
+    };
+  }
+
+  return merged;
+}
+
+export function parseChangedLineRangesFromUnifiedDiff(diff: string): VcsChangedLineRange[] {
+  const ranges: VcsChangedLineRange[] = [];
+  const hunkHeaderPattern = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
+
+  for (const line of diff.split(/\r?\n/g)) {
+    const match = hunkHeaderPattern.exec(line);
+    if (!match) continue;
+
+    const startLine = Number.parseInt(match[1] ?? "0", 10);
+    const lineCount = Number.parseInt(match[2] ?? "1", 10);
+    if (!Number.isFinite(startLine) || startLine < 1) continue;
+
+    ranges.push({
+      startLine,
+      lineCount: Number.isFinite(lineCount) && lineCount > 0 ? lineCount : 1,
+    });
+  }
+
+  return mergeLineRanges(ranges);
 }
 
 function parseBranchLine(line: string): { name: string; current: boolean } | null {
@@ -1636,6 +1685,54 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       Effect.map((trimmed) => (trimmed.length > 0 ? trimmed : null)),
     );
 
+  const workingTreeFileChanges: GitVcsDriver.GitVcsDriverShape["workingTreeFileChanges"] =
+    Effect.fn("workingTreeFileChanges")(function* (input) {
+      const status = yield* executeGit(
+        "GitVcsDriver.workingTreeFileChanges.status",
+        input.cwd,
+        ["status", "--porcelain=v1", "--", input.filePath],
+        {
+          allowNonZeroExit: true,
+          timeoutMs: 10_000,
+          maxOutputBytes: 32_000,
+        },
+      );
+      const wholeFileChanged = status.stdout.split(/\r?\n/g).some((line) => line.startsWith("?? "));
+      if (wholeFileChanged) {
+        return {
+          filePath: input.filePath,
+          lineRanges: [],
+          wholeFileChanged: true,
+        };
+      }
+
+      const diff = yield* runGitStdoutWithOptions(
+        "GitVcsDriver.workingTreeFileChanges.diff",
+        input.cwd,
+        [
+          "diff",
+          "HEAD",
+          "--unified=0",
+          "--no-color",
+          "--no-ext-diff",
+          "--no-textconv",
+          "--",
+          input.filePath,
+        ],
+        {
+          allowNonZeroExit: true,
+          timeoutMs: 10_000,
+          maxOutputBytes: WORKING_TREE_FILE_DIFF_MAX_OUTPUT_BYTES,
+        },
+      );
+
+      return {
+        filePath: input.filePath,
+        lineRanges: parseChangedLineRangesFromUnifiedDiff(diff),
+        wholeFileChanged: false,
+      };
+    });
+
   const listRefs: GitVcsDriver.GitVcsDriverShape["listRefs"] = Effect.fn("listRefs")(
     function* (input) {
       const branchRecencyPromise = readBranchRecency(input.cwd).pipe(
@@ -2126,6 +2223,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     readRangeContext,
     readConfigValue,
     listRefs,
+    workingTreeFileChanges,
     createWorktree,
     fetchPullRequestBranch,
     ensureRemote,

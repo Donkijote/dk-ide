@@ -194,6 +194,21 @@ code {
   font-family: "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
+.monaco-git-changed-line-gutter {
+  position: relative;
+}
+
+.monaco-git-changed-line-gutter::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  bottom: 2px;
+  width: 4px;
+  border-radius: 3px;
+  background: var(--warning);
+}
+
 /* Window drag region (frameless titlebar) */
 .drag-region {
   -webkit-app-region: drag;

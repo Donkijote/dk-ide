@@ -151,7 +151,7 @@ import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
-import { ChatHeader, ChatHeaderActions } from "./chat/ChatHeader";
+import { ChatHeader } from "./chat/ChatHeader";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
@@ -159,6 +159,7 @@ import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import { WorkspaceEditorPane } from "./workspace/WorkspaceEditorPane";
+import { WorkspaceEditorActions } from "./workspace/WorkspaceEditorActions";
 import { WorkspacePane } from "./workspace/WorkspacePane";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
@@ -3620,7 +3621,7 @@ export default function ChatView(props: ChatViewProps) {
     return <NoActiveThreadState />;
   }
 
-  const chatHeaderActionProps = {
+  const workspaceEditorActionProps = {
     activeThreadEnvironmentId: activeThread.environmentId,
     activeThreadId: activeThread.id,
     ...(routeKind === "draft" && draftId ? { draftId } : {}),
@@ -3673,11 +3674,9 @@ export default function ChatView(props: ChatViewProps) {
         )}
       >
         <ChatHeader
-          {...chatHeaderActionProps}
           activeThreadTitle={activeThread.title}
           workspaceName={workspaceName}
           showThreadTitle={false}
-          showActions={false}
         />
       </header>
 
@@ -3691,6 +3690,7 @@ export default function ChatView(props: ChatViewProps) {
           <div className="grid min-h-0 min-w-0 w-full flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(32rem,1.12fr)_minmax(24rem,0.88fr)]">
             <WorkspacePane
               title="Editor"
+              actions={<WorkspaceEditorActions {...workspaceEditorActionProps} />}
               className="min-h-[18rem] xl:min-h-0"
               bodyClassName="min-h-0"
             >
@@ -3703,11 +3703,7 @@ export default function ChatView(props: ChatViewProps) {
             </WorkspacePane>
 
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-              <WorkspacePane
-                title={activeThread.title}
-                actions={<ChatHeaderActions {...chatHeaderActionProps} />}
-                className="min-h-[32rem] xl:min-h-0"
-              >
+              <WorkspacePane title={activeThread.title} className="min-h-[32rem] xl:min-h-0">
                 <div className="flex min-h-0 min-w-0 flex-1">
                   <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                     <div className="relative flex min-h-0 flex-1 flex-col">

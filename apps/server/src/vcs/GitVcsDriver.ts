@@ -25,6 +25,8 @@ import {
   type VcsRemoveWorktreeInput,
   type VcsStatusInput,
   type VcsStatusResult,
+  type VcsWorkingTreeFileChangesInput,
+  type VcsWorkingTreeFileChangesResult,
 } from "@t3tools/contracts";
 import * as GitVcsDriverCore from "./GitVcsDriverCore.ts";
 import * as VcsDriver from "./VcsDriver.ts";
@@ -184,6 +186,9 @@ export interface GitVcsDriverShape {
     key: string,
   ) => Effect.Effect<string | null, GitCommandError>;
   readonly listRefs: (input: VcsListRefsInput) => Effect.Effect<VcsListRefsResult, GitCommandError>;
+  readonly workingTreeFileChanges: (
+    input: VcsWorkingTreeFileChangesInput,
+  ) => Effect.Effect<VcsWorkingTreeFileChangesResult, GitCommandError>;
   readonly pullCurrentBranch: (cwd: string) => Effect.Effect<VcsPullResult, GitCommandError>;
   readonly createWorktree: (
     input: VcsCreateWorktreeInput,

@@ -27,6 +27,10 @@ monacoGlobal.MonacoEnvironment ??= {
 
 interface MonacoCodeSurfaceProps {
   readonly contents: string;
+  readonly changedLineRanges?: ReadonlyArray<{
+    readonly startLine: number;
+    readonly lineCount: number;
+  }>;
   readonly language: string;
   readonly path: string;
   readonly theme: "light" | "dark";
@@ -34,6 +38,7 @@ interface MonacoCodeSurfaceProps {
 
 export default function MonacoCodeSurface({
   contents,
+  changedLineRanges = [],
   language,
   path,
   theme,
@@ -60,6 +65,7 @@ export default function MonacoCodeSurface({
       fontLigatures: false,
       fontSize: 13,
       lineHeight: 20,
+      lineDecorationsWidth: 16,
       lineNumbers: "on",
       minimap: { enabled: false },
       model,
@@ -71,11 +77,30 @@ export default function MonacoCodeSurface({
       theme: theme === "dark" ? "vs-dark" : "vs",
       wordWrap: "off",
     });
+    const lineCount = model.getLineCount();
+    const decorations = changedLineRanges.flatMap((lineRange) => {
+      if (lineRange.startLine < 1 || lineRange.lineCount < 1) {
+        return [];
+      }
+      const startLineNumber = Math.min(lineRange.startLine, lineCount);
+      const endLineNumber = Math.min(lineRange.startLine + lineRange.lineCount - 1, lineCount);
+      return [
+        {
+          range: new monaco.Range(startLineNumber, 1, endLineNumber, 1),
+          options: {
+            isWholeLine: true,
+            linesDecorationsClassName: "monaco-git-changed-line-gutter",
+          },
+        },
+      ];
+    });
+    const decorationCollection = editor.createDecorationsCollection(decorations);
 
     return () => {
+      decorationCollection.clear();
       editor.dispose();
     };
-  }, [contents, language, path, theme]);
+  }, [changedLineRanges, contents, language, path, theme]);
 
   return <div ref={containerRef} className="min-h-0 min-w-0 flex-1 w-full" />;
 }

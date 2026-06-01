@@ -1140,6 +1140,12 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
+        [WS_METHODS.vcsWorkingTreeFileChanges]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsWorkingTreeFileChanges,
+            gitWorkflow.workingTreeFileChanges(input),
+            { "rpc.aggregate": "vcs" },
+          ),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
             "rpc.aggregate": "terminal",

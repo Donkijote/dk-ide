@@ -4,6 +4,7 @@ import {
   type GitStackedAction,
   type SourceControlPublishRepositoryInput,
   type ThreadId,
+  type VcsWorkingTreeFileChangesResult,
 } from "@t3tools/contracts";
 import {
   infiniteQueryOptions,
@@ -22,6 +23,11 @@ export const gitQueryKeys = {
   all: ["git"] as const,
   refs: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "refs", environmentId ?? null, cwd] as const,
+  workingTreeFileChanges: (
+    environmentId: EnvironmentId | null,
+    cwd: string | null,
+    filePath: string | null,
+  ) => ["git", "working-tree-file-changes", environmentId ?? null, cwd, filePath] as const,
   branchSearch: (environmentId: EnvironmentId | null, cwd: string | null, query: string) =>
     ["git", "refs", environmentId ?? null, cwd, "search", query] as const,
 };
@@ -124,6 +130,35 @@ export function gitResolvePullRequestQueryOptions(input: {
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+  });
+}
+
+export function gitWorkingTreeFileChangesQueryOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  filePath: string | null;
+  enabled?: boolean;
+}) {
+  return queryOptions<VcsWorkingTreeFileChangesResult>({
+    queryKey: gitQueryKeys.workingTreeFileChanges(input.environmentId, input.cwd, input.filePath),
+    queryFn: async () => {
+      if (!input.cwd || !input.filePath || !input.environmentId) {
+        throw new Error("Working tree file changes are unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.vcs.workingTreeFileChanges({
+        cwd: input.cwd,
+        filePath: input.filePath,
+      });
+    },
+    enabled:
+      (input.enabled ?? true) &&
+      input.environmentId !== null &&
+      input.cwd !== null &&
+      input.filePath !== null,
+    staleTime: 2_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 }
 

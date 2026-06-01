@@ -10,6 +10,7 @@ import * as Scope from "effect/Scope";
 import { GitCommandError } from "@t3tools/contracts";
 import { ServerConfig } from "../config.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
+import { parseChangedLineRangesFromUnifiedDiff } from "./GitVcsDriverCore.ts";
 
 const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-git-vcs-driver-test-",
@@ -77,6 +78,70 @@ const initRepoWithCommit = (
   });
 
 it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
+  describe("working tree file changes", () => {
+    it.effect("parses changed line ranges from unified diff hunks", () =>
+      Effect.sync(() => {
+        const diff = [
+          "diff --git a/demo.ts b/demo.ts",
+          "index 1111111..2222222 100644",
+          "--- a/demo.ts",
+          "+++ b/demo.ts",
+          "@@ -1 +1,2 @@",
+          "-old",
+          "+new",
+          "+added",
+          "@@ -8,2 +9 @@",
+          "-removed",
+          "-line",
+          "+replacement",
+          "@@ -20 +20,0 @@",
+          "-deleted",
+        ].join("\n");
+
+        assert.deepStrictEqual(parseChangedLineRangesFromUnifiedDiff(diff), [
+          { startLine: 1, lineCount: 2 },
+          { startLine: 9, lineCount: 1 },
+          { startLine: 20, lineCount: 1 },
+        ]);
+      }),
+    );
+
+    it.effect("returns current-file line ranges for tracked working tree edits", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        yield* writeTextFile(cwd, "README.md", "# test\n\nchanged\n");
+
+        const changes = yield* (yield* GitVcsDriver.GitVcsDriver).workingTreeFileChanges({
+          cwd,
+          filePath: "README.md",
+        });
+
+        assert.equal(changes.wholeFileChanged, false);
+        assert.deepStrictEqual(changes.lineRanges, [{ startLine: 2, lineCount: 2 }]);
+      }),
+    );
+
+    it.effect("marks untracked files as whole-file changes", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        yield* writeTextFile(cwd, "new-file.ts", "one\ntwo\n");
+
+        const changes = yield* (yield* GitVcsDriver.GitVcsDriver).workingTreeFileChanges({
+          cwd,
+          filePath: "new-file.ts",
+        });
+
+        assert.deepStrictEqual(changes, {
+          filePath: "new-file.ts",
+          lineRanges: [],
+          wholeFileChanged: true,
+        });
+      }),
+    );
+  });
+
   describe("repository status", () => {
     it.effect("reports non-repository directories without failing", () =>
       Effect.gen(function* () {
