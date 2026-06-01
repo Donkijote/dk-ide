@@ -87,13 +87,8 @@ export default function MonacoCodeSurface({
         {
           range: new monaco.Range(startLineNumber, 1, endLineNumber, 1),
           options: {
-            className: "monaco-git-changed-line",
             isWholeLine: true,
             linesDecorationsClassName: "monaco-git-changed-line-gutter",
-            overviewRuler: {
-              color: "var(--warning)",
-              position: monaco.editor.OverviewRulerLane.Left,
-            },
           },
         },
       ];
