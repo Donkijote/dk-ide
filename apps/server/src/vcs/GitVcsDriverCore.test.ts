@@ -9,6 +9,7 @@ import * as Scope from "effect/Scope";
 
 import { GitCommandError } from "@t3tools/contracts";
 import { ServerConfig } from "../config.ts";
+import { splitNullSeparatedGitStdoutPaths } from "./GitVcsDriverCore.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 import { parseChangedLineRangesFromUnifiedDiff } from "./GitVcsDriverCore.ts";
 
@@ -138,6 +139,30 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           lineRanges: [],
           wholeFileChanged: true,
         });
+      }),
+    );
+  });
+
+  describe("review diff previews", () => {
+    it.effect("drops an unterminated path from truncated NUL-separated git output", () =>
+      Effect.sync(() => {
+        const paths = splitNullSeparatedGitStdoutPaths({
+          stdout: "complete.txt\0partial",
+          stdoutTruncated: true,
+        });
+
+        assert.deepStrictEqual(paths, ["complete.txt"]);
+      }),
+    );
+
+    it.effect("keeps the final path when NUL-separated git output is complete", () =>
+      Effect.sync(() => {
+        const paths = splitNullSeparatedGitStdoutPaths({
+          stdout: "complete.txt\0final.txt",
+          stdoutTruncated: false,
+        });
+
+        assert.deepStrictEqual(paths, ["complete.txt", "final.txt"]);
       }),
     );
   });

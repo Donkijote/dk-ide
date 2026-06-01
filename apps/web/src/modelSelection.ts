@@ -17,6 +17,8 @@ import {
 } from "@t3tools/shared/model";
 import { getComposerProviderState } from "./components/chat/composerProviderState";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
+import * as Arr from "effect/Array";
+import * as Result from "effect/Result";
 import {
   getDefaultServerModel,
   getProviderModels,
@@ -214,9 +216,9 @@ export function getAppModelOptions(
   const options: AppModelOption[] = getProviderModels(providers, provider).map(toAppModelOption);
   const seen = new Set(options.map((option) => option.slug));
   const builtInModelSlugs = new Set(
-    getProviderModels(providers, provider)
-      .filter((model) => !model.isCustom)
-      .map((model) => model.slug),
+    Arr.filterMap(getProviderModels(providers, provider), (model) =>
+      model.isCustom ? Result.failVoid : Result.succeed(model.slug),
+    ),
   );
 
   // Read from the default instance's config first (that's where edits
@@ -270,7 +272,9 @@ export function getAppModelOptionsForInstance(
   }
   const seen = new Set(options.map((option) => option.slug));
   const builtInModelSlugs = new Set(
-    entry.models.filter((model) => !model.isCustom).map((model) => model.slug),
+    Arr.filterMap(entry.models, (model) =>
+      model.isCustom ? Result.failVoid : Result.succeed(model.slug),
+    ),
   );
 
   const customModels = readInstanceCustomModels(settings, entry.instanceId, entry.driverKind);

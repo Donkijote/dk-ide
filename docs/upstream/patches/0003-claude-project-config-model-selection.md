@@ -80,3 +80,8 @@ especially Claude session management and composer model selection.
   carrying two selection modes
 - future Claude resume or session-import work must keep the "do not reuse stale
   resume cursor for project config" guard intact
+- Verified during the 2026-06-01 upstream sync against upstream commit
+  `b3e8c033`; upstream touched the Claude provider layer while the repo also
+  tightened TSGo rules around ad-hoc JSON parsing, so the local
+  project-config-model path was retained and the settings-file read was adapted
+  to schema-based decoding instead of raw `JSON.parse`.

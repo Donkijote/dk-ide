@@ -113,3 +113,8 @@ composition, which are likely to continue evolving upstream.
 - Verified during the 2026-05-26 upstream sync against upstream commit
   `4f0f24f0`; upstream composer reasoning-selection updates touched shared chat
   state and UI but did not require local workspace-shell code changes.
+- Verified during the 2026-06-01 upstream sync against upstream commit
+  `b3e8c033`; upstream moved terminal runtime/session state and VCS status
+  wiring into `@t3tools/client-runtime`, and the local workspace shell kept its
+  pane model by rebasing `ChatView` and `ThreadTerminalDrawer` onto that split
+  instead of restoring the deleted web-only stores.
