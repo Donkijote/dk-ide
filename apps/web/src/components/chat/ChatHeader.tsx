@@ -1,7 +1,10 @@
 import { memo } from "react";
+import type { ReactNode } from "react";
+
 import { SidebarTrigger } from "../ui/sidebar";
 
 interface ChatHeaderProps {
+  actions?: ReactNode;
   activeThreadTitle: string;
   workspaceName: string | null;
   showWorkspaceContext?: boolean;
@@ -9,6 +12,7 @@ interface ChatHeaderProps {
 }
 
 export const ChatHeader = memo(function ChatHeader({
+  actions,
   activeThreadTitle,
   workspaceName,
   showWorkspaceContext = true,
@@ -36,6 +40,7 @@ export const ChatHeader = memo(function ChatHeader({
       ) : (
         <div className="min-w-0 flex-1" />
       )}
+      {actions ? <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
   );
 });
