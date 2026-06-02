@@ -9,6 +9,9 @@ Terminology spec:
 Visual framing spec:
 [Workspace Visual Framing](./WORKSPACE_VISUAL_FRAMING.md)
 
+Validation checkpoint:
+[Workspace Pre-Alpha Validation](./WORKSPACE_PRE_ALPHA_VALIDATION.md)
+
 ## Goal
 
 Deliver the first UI-first workspace refactor on top of the existing app
@@ -33,18 +36,20 @@ Preserve the upstream logic spine. Refactor the visible product first.
 ## Implementation Tracker
 
 - [x] Define the initial workspace terminology and visible naming changes
-- [ ] Introduce a workspace shell documentable in the app UI
-- [ ] Reframe sidebar project entries as workspace-oriented navigation
-- [ ] Extract the current chat surface into an explicit AI pane container
-- [ ] Extract the current terminal surface into an explicit terminal pane
-- [ ] Decide the first non-chat, non-terminal supporting pane candidates
-- [ ] Add a pane host layout that can place at least two visible pane types at once
-- [ ] Keep existing thread and terminal functionality working inside the new shell
-- [ ] Add lightweight local layout state for the first pane arrangement
-- [ ] Add a workspace header/toolbar that reflects environment, resources, and active context
+- [x] Introduce a workspace shell documentable in the app UI
+- [x] Reframe sidebar project entries as workspace-oriented navigation
+- [x] Extract the current chat surface into an explicit AI pane container
+- [x] Extract the current terminal surface into an explicit terminal pane
+- [x] Decide the first non-chat, non-terminal supporting pane candidates
+- [x] Add a pane host layout that can place at least two visible pane types at once
+- [x] Keep existing thread and terminal functionality working inside the new shell
+- [x] Add lightweight local layout state for the first pane arrangement
+- [x] Add a workspace header/toolbar that reflects environment, resources, and active context
+- [x] Add the first lightweight editor pane with workspace file navigation
+- [x] Validate the workspace shell against the current app flows
+- [x] Document what still depends on upstream project/thread framing
 - [ ] Introduce a first overview or workspace switcher model that preserves orientation
-- [ ] Validate the workspace shell against the current app flows
-- [ ] Document what still depends on upstream project/thread framing
+      (deferred until later product learning)
 
 ## Phase 0: Language And Framing
 
