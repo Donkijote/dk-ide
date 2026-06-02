@@ -15,6 +15,7 @@ import {
   setThreadChangedFilesExpanded,
   setWorkspaceShellSidebarOpen,
   setWorkspaceThreadLastActivePane,
+  setWorkspaceThreadPaneTitleOverride,
   setWorkspaceThreadPlanSidebarOpen,
   syncProjects,
   syncThreads,
@@ -458,13 +459,26 @@ describe("uiStateStore pure functions", () => {
     state = setWorkspaceShellSidebarOpen(state, false);
     state = setWorkspaceThreadPlanSidebarOpen(state, thread1, true);
     state = setWorkspaceThreadLastActivePane(state, thread1, "terminal");
+    state = setWorkspaceThreadPaneTitleOverride(state, thread1, "terminal:group-1", "Build logs");
 
     expect(state.workspaceShellSidebarOpen).toBe(false);
     expect(state.workspaceThreadLayoutById[thread1]).toEqual({
       planSidebarOpen: true,
       lastActivePane: "terminal",
+      paneTitleOverrideById: {
+        "terminal:group-1": "Build logs",
+      },
     });
     expect(setWorkspaceShellSidebarOpen(state, false)).toBe(state);
+  });
+
+  it("clears workspace pane title overrides when the title is empty", () => {
+    const thread1 = ThreadId.make("thread-1");
+    let state = setWorkspaceThreadPaneTitleOverride(makeUiState(), thread1, "editor", "Source");
+
+    state = setWorkspaceThreadPaneTitleOverride(state, thread1, "editor", " ");
+
+    expect(state.workspaceThreadLayoutById).toEqual({});
   });
 
   it("setThreadChangedFilesExpanded stores collapsed turns per thread", () => {
@@ -635,6 +649,7 @@ describe("uiStateStore persistence round-trip", () => {
     let state = setWorkspaceShellSidebarOpen(makeUiState(), false);
     state = setWorkspaceThreadPlanSidebarOpen(state, thread1, true);
     state = setWorkspaceThreadLastActivePane(state, thread1, "plan");
+    state = setWorkspaceThreadPaneTitleOverride(state, thread1, "ai", "Planning thread");
 
     persistState(state);
 
@@ -644,7 +659,11 @@ describe("uiStateStore persistence round-trip", () => {
 
     expect(persisted.workspaceShellSidebarOpen).toBe(false);
     expect(persisted.workspaceThreadLayoutById).toEqual({
-      [thread1]: { planSidebarOpen: true, lastActivePane: "plan" },
+      [thread1]: {
+        planSidebarOpen: true,
+        lastActivePane: "plan",
+        paneTitleOverrideById: { ai: "Planning thread" },
+      },
     });
   });
 

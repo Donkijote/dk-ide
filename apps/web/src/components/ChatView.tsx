@@ -219,8 +219,37 @@ const IMAGE_ONLY_BOOTSTRAP_PROMPT =
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
+const EMPTY_PANE_TITLE_OVERRIDES: Record<string, string> = {};
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+
+function basenameOfPanePath(path: string | null | undefined): string | null {
+  if (!path) {
+    return null;
+  }
+  const normalizedPath = path.replace(/\\/g, "/").replace(/\/+$/g, "");
+  const segments = normalizedPath.split("/");
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index];
+    if (segment) {
+      return segment;
+    }
+  }
+  return null;
+}
+
+function resolveEditorPaneDefaultTitle(
+  activePath: string | null,
+  workspaceName: string | null,
+  workspaceRoot: string | undefined,
+): string {
+  return (
+    basenameOfPanePath(activePath) ??
+    (workspaceName ? `${workspaceName} Editor` : null) ??
+    (workspaceRoot ? `${basenameOfPanePath(workspaceRoot) ?? "Workspace"} Editor` : null) ??
+    "Editor"
+  );
+}
 type EnvironmentUnavailableState = {
   readonly environmentId: EnvironmentId;
   readonly label: string;
@@ -551,6 +580,7 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
 }: PersistentThreadTerminalPaneDeckProps) {
   const serverThread = useStore(useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]));
   const draftThread = useComposerDraftStore((store) => store.getDraftThreadByRef(threadRef));
+  const threadKey = useMemo(() => scopedThreadKey(threadRef), [threadRef]);
   const projectRef = serverThread
     ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
     : draftThread
@@ -562,6 +592,14 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
   );
   const storeSetWorkspaceThreadLastActivePane = useUiStateStore(
     (state) => state.setWorkspaceThreadLastActivePane,
+  );
+  const paneTitleOverrideById = useUiStateStore(
+    (state) =>
+      state.workspaceThreadLayoutById[threadKey]?.paneTitleOverrideById ??
+      EMPTY_PANE_TITLE_OVERRIDES,
+  );
+  const storeSetWorkspaceThreadPaneTitleOverride = useUiStateStore(
+    (state) => state.setWorkspaceThreadPaneTitleOverride,
   );
   const storeSetTerminalHeight = useTerminalUiStateStore((state) => state.setTerminalHeight);
   const storeSplitTerminal = useTerminalUiStateStore((state) => state.splitTerminal);
@@ -614,23 +652,48 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
 
   const splitTerminal = useCallback(() => {
     storeSplitTerminal(threadRef, `terminal-${randomUUID()}`);
-    storeSetWorkspaceThreadLastActivePane(scopedThreadKey(threadRef), "terminal");
+    storeSetWorkspaceThreadLastActivePane(threadKey, "terminal");
     bumpFocusRequestId();
-  }, [bumpFocusRequestId, storeSetWorkspaceThreadLastActivePane, storeSplitTerminal, threadRef]);
+  }, [
+    bumpFocusRequestId,
+    storeSetWorkspaceThreadLastActivePane,
+    storeSplitTerminal,
+    threadKey,
+    threadRef,
+  ]);
 
   const createNewTerminal = useCallback(() => {
     storeNewTerminal(threadRef, `terminal-${randomUUID()}`);
-    storeSetWorkspaceThreadLastActivePane(scopedThreadKey(threadRef), "terminal");
+    storeSetWorkspaceThreadLastActivePane(threadKey, "terminal");
     bumpFocusRequestId();
-  }, [bumpFocusRequestId, storeNewTerminal, storeSetWorkspaceThreadLastActivePane, threadRef]);
+  }, [
+    bumpFocusRequestId,
+    storeNewTerminal,
+    storeSetWorkspaceThreadLastActivePane,
+    threadKey,
+    threadRef,
+  ]);
 
   const activateTerminal = useCallback(
     (terminalId: string) => {
       storeSetActiveTerminal(threadRef, terminalId);
-      storeSetWorkspaceThreadLastActivePane(scopedThreadKey(threadRef), "terminal");
+      storeSetWorkspaceThreadLastActivePane(threadKey, "terminal");
       bumpFocusRequestId();
     },
-    [bumpFocusRequestId, storeSetActiveTerminal, storeSetWorkspaceThreadLastActivePane, threadRef],
+    [
+      bumpFocusRequestId,
+      storeSetActiveTerminal,
+      storeSetWorkspaceThreadLastActivePane,
+      threadKey,
+      threadRef,
+    ],
+  );
+
+  const renameTerminalPane = useCallback(
+    (paneId: string, title: string | null) => {
+      storeSetWorkspaceThreadPaneTitleOverride(threadKey, paneId, title);
+    },
+    [storeSetWorkspaceThreadPaneTitleOverride, threadKey],
   );
 
   const closeTerminal = useCallback(
@@ -705,14 +768,17 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
         const paneTitle =
           terminalGroup.terminalIds.length > 1
             ? `Split Terminal ${groupIndex + 1}`
-            : terminalGroups.length > 1
-              ? `Terminal ${groupIndex + 1}`
-              : "Terminal";
+            : (terminalLabelById[groupActiveTerminalId] ??
+              basenameOfPanePath(cwd) ??
+              `Terminal ${groupIndex + 1}`);
+        const paneId = `terminal:${terminalGroup.id}`;
+        const title = paneTitleOverrideById[paneId] ?? paneTitle;
 
         return (
           <WorkspacePane
             key={terminalGroup.id}
-            title={<span className="block leading-none">{paneTitle}</span>}
+            title={title}
+            onTitleRename={(nextTitle) => renameTerminalPane(paneId, nextTitle)}
             actions={
               <span className="max-w-[60vw] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-muted-foreground">
                 {cwd}
@@ -787,11 +853,25 @@ export default function ChatView(props: ChatViewProps) {
   const planSidebarOpen = useUiStateStore(
     (store) => store.workspaceThreadLayoutById[routeThreadKey]?.planSidebarOpen ?? false,
   );
+  const paneTitleOverrideById = useUiStateStore(
+    (store) =>
+      store.workspaceThreadLayoutById[routeThreadKey]?.paneTitleOverrideById ??
+      EMPTY_PANE_TITLE_OVERRIDES,
+  );
   const storeSetWorkspaceThreadPlanSidebarOpen = useUiStateStore(
     (store) => store.setWorkspaceThreadPlanSidebarOpen,
   );
   const storeSetWorkspaceThreadLastActivePane = useUiStateStore(
     (store) => store.setWorkspaceThreadLastActivePane,
+  );
+  const storeSetWorkspaceThreadPaneTitleOverride = useUiStateStore(
+    (store) => store.setWorkspaceThreadPaneTitleOverride,
+  );
+  const renameWorkspacePane = useCallback(
+    (paneId: string, title: string | null) => {
+      storeSetWorkspaceThreadPaneTitleOverride(routeThreadKey, paneId, title);
+    },
+    [routeThreadKey, storeSetWorkspaceThreadPaneTitleOverride],
   );
   const setPlanSidebarOpen = useCallback(
     (value: boolean | ((open: boolean) => boolean)) => {
@@ -884,6 +964,7 @@ export default function ChatView(props: ChatViewProps) {
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [editorOpenFileRequest, setEditorOpenFileRequest] =
     useState<WorkspaceEditorOpenFileRequest | null>(null);
+  const [workspaceEditorActivePath, setWorkspaceEditorActivePath] = useState<string | null>(null);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
   const [terminalLaunchContext, setTerminalLaunchContext] = useState<TerminalLaunchContext | null>(
@@ -1434,6 +1515,7 @@ export default function ChatView(props: ChatViewProps) {
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
   useEffect(() => {
     setEditorOpenFileRequest(null);
+    setWorkspaceEditorActivePath(null);
   }, [activeThread?.id, activeWorkspaceRoot]);
   const claudeRuntimeStatusQuery = useQuery(
     providerRuntimeStatusQueryOptions({
@@ -3677,6 +3759,10 @@ export default function ChatView(props: ChatViewProps) {
     return <NoActiveThreadState />;
   }
 
+  const editorPaneTitle =
+    paneTitleOverrideById.editor ??
+    resolveEditorPaneDefaultTitle(workspaceEditorActivePath, workspaceName, activeWorkspaceRoot);
+  const aiPaneTitle = paneTitleOverrideById.ai ?? activeThread.title;
   const workspaceEditorActionProps = {
     activeThreadEnvironmentId: activeThread.environmentId,
     activeThreadId: activeThread.id,
@@ -3749,7 +3835,8 @@ export default function ChatView(props: ChatViewProps) {
         <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-[112rem] flex-1 flex-col gap-3">
           <div className="grid min-h-0 min-w-0 w-full flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(32rem,1.12fr)_minmax(24rem,0.88fr)]">
             <WorkspacePane
-              title="Editor"
+              title={editorPaneTitle}
+              onTitleRename={(nextTitle) => renameWorkspacePane("editor", nextTitle)}
               actions={<WorkspaceEditorActions {...workspaceEditorActionProps} />}
               className="min-h-[18rem] xl:min-h-0"
               bodyClassName="min-h-0 flex-col"
@@ -3760,6 +3847,7 @@ export default function ChatView(props: ChatViewProps) {
                 workspaceRoot={activeWorkspaceRoot}
                 resolvedTheme={resolvedTheme}
                 onActive={markEditorActive}
+                onActivePathChange={setWorkspaceEditorActivePath}
               />
               {isGitRepo && (
                 <div className="shrink-0 border-t border-border/60 bg-background">
@@ -3791,7 +3879,12 @@ export default function ChatView(props: ChatViewProps) {
             </WorkspacePane>
 
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-              <WorkspacePane title={activeThread.title} className="min-h-[32rem] xl:min-h-0">
+              <WorkspacePane
+                title={aiPaneTitle}
+                description={aiPaneTitle === activeThread.title ? null : activeThread.title}
+                onTitleRename={(nextTitle) => renameWorkspacePane("ai", nextTitle)}
+                className="min-h-[32rem] xl:min-h-0"
+              >
                 <div className="flex min-h-0 min-w-0 flex-1">
                   <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                     <div className="relative flex min-h-0 flex-1 flex-col">

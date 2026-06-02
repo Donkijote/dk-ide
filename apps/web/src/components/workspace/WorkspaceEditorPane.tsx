@@ -152,6 +152,7 @@ interface WorkspaceEditorPaneProps {
   readonly resolvedTheme: "light" | "dark";
   readonly workspaceRoot: string | undefined;
   readonly onActive?: () => void;
+  readonly onActivePathChange?: (path: string | null) => void;
 }
 
 export interface WorkspaceEditorOpenFileRequest {
@@ -176,6 +177,7 @@ export function WorkspaceEditorPane({
   resolvedTheme,
   workspaceRoot,
   onActive,
+  onActivePathChange,
 }: WorkspaceEditorPaneProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const editorPaneSelectedRef = useRef(false);
@@ -244,6 +246,11 @@ export function WorkspaceEditorPane({
   const currentDirectoryEntries = directoryQuery.data?.entries ?? [];
   const activeLanguage = activePath ? languageForPath(activePath) : "plaintext";
   const activeChangedFile = activePath ? changedPathState.changedFileByPath.get(activePath) : null;
+
+  useEffect(() => {
+    onActivePathChange?.(activePath);
+  }, [activePath, onActivePathChange]);
+
   const activeFileChangesQuery = useQuery(
     gitWorkingTreeFileChangesQueryOptions({
       environmentId,
