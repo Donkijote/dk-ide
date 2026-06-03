@@ -75,6 +75,7 @@ composition, which are likely to continue evolving upstream.
 - `improvement/ghi#7`: pane chrome alignment, editor-owned checkout/branch
   controls, app-header ownership for global pane toggles, and changed-file
   actions that can target either diff review or the editor
+- `afef1aaf`: upstream sync merge against `upstream/main` through `f0116e44`
 
 ## Sync Notes
 
@@ -127,3 +128,7 @@ composition, which are likely to continue evolving upstream.
   wiring into `@t3tools/client-runtime`, and the local workspace shell kept its
   pane model by rebasing `ChatView` and `ThreadTerminalDrawer` onto that split
   instead of restoring the deleted web-only stores.
+- Verified during the 2026-06-03 upstream sync against upstream commit
+  `f0116e44`; upstream added environment HTTP APIs and WebSocket authorization
+  guards, and the local workspace file/VCS RPC contracts were extended to
+  expose authorization failures while preserving the workspace shell adapters.

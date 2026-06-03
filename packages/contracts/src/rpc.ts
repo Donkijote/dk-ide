@@ -217,7 +217,11 @@ export const WsServerGetProviderRuntimeStatusRpc = Rpc.make(
   {
     payload: ServerGetProviderRuntimeStatusInput,
     success: ServerProviderRuntimeStatus,
-    error: Schema.Union([KeybindingsConfigError, ServerSettingsError]),
+    error: Schema.Union([
+      KeybindingsConfigError,
+      ServerSettingsError,
+      EnvironmentAuthorizationError,
+    ]),
   },
 );
 
@@ -319,13 +323,13 @@ export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntr
 export const WsProjectsListDirectoryRpc = Rpc.make(WS_METHODS.projectsListDirectory, {
   payload: ProjectListDirectoryInput,
   success: ProjectListDirectoryResult,
-  error: ProjectListDirectoryError,
+  error: Schema.Union([ProjectListDirectoryError, EnvironmentAuthorizationError]),
 });
 
 export const WsProjectsReadFileRpc = Rpc.make(WS_METHODS.projectsReadFile, {
   payload: ProjectReadFileInput,
   success: ProjectReadFileResult,
-  error: ProjectReadFileError,
+  error: Schema.Union([ProjectReadFileError, EnvironmentAuthorizationError]),
 });
 
 export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
@@ -420,7 +424,7 @@ export const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
 export const WsVcsWorkingTreeFileChangesRpc = Rpc.make(WS_METHODS.vcsWorkingTreeFileChanges, {
   payload: VcsWorkingTreeFileChangesInput,
   success: VcsWorkingTreeFileChangesResult,
-  error: GitCommandError,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
 /**
