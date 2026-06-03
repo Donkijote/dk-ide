@@ -26,9 +26,64 @@ export interface PersistedUiState {
 }
 
 export type WorkspacePaneId = "ai" | "editor" | "plan" | "terminal";
+export type WorkspaceDockedPaneType = "ai" | "editor" | "terminal";
+export type WorkspaceDockedPaneId = string;
+
+export interface PersistedWorkspaceDockedPaneBase {
+  paneId: WorkspaceDockedPaneId;
+  type: WorkspaceDockedPaneType;
+  title: string;
+  environmentId: string;
+  cwd: string | null;
+  order: number;
+  size: number;
+}
+
+export interface PersistedWorkspaceAiPane extends PersistedWorkspaceDockedPaneBase {
+  type: "ai";
+  metadata: {
+    threadId: string | null;
+  };
+}
+
+export interface PersistedWorkspaceTerminalPane extends PersistedWorkspaceDockedPaneBase {
+  type: "terminal";
+  metadata: {
+    threadId: string | null;
+    terminalId?: string | null;
+    terminalGroupId?: string | null;
+  };
+}
+
+export interface PersistedWorkspaceEditorPane extends PersistedWorkspaceDockedPaneBase {
+  type: "editor";
+  metadata: {
+    activePath?: string | null;
+    openPaths?: string[];
+  };
+}
+
+export type PersistedWorkspaceDockedPane =
+  | PersistedWorkspaceAiPane
+  | PersistedWorkspaceTerminalPane
+  | PersistedWorkspaceEditorPane;
+
+export interface WorkspaceThreadDockedPaneLayoutInput {
+  threadId: string;
+  environmentId: string;
+  cwd: string | null | undefined;
+  aiTitle: string;
+  editorTitle: string;
+  terminalTitle: string;
+  editorActivePath?: string | null | undefined;
+  terminalId?: string | null | undefined;
+  terminalGroupId?: string | null | undefined;
+}
 
 export interface PersistedWorkspaceThreadLayout {
+  activePaneId?: WorkspaceDockedPaneId;
   lastActivePane?: WorkspacePaneId;
+  panes?: PersistedWorkspaceDockedPane[];
   paneTitleOverrideById?: Record<string, string>;
   planSidebarOpen?: boolean;
 }
@@ -82,6 +137,12 @@ const persistedCollapsedProjectCwds = new Set<string>();
 const persistedExpandedProjectCwds = new Set<string>();
 const persistedProjectOrderCwds: string[] = [];
 const persistedProjectOrderCwdSet = new Set<string>();
+const DEFAULT_WORKSPACE_PANE_SIZE = 1;
+const WORKSPACE_DOCKED_PANE_IDS = {
+  ai: "ai",
+  editor: "editor",
+  terminal: "terminal",
+} as const satisfies Record<WorkspaceDockedPaneType, WorkspaceDockedPaneId>;
 // Pre-fix persisted shape only listed expanded cwds, so anything not listed
 // was treated as collapsed. Track whether the loaded blob carried the new
 // `collapsedProjectCwds` field so we can preserve that legacy semantic for
@@ -184,6 +245,14 @@ function sanitizePersistedWorkspaceThreadLayout(
     ) {
       nextLayout.lastActivePane = layout.lastActivePane;
     }
+    const panes = sanitizeWorkspaceDockedPanes(layout.panes);
+    if (panes.length > 0) {
+      nextLayout.panes = panes;
+    }
+    const activePaneId = sanitizeWorkspacePaneTitle(layout.activePaneId);
+    if (activePaneId !== null && panes.some((pane) => pane.paneId === activePaneId)) {
+      nextLayout.activePaneId = activePaneId;
+    }
     if (typeof layout.planSidebarOpen === "boolean") {
       nextLayout.planSidebarOpen = layout.planSidebarOpen;
     }
@@ -200,12 +269,126 @@ function sanitizePersistedWorkspaceThreadLayout(
   return nextState;
 }
 
+function sanitizeWorkspacePaneType(value: unknown): WorkspaceDockedPaneType | null {
+  return value === "ai" || value === "editor" || value === "terminal" ? value : null;
+}
+
 function sanitizeWorkspacePaneTitle(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
   }
   const title = value.trim().replace(/\s+/g, " ");
   return title.length > 0 ? title.slice(0, 120) : null;
+}
+
+function sanitizeWorkspacePaneSize(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.min(Math.max(value, 0.05), 100)
+    : DEFAULT_WORKSPACE_PANE_SIZE;
+}
+
+function sanitizeWorkspacePaneOrder(value: unknown, fallbackOrder: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallbackOrder;
+}
+
+function sanitizeOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function sanitizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const nextValues: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const normalized = sanitizeOptionalString(item);
+    if (normalized === null || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    nextValues.push(normalized);
+  }
+  return nextValues.length > 0 ? nextValues : undefined;
+}
+
+function sanitizeWorkspacePaneMetadata(
+  type: WorkspaceDockedPaneType,
+  value: unknown,
+): PersistedWorkspaceDockedPane["metadata"] {
+  const metadata = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  if (type === "ai") {
+    return {
+      threadId: sanitizeOptionalString(metadata.threadId),
+    };
+  }
+  if (type === "terminal") {
+    return {
+      threadId: sanitizeOptionalString(metadata.threadId),
+      terminalId: sanitizeOptionalString(metadata.terminalId),
+      terminalGroupId: sanitizeOptionalString(metadata.terminalGroupId),
+    };
+  }
+  const openPaths = sanitizeStringArray(metadata.openPaths);
+  return {
+    activePath: sanitizeOptionalString(metadata.activePath),
+    ...(openPaths ? { openPaths } : {}),
+  };
+}
+
+function sanitizeWorkspaceDockedPane(
+  value: unknown,
+  fallbackOrder: number,
+): PersistedWorkspaceDockedPane | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const pane = value as Record<string, unknown>;
+  const paneId = sanitizeWorkspacePaneTitle(pane.paneId);
+  const type = sanitizeWorkspacePaneType(pane.type);
+  const title = sanitizeWorkspacePaneTitle(pane.title);
+  const environmentId = sanitizeOptionalString(pane.environmentId);
+  if (paneId === null || type === null || title === null || environmentId === null) {
+    return null;
+  }
+
+  const base = {
+    paneId,
+    type,
+    title,
+    environmentId,
+    cwd: sanitizeOptionalString(pane.cwd),
+    order: sanitizeWorkspacePaneOrder(pane.order, fallbackOrder),
+    size: sanitizeWorkspacePaneSize(pane.size),
+  };
+  const metadata = sanitizeWorkspacePaneMetadata(type, pane.metadata);
+  return { ...base, metadata } as PersistedWorkspaceDockedPane;
+}
+
+export function sanitizeWorkspaceDockedPanes(value: unknown): PersistedWorkspaceDockedPane[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seenPaneIds = new Set<string>();
+  return value
+    .flatMap((pane, index) => {
+      const sanitizedPane = sanitizeWorkspaceDockedPane(pane, index);
+      if (sanitizedPane === null || seenPaneIds.has(sanitizedPane.paneId)) {
+        return [];
+      }
+      seenPaneIds.add(sanitizedPane.paneId);
+      return [sanitizedPane];
+    })
+    .toSorted((left, right) => {
+      const byOrder = left.order - right.order;
+      return byOrder !== 0 ? byOrder : left.paneId.localeCompare(right.paneId);
+    });
 }
 
 function sanitizeWorkspacePaneTitleOverrides(value: unknown): Record<string, string> {
@@ -611,8 +794,10 @@ function workspaceThreadLayoutEqual(
   right: PersistedWorkspaceThreadLayout | undefined,
 ): boolean {
   return (
+    (left?.activePaneId ?? undefined) === (right?.activePaneId ?? undefined) &&
     (left?.lastActivePane ?? undefined) === (right?.lastActivePane ?? undefined) &&
     (left?.planSidebarOpen === true) === (right?.planSidebarOpen === true) &&
+    workspaceDockedPanesEqual(left?.panes ?? [], right?.panes ?? []) &&
     recordsEqual(left?.paneTitleOverrideById ?? {}, right?.paneTitleOverrideById ?? {})
   );
 }
@@ -637,7 +822,9 @@ function workspaceThreadLayoutsEqual(
 function isDefaultWorkspaceThreadLayout(layout: PersistedWorkspaceThreadLayout): boolean {
   return (
     layout.planSidebarOpen !== true &&
+    layout.activePaneId === undefined &&
     layout.lastActivePane === undefined &&
+    (layout.panes?.length ?? 0) === 0 &&
     Object.keys(layout.paneTitleOverrideById ?? {}).length === 0
   );
 }
@@ -762,10 +949,16 @@ export function setWorkspaceThreadLastActivePane(
   threadId: string,
   pane: WorkspacePaneId,
 ): UiState {
-  return updateWorkspaceThreadLayout(state, threadId, (layout) => ({
-    ...layout,
-    lastActivePane: pane,
-  }));
+  return updateWorkspaceThreadLayout(state, threadId, (layout) => {
+    const nextLayout: PersistedWorkspaceThreadLayout = {
+      ...layout,
+      lastActivePane: pane,
+    };
+    if (pane === "ai" || pane === "editor" || pane === "terminal") {
+      nextLayout.activePaneId = WORKSPACE_DOCKED_PANE_IDS[pane];
+    }
+    return nextLayout;
+  });
 }
 
 export function setWorkspaceThreadPaneTitleOverride(
@@ -801,6 +994,218 @@ export function setWorkspaceThreadPaneTitleOverride(
     return {
       ...layout,
       paneTitleOverrideById: nextOverrides,
+    };
+  });
+}
+
+function workspaceDockedPaneEqual(
+  left: PersistedWorkspaceDockedPane,
+  right: PersistedWorkspaceDockedPane,
+): boolean {
+  return (
+    left.paneId === right.paneId &&
+    left.type === right.type &&
+    left.title === right.title &&
+    left.environmentId === right.environmentId &&
+    left.cwd === right.cwd &&
+    left.order === right.order &&
+    left.size === right.size &&
+    JSON.stringify(left.metadata) === JSON.stringify(right.metadata)
+  );
+}
+
+function workspaceDockedPanesEqual(
+  left: readonly PersistedWorkspaceDockedPane[],
+  right: readonly PersistedWorkspaceDockedPane[],
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftPane = left[index];
+    const rightPane = right[index];
+    if (!leftPane || !rightPane || !workspaceDockedPaneEqual(leftPane, rightPane)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function defaultPaneTitle(title: string, fallback: string): string {
+  return sanitizeWorkspacePaneTitle(title) ?? fallback;
+}
+
+function defaultWorkspaceDockedPanes(
+  input: WorkspaceThreadDockedPaneLayoutInput,
+): PersistedWorkspaceDockedPane[] {
+  const cwd = sanitizeOptionalString(input.cwd);
+  const environmentId = sanitizeOptionalString(input.environmentId);
+  const threadId = sanitizeOptionalString(input.threadId);
+  if (environmentId === null || threadId === null) {
+    return [];
+  }
+
+  return [
+    {
+      paneId: WORKSPACE_DOCKED_PANE_IDS.editor,
+      type: "editor",
+      title: defaultPaneTitle(input.editorTitle, "Editor"),
+      environmentId,
+      cwd,
+      order: 0,
+      size: DEFAULT_WORKSPACE_PANE_SIZE,
+      metadata: {
+        activePath: sanitizeOptionalString(input.editorActivePath),
+      },
+    },
+    {
+      paneId: WORKSPACE_DOCKED_PANE_IDS.ai,
+      type: "ai",
+      title: defaultPaneTitle(input.aiTitle, "AI"),
+      environmentId,
+      cwd,
+      order: 1,
+      size: DEFAULT_WORKSPACE_PANE_SIZE,
+      metadata: {
+        threadId,
+      },
+    },
+    {
+      paneId: WORKSPACE_DOCKED_PANE_IDS.terminal,
+      type: "terminal",
+      title: defaultPaneTitle(input.terminalTitle, "Terminal"),
+      environmentId,
+      cwd,
+      order: 2,
+      size: DEFAULT_WORKSPACE_PANE_SIZE,
+      metadata: {
+        threadId,
+        terminalId: sanitizeOptionalString(input.terminalId),
+        terminalGroupId: sanitizeOptionalString(input.terminalGroupId),
+      },
+    },
+  ];
+}
+
+function workspaceDockedPaneWithRuntimeContext(
+  pane: PersistedWorkspaceDockedPane,
+  defaultsById: Record<string, PersistedWorkspaceDockedPane>,
+): PersistedWorkspaceDockedPane {
+  const defaultPane = defaultsById[pane.paneId];
+  if (!defaultPane || defaultPane.type !== pane.type) {
+    return pane;
+  }
+  if (pane.type === "ai" && defaultPane.type === "ai") {
+    return {
+      ...pane,
+      environmentId: defaultPane.environmentId,
+      cwd: defaultPane.cwd,
+      metadata: {
+        ...pane.metadata,
+        ...defaultPane.metadata,
+      },
+    };
+  }
+  if (pane.type === "terminal" && defaultPane.type === "terminal") {
+    return {
+      ...pane,
+      environmentId: defaultPane.environmentId,
+      cwd: defaultPane.cwd,
+      metadata: {
+        ...pane.metadata,
+        ...defaultPane.metadata,
+      },
+    };
+  }
+  if (pane.type === "editor" && defaultPane.type === "editor") {
+    return {
+      ...pane,
+      environmentId: defaultPane.environmentId,
+      cwd: defaultPane.cwd,
+      metadata: {
+        ...pane.metadata,
+        ...defaultPane.metadata,
+      },
+    };
+  }
+  return pane;
+}
+
+export function ensureWorkspaceThreadDockedPaneLayout(
+  state: UiState,
+  threadId: string,
+  input: WorkspaceThreadDockedPaneLayoutInput,
+): UiState {
+  const defaultPanes = defaultWorkspaceDockedPanes(input);
+  if (defaultPanes.length === 0) {
+    return state;
+  }
+
+  const defaultsById = Object.fromEntries(defaultPanes.map((pane) => [pane.paneId, pane]));
+  return updateWorkspaceThreadLayout(state, threadId, (layout) => {
+    const existingPanes = layout.panes ?? [];
+    const existingPaneIds = new Set(existingPanes.map((pane) => pane.paneId));
+    const panes = sanitizeWorkspaceDockedPanes([
+      ...existingPanes.map((pane) => workspaceDockedPaneWithRuntimeContext(pane, defaultsById)),
+      ...defaultPanes.filter((pane) => !existingPaneIds.has(pane.paneId)),
+    ]);
+    const activePaneId =
+      layout.activePaneId && panes.some((pane) => pane.paneId === layout.activePaneId)
+        ? layout.activePaneId
+        : layout.lastActivePane === "ai" ||
+            layout.lastActivePane === "editor" ||
+            layout.lastActivePane === "terminal"
+          ? WORKSPACE_DOCKED_PANE_IDS[layout.lastActivePane]
+          : WORKSPACE_DOCKED_PANE_IDS.ai;
+
+    return {
+      ...layout,
+      activePaneId,
+      panes,
+    };
+  });
+}
+
+export function setWorkspaceThreadDockedPanes(
+  state: UiState,
+  threadId: string,
+  panes: readonly PersistedWorkspaceDockedPane[],
+  activePaneId?: string | null,
+): UiState {
+  const sanitizedPanes = sanitizeWorkspaceDockedPanes(panes);
+  return updateWorkspaceThreadLayout(state, threadId, (layout) => {
+    const normalizedActivePaneId =
+      sanitizeWorkspacePaneTitle(activePaneId) ??
+      (layout.activePaneId && sanitizedPanes.some((pane) => pane.paneId === layout.activePaneId)
+        ? layout.activePaneId
+        : null);
+    return {
+      ...layout,
+      panes: sanitizedPanes,
+      ...(normalizedActivePaneId !== null &&
+      sanitizedPanes.some((pane) => pane.paneId === normalizedActivePaneId)
+        ? { activePaneId: normalizedActivePaneId }
+        : {}),
+    };
+  });
+}
+
+export function setWorkspaceThreadActiveDockedPane(
+  state: UiState,
+  threadId: string,
+  paneId: string,
+): UiState {
+  const normalizedPaneId = sanitizeWorkspacePaneTitle(paneId);
+  if (normalizedPaneId === null) {
+    return state;
+  }
+  return updateWorkspaceThreadLayout(state, threadId, (layout) => {
+    if (!layout.panes?.some((pane) => pane.paneId === normalizedPaneId)) {
+      return layout;
+    }
+    return {
+      ...layout,
+      activePaneId: normalizedPaneId,
     };
   });
 }
@@ -888,6 +1293,16 @@ interface UiStateStore extends UiState {
     paneId: string,
     title: string | null,
   ) => void;
+  ensureWorkspaceThreadDockedPaneLayout: (
+    threadId: string,
+    input: WorkspaceThreadDockedPaneLayoutInput,
+  ) => void;
+  setWorkspaceThreadDockedPanes: (
+    threadId: string,
+    panes: readonly PersistedWorkspaceDockedPane[],
+    activePaneId?: string | null,
+  ) => void;
+  setWorkspaceThreadActiveDockedPane: (threadId: string, paneId: string) => void;
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
   reorderProjects: (
@@ -916,6 +1331,12 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setWorkspaceThreadLastActivePane(state, threadId, pane)),
   setWorkspaceThreadPaneTitleOverride: (threadId, paneId, title) =>
     set((state) => setWorkspaceThreadPaneTitleOverride(state, threadId, paneId, title)),
+  ensureWorkspaceThreadDockedPaneLayout: (threadId, input) =>
+    set((state) => ensureWorkspaceThreadDockedPaneLayout(state, threadId, input)),
+  setWorkspaceThreadDockedPanes: (threadId, panes, activePaneId) =>
+    set((state) => setWorkspaceThreadDockedPanes(state, threadId, panes, activePaneId)),
+  setWorkspaceThreadActiveDockedPane: (threadId, paneId) =>
+    set((state) => setWorkspaceThreadActiveDockedPane(state, threadId, paneId)),
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),

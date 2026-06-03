@@ -78,6 +78,8 @@ composition, which are likely to continue evolving upstream.
 - `afef1aaf`: upstream sync merge against `upstream/main` through `f0116e44`
 - `improvement/ghi#36`: sidebar thread rows removed from primary workspace
   navigation, with existing-thread switching moved into the AI pane header
+- `feature/ghi#34`: persisted docked pane layout state for AI, terminal, and
+  editor panes, with startup sanitization and local UI-state reconciliation
 
 ## Sync Notes
 
@@ -121,6 +123,9 @@ composition, which are likely to continue evolving upstream.
   evolve without re-entangling workspace shell ownership
 - keep thread selection inside AI pane chrome so the sidebar can stay focused on
   workspace/source orientation while preserving the existing thread route model
+- persist the first docked pane model locally in web UI state so alpha pane
+  add, close, rename, reorder, resize, and restore work can build on stable pane
+  ids without introducing a server-side workspace domain yet
 - split future implementation into smaller patch files when the shell reframe
   turns into concrete workstreams such as sidebar mapping, pane extraction, or
   layout persistence
