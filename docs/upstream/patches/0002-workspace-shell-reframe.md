@@ -76,6 +76,8 @@ composition, which are likely to continue evolving upstream.
   controls, app-header ownership for global pane toggles, and changed-file
   actions that can target either diff review or the editor
 - `afef1aaf`: upstream sync merge against `upstream/main` through `f0116e44`
+- `improvement/ghi#36`: sidebar thread rows removed from primary workspace
+  navigation, with existing-thread switching moved into the AI pane header
 
 ## Sync Notes
 
@@ -117,6 +119,8 @@ composition, which are likely to continue evolving upstream.
   same workspace framing without copying chat-specific structure
 - keep chat actions extracted from pane framing so upstream chat behavior can
   evolve without re-entangling workspace shell ownership
+- keep thread selection inside AI pane chrome so the sidebar can stay focused on
+  workspace/source orientation while preserving the existing thread route model
 - split future implementation into smaller patch files when the shell reframe
   turns into concrete workstreams such as sidebar mapping, pane extraction, or
   layout persistence
