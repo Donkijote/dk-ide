@@ -80,7 +80,11 @@ import {
   useStore,
 } from "../store";
 import { createProjectSelectorByRef, createThreadSelectorByRef } from "../storeSelectors";
-import { useUiStateStore } from "../uiStateStore";
+import {
+  type PersistedWorkspaceDockedPane,
+  type WorkspaceDockedPaneType,
+  useUiStateStore,
+} from "../uiStateStore";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
@@ -107,9 +111,15 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
+  BotIcon,
   ChevronDownIcon,
+  CornerLeftUpIcon,
   DiffIcon,
+  FileCode2Icon,
+  FolderIcon,
+  PlusIcon,
   TerminalSquareIcon,
+  Trash2Icon,
   TriangleAlertIcon,
   WifiOffIcon,
 } from "lucide-react";
@@ -206,12 +216,33 @@ import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
 import { RightPanelSheet } from "./RightPanelSheet";
 import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
 import { Select, SelectItem, SelectPopup, SelectTrigger } from "./ui/select";
 import { useSidebar } from "./ui/sidebar";
 import { Toggle } from "./ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { resolveThreadStatusPill } from "./Sidebar.logic";
 import { ThreadStatusLabel } from "./ThreadStatusIndicators";
+import {
+  appendBrowsePathSegment,
+  canNavigateUp,
+  ensureBrowseDirectoryPath,
+  getBrowseDirectoryPath,
+  getBrowseLeafPathSegment,
+  getBrowseParentPath,
+  hasTrailingPathSeparator,
+  isExplicitRelativeProjectPath,
+  resolveProjectPathForDispatch,
+} from "../lib/projectPaths";
+import { filterBrowseEntries } from "./CommandPalette.logic";
 import {
   buildVersionMismatchDismissalKey,
   dismissVersionMismatch,
@@ -225,6 +256,7 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PANE_TITLE_OVERRIDES: Record<string, string> = {};
+const EMPTY_TERMINAL_RUNTIME_ENV: Record<string, string> = {};
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 
@@ -255,6 +287,306 @@ function resolveEditorPaneDefaultTitle(
     "Editor"
   );
 }
+
+function resolvePaneDefaultTitle(
+  type: WorkspaceDockedPaneType,
+  cwd: string | null | undefined,
+  workspaceName: string | null,
+): string {
+  const cwdName = basenameOfPanePath(cwd);
+  if (type === "ai") {
+    return cwdName ?? workspaceName ?? "AI";
+  }
+  if (type === "terminal") {
+    return cwdName ? `${cwdName} Terminal` : "Terminal";
+  }
+  return cwdName ? `${cwdName} Editor` : "Editor";
+}
+
+function paneTypeIcon(type: WorkspaceDockedPaneType, className: string) {
+  if (type === "ai") return <BotIcon className={className} />;
+  if (type === "terminal") return <TerminalSquareIcon className={className} />;
+  return <FileCode2Icon className={className} />;
+}
+
+type WorkspacePaneDirectoryTarget = "current" | "other";
+
+interface AddWorkspacePaneDialogProps {
+  environmentId: EnvironmentId;
+  currentWorkspaceRoot: string | undefined;
+  open: boolean;
+  workspaceName: string | null;
+  onCreate: (input: {
+    type: WorkspaceDockedPaneType;
+    environmentId: EnvironmentId;
+    cwd: string;
+    title: string;
+  }) => void;
+  onOpenChange: (open: boolean) => void;
+}
+
+const WORKSPACE_PANE_TYPE_OPTIONS = [
+  { type: "ai", label: "AI" },
+  { type: "terminal", label: "Terminal" },
+  { type: "editor", label: "Editor" },
+] as const satisfies ReadonlyArray<{ type: WorkspaceDockedPaneType; label: string }>;
+
+function AddWorkspacePaneDialog({
+  environmentId,
+  currentWorkspaceRoot,
+  open,
+  workspaceName,
+  onCreate,
+  onOpenChange,
+}: AddWorkspacePaneDialogProps) {
+  const [paneType, setPaneType] = useState<WorkspaceDockedPaneType>("ai");
+  const [directoryTarget, setDirectoryTarget] = useState<WorkspacePaneDirectoryTarget>("current");
+  const [browseQuery, setBrowseQuery] = useState(() =>
+    ensureBrowseDirectoryPath(currentWorkspaceRoot ?? "~/"),
+  );
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setPaneType("ai");
+    setDirectoryTarget("current");
+    setBrowseQuery(ensureBrowseDirectoryPath(currentWorkspaceRoot ?? "~/"));
+  }, [currentWorkspaceRoot, open]);
+
+  const relativePathNeedsActiveWorkspace =
+    directoryTarget === "other" &&
+    isExplicitRelativeProjectPath(browseQuery.trim()) &&
+    !currentWorkspaceRoot;
+  const browseDirectoryPath = getBrowseDirectoryPath(browseQuery);
+  const browseFilterQuery = hasTrailingPathSeparator(browseQuery)
+    ? ""
+    : getBrowseLeafPathSegment(browseQuery);
+
+  const browseQueryResult = useQuery({
+    queryKey: [
+      "workspacePaneFilesystemBrowse",
+      environmentId,
+      browseDirectoryPath,
+      currentWorkspaceRoot ?? null,
+    ],
+    queryFn: async () => {
+      const api = readEnvironmentApi(environmentId);
+      if (!api) return null;
+      return api.filesystem.browse({
+        partialPath: browseDirectoryPath,
+        ...(currentWorkspaceRoot ? { cwd: currentWorkspaceRoot } : {}),
+      });
+    },
+    staleTime: 5_000,
+    enabled:
+      open &&
+      directoryTarget === "other" &&
+      browseDirectoryPath.length > 0 &&
+      !relativePathNeedsActiveWorkspace,
+  });
+
+  const { filteredEntries, exactEntry } = useMemo(
+    () =>
+      filterBrowseEntries({
+        browseEntries: browseQueryResult.data?.entries ?? [],
+        browseFilterQuery,
+        highlightedItemValue: null,
+      }),
+    [browseFilterQuery, browseQueryResult.data?.entries],
+  );
+  const canBrowseUp =
+    directoryTarget === "other" &&
+    !relativePathNeedsActiveWorkspace &&
+    canNavigateUp(browseDirectoryPath);
+
+  const resolveSelectedCwd = useCallback(() => {
+    if (directoryTarget === "current") {
+      return currentWorkspaceRoot ?? "";
+    }
+    const rawPath = hasTrailingPathSeparator(browseQuery)
+      ? (browseQueryResult.data?.parentPath ?? browseQuery.trim())
+      : (exactEntry?.fullPath ?? browseQuery.trim());
+    return resolveProjectPathForDispatch(rawPath, currentWorkspaceRoot ?? null);
+  }, [
+    browseQuery,
+    browseQueryResult.data?.parentPath,
+    currentWorkspaceRoot,
+    directoryTarget,
+    exactEntry?.fullPath,
+  ]);
+
+  const selectedCwd = resolveSelectedCwd();
+  const canCreate = selectedCwd.length > 0 && !relativePathNeedsActiveWorkspace;
+
+  const browseTo = useCallback(
+    (name: string) => {
+      setBrowseQuery(appendBrowsePathSegment(browseQuery, name));
+    },
+    [browseQuery],
+  );
+
+  const browseUp = useCallback(() => {
+    const parentPath = getBrowseParentPath(browseQuery);
+    if (parentPath) {
+      setBrowseQuery(parentPath);
+    }
+  }, [browseQuery]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Add Pane</DialogTitle>
+          <DialogDescription>Create a workspace pane for the selected directory.</DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-5">
+          <div className="grid grid-cols-3 gap-2">
+            {WORKSPACE_PANE_TYPE_OPTIONS.map((option) => (
+              <button
+                key={option.type}
+                type="button"
+                className={cn(
+                  "flex h-20 min-w-0 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border px-3 text-sm outline-none transition-[background-color,border-color,box-shadow]",
+                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+                  paneType === option.type
+                    ? "border-primary/70 bg-primary/10 text-foreground ring-1 ring-primary/25"
+                    : "border-border/70 text-muted-foreground hover:border-foreground/20 hover:bg-muted/50 hover:text-foreground",
+                )}
+                onClick={() => setPaneType(option.type)}
+              >
+                {paneTypeIcon(option.type, "size-4")}
+                <span className="truncate font-medium">{option.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                className={cn(
+                  "flex min-h-16 min-w-0 cursor-pointer items-center gap-3 rounded-lg border px-3 text-left outline-none transition-[background-color,border-color,box-shadow]",
+                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+                  directoryTarget === "current"
+                    ? "border-primary/70 bg-primary/10 ring-1 ring-primary/25"
+                    : "border-border/70 hover:border-foreground/20 hover:bg-muted/50",
+                )}
+                onClick={() => setDirectoryTarget("current")}
+              >
+                <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-sm">Current workspace</span>
+                  <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                    {currentWorkspaceRoot ?? "No workspace"}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex min-h-16 min-w-0 cursor-pointer items-center gap-3 rounded-lg border px-3 text-left outline-none transition-[background-color,border-color,box-shadow]",
+                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+                  directoryTarget === "other"
+                    ? "border-primary/70 bg-primary/10 ring-1 ring-primary/25"
+                    : "border-border/70 hover:border-foreground/20 hover:bg-muted/50",
+                )}
+                onClick={() => setDirectoryTarget("other")}
+              >
+                <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-sm">Another directory</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    Browse without adding a workspace
+                  </span>
+                </span>
+              </button>
+            </div>
+
+            {directoryTarget === "other" ? (
+              <div className="rounded-lg border border-border/70">
+                <div className="border-b border-border/60 p-2">
+                  <input
+                    value={browseQuery}
+                    onChange={(event) => setBrowseQuery(event.target.value)}
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-xs outline-none transition-colors focus:border-ring"
+                    aria-label="Pane directory"
+                  />
+                </div>
+                <div className="max-h-64 overflow-auto p-1.5">
+                  {relativePathNeedsActiveWorkspace ? (
+                    <p className="px-2 py-4 text-center text-muted-foreground text-xs">
+                      Relative paths require an active workspace.
+                    </p>
+                  ) : browseQueryResult.isLoading ? (
+                    <p className="px-2 py-4 text-center text-muted-foreground text-xs">
+                      Loading directories...
+                    </p>
+                  ) : browseQueryResult.isError ? (
+                    <p className="px-2 py-4 text-center text-destructive text-xs">
+                      Failed to browse directory.
+                    </p>
+                  ) : (
+                    <>
+                      {canBrowseUp ? (
+                        <button
+                          type="button"
+                          className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent"
+                          onClick={browseUp}
+                        >
+                          <CornerLeftUpIcon className="size-3.5 text-muted-foreground" />
+                          <span className="truncate">..</span>
+                        </button>
+                      ) : null}
+                      {filteredEntries.map((entry) => (
+                        <button
+                          key={entry.fullPath}
+                          type="button"
+                          className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent"
+                          onClick={() => browseTo(entry.name)}
+                        >
+                          <FolderIcon className="size-3.5 text-muted-foreground" />
+                          <span className="truncate">{entry.name}</span>
+                        </button>
+                      ))}
+                      {filteredEntries.length === 0 && !canBrowseUp ? (
+                        <p className="px-2 py-4 text-center text-muted-foreground text-xs">
+                          No matching directories.
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </DialogPanel>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={!canCreate}
+            onClick={() => {
+              if (!canCreate) return;
+              onCreate({
+                type: paneType,
+                environmentId,
+                cwd: selectedCwd,
+                title: resolvePaneDefaultTitle(paneType, selectedCwd, workspaceName),
+              });
+              onOpenChange(false);
+            }}
+          >
+            Add Pane
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
 type EnvironmentUnavailableState = {
   readonly environmentId: EnvironmentId;
   readonly label: string;
@@ -267,9 +599,11 @@ interface WorkspaceHeaderPaneActionsProps {
   diffOpen: boolean;
   diffToggleShortcutLabel: string | null;
   isGitRepo: boolean;
+  runningTerminalCount: number;
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
+  onAddPane: () => void;
   onToggleDiff: () => void;
   onToggleTerminal: () => void;
 }
@@ -278,37 +612,81 @@ const WorkspaceHeaderPaneActions = memo(function WorkspaceHeaderPaneActions({
   diffOpen,
   diffToggleShortcutLabel,
   isGitRepo,
+  runningTerminalCount,
   terminalAvailable,
   terminalOpen,
   terminalToggleShortcutLabel,
+  onAddPane,
   onToggleDiff,
   onToggleTerminal,
 }: WorkspaceHeaderPaneActionsProps) {
+  const hasRunningTerminals = runningTerminalCount > 0;
+  const terminalStatusLabel =
+    runningTerminalCount === 1
+      ? "1 terminal process running"
+      : `${runningTerminalCount} terminal processes running`;
+  const terminalToggleLabel = hasRunningTerminals
+    ? `${terminalStatusLabel}. Toggle terminal pane`
+    : "Toggle terminal pane";
+  const terminalToggleTooltip = !terminalAvailable
+    ? "Terminal is unavailable until this thread has an active workspace."
+    : hasRunningTerminals
+      ? terminalToggleShortcutLabel
+        ? `${terminalStatusLabel}. Toggle terminal pane (${terminalToggleShortcutLabel})`
+        : `${terminalStatusLabel}. Toggle terminal pane`
+      : terminalToggleShortcutLabel
+        ? `Toggle terminal pane (${terminalToggleShortcutLabel})`
+        : "Toggle terminal pane";
+
   return (
     <div className="flex items-center gap-1.5">
       <Tooltip>
         <TooltipTrigger
           render={
-            <Toggle
+            <Button
+              type="button"
               className="shrink-0"
+              variant="outline"
+              size="icon-xs"
+              onClick={onAddPane}
+              aria-label="Add pane"
+            >
+              <PlusIcon />
+            </Button>
+          }
+        />
+        <TooltipPopup side="bottom">Add pane</TooltipPopup>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Toggle
+              className={cn(
+                "shrink-0",
+                hasRunningTerminals &&
+                  "border-teal-500/35 bg-teal-500/10 text-teal-700 hover:bg-teal-500/15 data-pressed:bg-teal-500/15 dark:border-teal-300/30 dark:bg-teal-300/10 dark:text-teal-200 dark:hover:bg-teal-300/15 dark:data-pressed:bg-teal-300/15",
+              )}
               pressed={terminalOpen}
               onPressedChange={onToggleTerminal}
-              aria-label="Toggle terminal pane"
+              aria-label={terminalToggleLabel}
               variant="outline"
               size="xs"
               disabled={!terminalAvailable}
             >
-              <TerminalSquareIcon className="size-3" />
+              <span className="relative inline-flex size-3 items-center justify-center">
+                <TerminalSquareIcon
+                  className={cn("size-3", hasRunningTerminals && "animate-pulse opacity-100")}
+                />
+                {runningTerminalCount > 1 ? (
+                  <span className="-right-2.5 -top-2 absolute flex h-3 min-w-3 items-center justify-center rounded-full bg-teal-600 px-0.5 font-medium text-[8px] text-white leading-none ring-1 ring-background tabular-nums dark:bg-teal-300 dark:text-teal-950">
+                    {runningTerminalCount}
+                  </span>
+                ) : null}
+              </span>
             </Toggle>
           }
         />
-        <TooltipPopup side="bottom">
-          {!terminalAvailable
-            ? "Terminal is unavailable until this thread has an active workspace."
-            : terminalToggleShortcutLabel
-              ? `Toggle terminal pane (${terminalToggleShortcutLabel})`
-              : "Toggle terminal pane"}
-        </TooltipPopup>
+        <TooltipPopup side="bottom">{terminalToggleTooltip}</TooltipPopup>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
@@ -863,6 +1241,9 @@ export default function ChatView(props: ChatViewProps) {
       store.workspaceThreadLayoutById[routeThreadKey]?.paneTitleOverrideById ??
       EMPTY_PANE_TITLE_OVERRIDES,
   );
+  const workspaceDockedPanes = useUiStateStore(
+    (store) => store.workspaceThreadLayoutById[routeThreadKey]?.panes ?? [],
+  );
   const storeSetWorkspaceThreadPlanSidebarOpen = useUiStateStore(
     (store) => store.setWorkspaceThreadPlanSidebarOpen,
   );
@@ -874,6 +1255,15 @@ export default function ChatView(props: ChatViewProps) {
   );
   const storeEnsureWorkspaceThreadDockedPaneLayout = useUiStateStore(
     (store) => store.ensureWorkspaceThreadDockedPaneLayout,
+  );
+  const storeAddWorkspaceThreadDockedPane = useUiStateStore(
+    (store) => store.addWorkspaceThreadDockedPane,
+  );
+  const storeRemoveWorkspaceThreadDockedPane = useUiStateStore(
+    (store) => store.removeWorkspaceThreadDockedPane,
+  );
+  const storeRestoreWorkspaceThreadDefaultDockedPane = useUiStateStore(
+    (store) => store.restoreWorkspaceThreadDefaultDockedPane,
   );
   const renameWorkspacePane = useCallback(
     (paneId: string, title: string | null) => {
@@ -975,6 +1365,7 @@ export default function ChatView(props: ChatViewProps) {
   const [workspaceEditorActivePath, setWorkspaceEditorActivePath] = useState<string | null>(null);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
+  const [addPaneDialogOpen, setAddPaneDialogOpen] = useState(false);
   const [terminalLaunchContext, setTerminalLaunchContext] = useState<TerminalLaunchContext | null>(
     null,
   );
@@ -1562,6 +1953,49 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
+  const addWorkspacePane = useCallback(
+    (input: {
+      type: WorkspaceDockedPaneType;
+      environmentId: EnvironmentId;
+      cwd: string;
+      title: string;
+    }) => {
+      if (!activeThread || !activeThreadKey || !activeThreadRef) {
+        return;
+      }
+      const paneId = `${input.type}:${randomUUID()}`;
+      const terminalId = input.type === "terminal" ? `terminal-${randomUUID()}` : null;
+      const terminalGroupId = terminalId ? `group-${terminalId}` : null;
+      if (terminalId) {
+        storeNewTerminal(activeThreadRef, terminalId);
+        storeSetTerminalOpen(activeThreadRef, true);
+      }
+      storeAddWorkspaceThreadDockedPane(activeThreadKey, {
+        paneId,
+        type: input.type,
+        title: input.title,
+        environmentId: input.environmentId,
+        cwd: input.cwd,
+        threadId: activeThread.id,
+        terminalId,
+        terminalGroupId,
+      });
+      if (input.type === "terminal") {
+        storeSetWorkspaceThreadLastActivePane(activeThreadKey, "terminal");
+      } else {
+        storeSetWorkspaceThreadLastActivePane(activeThreadKey, input.type);
+      }
+    },
+    [
+      activeThread,
+      activeThreadKey,
+      activeThreadRef,
+      storeAddWorkspaceThreadDockedPane,
+      storeNewTerminal,
+      storeSetTerminalOpen,
+      storeSetWorkspaceThreadLastActivePane,
+    ],
+  );
   useEffect(() => {
     setEditorOpenFileRequest(null);
     setWorkspaceEditorActivePath(null);
@@ -1984,8 +2418,6 @@ export default function ChatView(props: ChatViewProps) {
       providerStatusesForChat.find((status) => status.instanceId === defaultInstanceId) ?? null
     );
   }, [activeProviderInstanceId, providerStatusesForChat, selectedProvider]);
-  const activeTerminalLaunchContext =
-    terminalLaunchContext?.threadId === activeThreadId ? terminalLaunchContext : null;
   // Default true while loading to avoid toolbar flicker.
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
   const terminalShortcutLabelOptions = useMemo(
@@ -2022,6 +2454,8 @@ export default function ChatView(props: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "terminal.close", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
   );
+  const activeTerminalLaunchContext =
+    terminalLaunchContext?.threadId === activeThreadId ? terminalLaunchContext : null;
   const diffPanelShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "diff.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
@@ -2169,13 +2603,21 @@ export default function ChatView(props: ChatViewProps) {
   const setTerminalOpen = useCallback(
     (open: boolean) => {
       if (!activeThreadRef) return;
+      if (open) {
+        storeRestoreWorkspaceThreadDefaultDockedPane(scopedThreadKey(activeThreadRef), "terminal");
+      }
       storeSetTerminalOpen(activeThreadRef, open);
       storeSetWorkspaceThreadLastActivePane(
         scopedThreadKey(activeThreadRef),
         open ? "terminal" : "ai",
       );
     },
-    [activeThreadRef, storeSetTerminalOpen, storeSetWorkspaceThreadLastActivePane],
+    [
+      activeThreadRef,
+      storeRestoreWorkspaceThreadDefaultDockedPane,
+      storeSetTerminalOpen,
+      storeSetWorkspaceThreadLastActivePane,
+    ],
   );
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadRef) return;
@@ -2200,6 +2642,43 @@ export default function ChatView(props: ChatViewProps) {
     storeSetWorkspaceThreadLastActivePane(scopedThreadKey(activeThreadRef), "terminal");
     setTerminalFocusRequestId((value) => value + 1);
   }, [activeThreadRef, storeNewTerminal, storeSetWorkspaceThreadLastActivePane]);
+  const createNewWorkspaceTerminalPane = useCallback(
+    (pane: Extract<PersistedWorkspaceDockedPane, { type: "terminal" }>) => {
+      if (!activeThread || !activeThreadKey || !activeThreadRef) {
+        return;
+      }
+      const terminalId = `terminal-${randomUUID()}`;
+      const terminalGroupId = `group-${terminalId}`;
+      const cwd = pane.cwd ?? activeWorkspaceRoot ?? activeProjectCwd ?? "";
+
+      storeNewTerminal(activeThreadRef, terminalId);
+      storeSetTerminalOpen(activeThreadRef, true);
+      storeAddWorkspaceThreadDockedPane(activeThreadKey, {
+        paneId: `terminal:${randomUUID()}`,
+        type: "terminal",
+        title: resolvePaneDefaultTitle("terminal", cwd, workspaceName),
+        environmentId: activeThread.environmentId,
+        cwd,
+        threadId: activeThread.id,
+        terminalId,
+        terminalGroupId,
+      });
+      storeSetWorkspaceThreadLastActivePane(activeThreadKey, "terminal");
+      setTerminalFocusRequestId((value) => value + 1);
+    },
+    [
+      activeProjectCwd,
+      activeThread,
+      activeThreadKey,
+      activeThreadRef,
+      activeWorkspaceRoot,
+      storeAddWorkspaceThreadDockedPane,
+      storeNewTerminal,
+      storeSetTerminalOpen,
+      storeSetWorkspaceThreadLastActivePane,
+      workspaceName,
+    ],
+  );
   const markEditorActive = useCallback(() => {
     if (!activeThreadRef) return;
     storeSetWorkspaceThreadLastActivePane(scopedThreadKey(activeThreadRef), "editor");
@@ -2251,6 +2730,24 @@ export default function ChatView(props: ChatViewProps) {
       storeCloseTerminal,
       terminalState.terminalIds.length,
     ],
+  );
+  const closeWorkspaceTerminalPane = useCallback(
+    (pane: Extract<PersistedWorkspaceDockedPane, { type: "terminal" }>, terminalId: string) => {
+      closeTerminal(terminalId);
+      if (activeThreadKey) {
+        storeRemoveWorkspaceThreadDockedPane(activeThreadKey, pane.paneId);
+      }
+    },
+    [activeThreadKey, closeTerminal, storeRemoveWorkspaceThreadDockedPane],
+  );
+  const removeWorkspacePane = useCallback(
+    (paneId: string) => {
+      if (!activeThreadKey) {
+        return;
+      }
+      storeRemoveWorkspaceThreadDockedPane(activeThreadKey, paneId);
+    },
+    [activeThreadKey, storeRemoveWorkspaceThreadDockedPane],
   );
   const runProjectScript = useCallback(
     async (
@@ -3966,6 +4463,421 @@ export default function ChatView(props: ChatViewProps) {
   const hiddenMountedTerminalThreadRefs = mountedTerminalThreadRefs.filter(
     ({ key }) => key !== activeThreadKey,
   );
+  const fallbackTerminalPaneTitle = activeTerminalGroup
+    ? (basenameOfPanePath(activeWorkspaceRoot) ?? "Terminal")
+    : "Terminal";
+  const fallbackWorkspaceDockedPanes: PersistedWorkspaceDockedPane[] = [
+    {
+      paneId: "editor",
+      type: "editor",
+      title: editorPaneTitle,
+      environmentId: activeThread.environmentId,
+      cwd: activeWorkspaceRoot ?? null,
+      order: 0,
+      size: 1,
+      metadata: {
+        activePath: workspaceEditorActivePath,
+      },
+    },
+    {
+      paneId: "ai",
+      type: "ai",
+      title: activeThread.title,
+      environmentId: activeThread.environmentId,
+      cwd: activeWorkspaceRoot ?? null,
+      order: 1,
+      size: 1,
+      metadata: {
+        threadId: activeThread.id,
+      },
+    },
+    {
+      paneId: "terminal",
+      type: "terminal",
+      title: fallbackTerminalPaneTitle,
+      environmentId: activeThread.environmentId,
+      cwd: activeWorkspaceRoot ?? null,
+      order: 2,
+      size: 1,
+      metadata: {
+        threadId: activeThread.id,
+        terminalId: terminalState.activeTerminalId || null,
+        terminalGroupId: activeTerminalGroup?.id ?? null,
+      },
+    },
+  ];
+  const renderedWorkspaceDockedPanes =
+    workspaceDockedPanes.length > 0 ? workspaceDockedPanes : fallbackWorkspaceDockedPanes;
+  const editorWorkspacePanes = renderedWorkspaceDockedPanes.filter(
+    (pane) => pane.type === "editor",
+  );
+  const aiWorkspacePanes = renderedWorkspaceDockedPanes.filter((pane) => pane.type === "ai");
+  const terminalWorkspacePanes = renderedWorkspaceDockedPanes.filter(
+    (pane) => pane.type === "terminal",
+  );
+  const terminalPaneDeckHeight = Math.max(terminalState.terminalHeight, 220);
+  const terminalLabelById = Object.fromEntries(
+    terminalState.terminalIds.map((terminalId, index) => [terminalId, `Terminal ${index + 1}`]),
+  );
+  const terminalRuntimeEnv = useMemo(
+    () =>
+      activeProjectCwd
+        ? projectScriptRuntimeEnv({
+            project: { cwd: activeProjectCwd },
+            worktreePath: activeThreadWorktreePath,
+          })
+        : EMPTY_TERMINAL_RUNTIME_ENV,
+    [activeProjectCwd, activeThreadWorktreePath],
+  );
+  const renderWorkspacePane = (pane: PersistedWorkspaceDockedPane) => {
+    const paneTitle = paneTitleOverrideById[pane.paneId] ?? pane.title;
+    const renderRemovePaneButton = () => (
+      <button
+        type="button"
+        className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        aria-label={`Remove ${paneTitle}`}
+        onClick={() => removeWorkspacePane(pane.paneId)}
+      >
+        <Trash2Icon className="size-3.5" />
+      </button>
+    );
+
+    if (pane.type === "editor") {
+      const isDefaultEditorPane = pane.paneId === "editor";
+      return (
+        <WorkspacePane
+          key={pane.paneId}
+          title={isDefaultEditorPane ? editorPaneTitle : paneTitle}
+          onTitleRename={(nextTitle) => renameWorkspacePane(pane.paneId, nextTitle)}
+          actions={
+            isDefaultEditorPane ? (
+              <WorkspaceEditorActions {...workspaceEditorActionProps} />
+            ) : (
+              renderRemovePaneButton()
+            )
+          }
+          className="min-h-[18rem] xl:min-h-0"
+          bodyClassName="min-h-0 flex-col"
+        >
+          <WorkspaceEditorPane
+            environmentId={pane.environmentId as EnvironmentId}
+            openFileRequest={isDefaultEditorPane ? editorOpenFileRequest : null}
+            workspaceRoot={pane.cwd ?? undefined}
+            resolvedTheme={resolvedTheme}
+            {...(isDefaultEditorPane
+              ? {
+                  onActive: markEditorActive,
+                  onActivePathChange: setWorkspaceEditorActivePath,
+                }
+              : {})}
+          />
+          {isDefaultEditorPane && isGitRepo ? (
+            <div className="shrink-0 border-t border-border/60 bg-background">
+              <BranchToolbar
+                className="max-w-none px-3 py-2 sm:px-4"
+                environmentId={activeThread.environmentId}
+                threadId={activeThread.id}
+                {...(routeKind === "draft" && draftId ? { draftId } : {})}
+                onEnvModeChange={onEnvModeChange}
+                {...(canOverrideServerThreadEnvMode ? { effectiveEnvModeOverride: envMode } : {})}
+                {...(canOverrideServerThreadEnvMode
+                  ? {
+                      activeThreadBranchOverride: activeThreadBranch,
+                      onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
+                    }
+                  : {})}
+                envLocked={envLocked}
+                onComposerFocusRequest={scheduleComposerFocus}
+                {...(canCheckoutPullRequestIntoThread
+                  ? { onCheckoutPullRequestRequest: openPullRequestDialog }
+                  : {})}
+                {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
+                availableEnvironments={logicalProjectEnvironments}
+              />
+            </div>
+          ) : null}
+        </WorkspacePane>
+      );
+    }
+
+    if (pane.type === "terminal") {
+      const terminalId =
+        pane.metadata.terminalId ||
+        terminalState.activeTerminalId ||
+        terminalState.terminalIds[0] ||
+        DEFAULT_THREAD_TERMINAL_ID;
+      const terminalGroup = terminalState.terminalGroups.find(
+        (group) => group.id === pane.metadata.terminalGroupId,
+      ) ??
+        terminalState.terminalGroups.find((group) => group.terminalIds.includes(terminalId)) ?? {
+          id: pane.metadata.terminalGroupId ?? `group-${terminalId}`,
+          terminalIds: [terminalId],
+        };
+      const activeTerminalId = terminalGroup.terminalIds.includes(terminalState.activeTerminalId)
+        ? terminalState.activeTerminalId
+        : (terminalGroup.terminalIds[0] ?? terminalId);
+      const cwd =
+        pane.paneId === "terminal" && activeTerminalLaunchContext
+          ? activeTerminalLaunchContext.cwd
+          : (pane.cwd ?? activeWorkspaceRoot);
+      const worktreePath =
+        pane.paneId === "terminal" && activeTerminalLaunchContext
+          ? activeTerminalLaunchContext.worktreePath
+          : activeThreadWorktreePath;
+
+      return (
+        <WorkspacePane
+          key={pane.paneId}
+          title={paneTitle}
+          onTitleRename={(nextTitle) => renameWorkspacePane(pane.paneId, nextTitle)}
+          actions={
+            cwd ? (
+              <span className="max-w-[34vw] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-muted-foreground">
+                {cwd}
+              </span>
+            ) : null
+          }
+          className="min-h-0 flex-1"
+          bodyClassName="min-h-0"
+        >
+          {cwd && activeThreadRef ? (
+            <ThreadTerminalDrawer
+              threadRef={activeThreadRef}
+              threadId={activeThread.id}
+              cwd={cwd}
+              worktreePath={worktreePath}
+              runtimeEnv={terminalRuntimeEnv}
+              layout="pane"
+              visible
+              height={terminalState.terminalHeight}
+              terminalIds={terminalGroup.terminalIds}
+              activeTerminalId={activeTerminalId}
+              terminalGroups={[terminalGroup]}
+              activeTerminalGroupId={terminalGroup.id}
+              terminalLabelById={terminalLabelById}
+              focusRequestId={terminalFocusRequestId}
+              onSplitTerminal={splitTerminal}
+              onNewTerminal={() => createNewWorkspaceTerminalPane(pane)}
+              splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
+              newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+              closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+              keybindings={keybindings}
+              onActiveTerminalChange={(terminalId) => {
+                storeSetActiveTerminal(activeThreadRef, terminalId);
+                storeSetWorkspaceThreadLastActivePane(routeThreadKey, "terminal");
+              }}
+              onCloseTerminal={(terminalId) => closeWorkspaceTerminalPane(pane, terminalId)}
+              onHeightChange={(height) => {
+                if (activeThreadRef) {
+                  storeSetTerminalOpen(activeThreadRef, true);
+                  useTerminalUiStateStore.getState().setTerminalHeight(activeThreadRef, height);
+                }
+              }}
+              onAddTerminalContext={addTerminalContextToDraft}
+            />
+          ) : (
+            <div className="flex flex-1 items-center justify-center p-6 text-muted-foreground text-sm">
+              Workspace unavailable
+            </div>
+          )}
+        </WorkspacePane>
+      );
+    }
+
+    const isDefaultAiPane = pane.paneId === "ai";
+    return (
+      <WorkspacePane
+        key={pane.paneId}
+        title={isDefaultAiPane ? activeThread.title : paneTitle}
+        titleControl={isDefaultAiPane ? aiPaneTitleControl : undefined}
+        titleInputLabel={isDefaultAiPane ? "Thread title" : "Pane title"}
+        titleRenameLabel={isDefaultAiPane ? "Rename thread" : "Rename pane"}
+        {...(isDefaultAiPane && isServerThread
+          ? { onTitleRename: (nextTitle: string | null) => void renameAiThread(nextTitle) }
+          : {
+              onTitleRename: (nextTitle: string | null) =>
+                renameWorkspacePane(pane.paneId, nextTitle),
+            })}
+        actions={isDefaultAiPane ? undefined : renderRemovePaneButton()}
+        className="min-h-[32rem] xl:min-h-0"
+      >
+        {isDefaultAiPane ? (
+          <div className="flex min-h-0 min-w-0 flex-1">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <div className="relative flex min-h-0 flex-1 flex-col">
+                <MessagesTimeline
+                  key={activeThread.id}
+                  isWorking={isWorking}
+                  activeTurnInProgress={isWorking || !latestTurnSettled}
+                  activeTurnId={activeLatestTurn?.turnId ?? null}
+                  activeTurnStartedAt={activeWorkStartedAt}
+                  listRef={legendListRef}
+                  timelineEntries={timelineEntries}
+                  completionDividerBeforeEntryId={completionDividerBeforeEntryId}
+                  completionSummary={completionSummary}
+                  turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                  activeThreadEnvironmentId={activeThread.environmentId}
+                  routeThreadKey={routeThreadKey}
+                  onOpenChangedFileInEditor={onOpenChangedFileInEditor}
+                  onOpenTurnDiff={onOpenTurnDiff}
+                  revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
+                  onRevertUserMessage={onRevertUserMessage}
+                  isRevertingCheckpoint={isRevertingCheckpoint}
+                  onImageExpand={onExpandTimelineImage}
+                  markdownCwd={gitCwd ?? undefined}
+                  resolvedTheme={resolvedTheme}
+                  timestampFormat={timestampFormat}
+                  workspaceRoot={activeWorkspaceRoot}
+                  skills={activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS}
+                  onIsAtEndChange={onIsAtEndChange}
+                />
+
+                {showScrollToBottom && (
+                  <div className="pointer-events-none absolute bottom-1 left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5">
+                    <button
+                      type="button"
+                      onClick={() => scrollToEnd(true)}
+                      className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
+                    >
+                      <ChevronDownIcon className="size-3.5" />
+                      Scroll to bottom
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pl-[calc(env(safe-area-inset-left)+0.75rem)] pr-[calc(env(safe-area-inset-right)+0.75rem)] pt-1.5 sm:pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:pl-[calc(env(safe-area-inset-left)+1.25rem)] sm:pr-[calc(env(safe-area-inset-right)+1.25rem)] sm:pt-2">
+                <div className="relative isolate">
+                  <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
+                  <div className="relative z-10">
+                    <ChatComposer
+                      composerRef={composerRef}
+                      composerDraftTarget={composerDraftTarget}
+                      environmentId={environmentId}
+                      routeKind={routeKind}
+                      routeThreadRef={routeThreadRef}
+                      draftId={draftId}
+                      activeThreadId={activeThreadId}
+                      activeThreadEnvironmentId={activeThread?.environmentId}
+                      activeThread={activeThread}
+                      isServerThread={isServerThread}
+                      isLocalDraftThread={isLocalDraftThread}
+                      phase={phase}
+                      isConnecting={isConnecting}
+                      isSendBusy={isSendBusy}
+                      isPreparingWorktree={isPreparingWorktree}
+                      environmentUnavailable={activeEnvironmentUnavailableState}
+                      activePendingApproval={activePendingApproval}
+                      pendingApprovals={pendingApprovals}
+                      pendingUserInputs={pendingUserInputs}
+                      activePendingProgress={activePendingProgress}
+                      activePendingResolvedAnswers={activePendingResolvedAnswers}
+                      activePendingIsResponding={activePendingIsResponding}
+                      activePendingDraftAnswers={activePendingDraftAnswers}
+                      activePendingQuestionIndex={activePendingQuestionIndex}
+                      respondingRequestIds={respondingRequestIds}
+                      showPlanFollowUpPrompt={showPlanFollowUpPrompt}
+                      activeProposedPlan={activeProposedPlan}
+                      activePlan={activePlan as { turnId?: TurnId } | null}
+                      sidebarProposedPlan={sidebarProposedPlan as { turnId?: TurnId } | null}
+                      planSidebarLabel={planSidebarLabel}
+                      planSidebarOpen={planSidebarOpen}
+                      runtimeMode={runtimeMode}
+                      interactionMode={interactionMode}
+                      lockedProvider={lockedProvider}
+                      providerStatuses={providerStatusesForChat as ServerProvider[]}
+                      activeProjectDefaultModelSelection={activeProject?.defaultModelSelection}
+                      activeThreadModelSelection={activeThread?.modelSelection}
+                      activeThreadActivities={activeThread?.activities}
+                      resolvedTheme={resolvedTheme}
+                      settings={settings}
+                      keybindings={keybindings}
+                      terminalOpen={Boolean(terminalState.terminalOpen)}
+                      gitCwd={gitCwd}
+                      promptRef={promptRef}
+                      composerImagesRef={composerImagesRef}
+                      composerTerminalContextsRef={composerTerminalContextsRef}
+                      shouldAutoScrollRef={isAtEndRef}
+                      scheduleStickToBottom={scrollToEnd}
+                      onSend={onSend}
+                      onInterrupt={onInterrupt}
+                      onImplementPlanInNewThread={onImplementPlanInNewThread}
+                      onRespondToApproval={onRespondToApproval}
+                      onSelectActivePendingUserInputOption={onSelectActivePendingUserInputOption}
+                      onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
+                      onPreviousActivePendingUserInputQuestion={
+                        onPreviousActivePendingUserInputQuestion
+                      }
+                      onChangeActivePendingUserInputCustomAnswer={
+                        onChangeActivePendingUserInputCustomAnswer
+                      }
+                      onProviderModelSelect={onProviderModelSelect}
+                      toggleInteractionMode={toggleInteractionMode}
+                      handleRuntimeModeChange={handleRuntimeModeChange}
+                      handleInteractionModeChange={handleInteractionModeChange}
+                      togglePlanSidebar={togglePlanSidebar}
+                      focusComposer={focusComposer}
+                      scheduleComposerFocus={scheduleComposerFocus}
+                      setThreadError={setThreadError}
+                      onExpandImage={onExpandTimelineImage}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {pullRequestDialogState ? (
+                <PullRequestThreadDialog
+                  key={pullRequestDialogState.key}
+                  open
+                  environmentId={activeThread.environmentId}
+                  threadId={activeThread.id}
+                  cwd={activeProject?.cwd ?? null}
+                  initialReference={pullRequestDialogState.initialReference}
+                  onOpenChange={(open) => {
+                    if (!open) {
+                      closePullRequestDialog();
+                    }
+                  }}
+                  onPrepared={handlePreparedPullRequestThread}
+                />
+              ) : null}
+            </div>
+
+            {planSidebarOpen && !shouldUsePlanSidebarSheet ? (
+              <PlanSidebar
+                activePlan={activePlan}
+                activeProposedPlan={sidebarProposedPlan}
+                label={planSidebarLabel}
+                environmentId={environmentId}
+                markdownCwd={gitCwd ?? undefined}
+                workspaceRoot={activeWorkspaceRoot}
+                timestampFormat={timestampFormat}
+                mode="sidebar"
+                onClose={closePlanSidebar}
+              />
+            ) : null}
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col justify-between gap-6 p-4">
+            <div className="space-y-2">
+              <div className="inline-flex size-9 items-center justify-center rounded-lg border border-border/70 bg-muted/40 text-muted-foreground">
+                <BotIcon className="size-4" />
+              </div>
+              <div className="space-y-1">
+                <p className="font-medium text-sm">AI pane</p>
+                <p className="text-muted-foreground text-sm">
+                  Bound to the current thread until independent AI pane thread binding lands.
+                </p>
+              </div>
+            </div>
+            {pane.cwd ? (
+              <p className="truncate font-mono text-[11px] text-muted-foreground">{pane.cwd}</p>
+            ) : null}
+          </div>
+        )}
+      </WorkspacePane>
+    );
+  };
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
@@ -3990,9 +4902,11 @@ export default function ChatView(props: ChatViewProps) {
               diffOpen={diffOpen}
               diffToggleShortcutLabel={diffPanelShortcutLabel}
               isGitRepo={isGitRepo}
+              runningTerminalCount={runningTerminalIds.length}
               terminalAvailable={activeProject !== undefined}
               terminalOpen={terminalState.terminalOpen}
               terminalToggleShortcutLabel={terminalToggleShortcutLabel}
+              onAddPane={() => setAddPaneDialogOpen(true)}
               onToggleDiff={onToggleDiff}
               onToggleTerminal={toggleTerminalVisibility}
             />
@@ -4008,243 +4922,32 @@ export default function ChatView(props: ChatViewProps) {
         error={activeThread.error}
         onDismiss={() => setThreadError(activeThread.id, null)}
       />
+      <AddWorkspacePaneDialog
+        environmentId={activeThread.environmentId}
+        currentWorkspaceRoot={activeWorkspaceRoot}
+        open={addPaneDialogOpen}
+        workspaceName={workspaceName}
+        onCreate={addWorkspacePane}
+        onOpenChange={setAddPaneDialogOpen}
+      />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
         <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-[112rem] flex-1 flex-col gap-3">
           <div className="grid min-h-0 min-w-0 w-full flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(32rem,1.12fr)_minmax(24rem,0.88fr)]">
-            <WorkspacePane
-              title={editorPaneTitle}
-              onTitleRename={(nextTitle) => renameWorkspacePane("editor", nextTitle)}
-              actions={<WorkspaceEditorActions {...workspaceEditorActionProps} />}
-              className="min-h-[18rem] xl:min-h-0"
-              bodyClassName="min-h-0 flex-col"
-            >
-              <WorkspaceEditorPane
-                environmentId={environmentId}
-                openFileRequest={editorOpenFileRequest}
-                workspaceRoot={activeWorkspaceRoot}
-                resolvedTheme={resolvedTheme}
-                onActive={markEditorActive}
-                onActivePathChange={setWorkspaceEditorActivePath}
-              />
-              {isGitRepo && (
-                <div className="shrink-0 border-t border-border/60 bg-background">
-                  <BranchToolbar
-                    className="max-w-none px-3 py-2 sm:px-4"
-                    environmentId={activeThread.environmentId}
-                    threadId={activeThread.id}
-                    {...(routeKind === "draft" && draftId ? { draftId } : {})}
-                    onEnvModeChange={onEnvModeChange}
-                    {...(canOverrideServerThreadEnvMode
-                      ? { effectiveEnvModeOverride: envMode }
-                      : {})}
-                    {...(canOverrideServerThreadEnvMode
-                      ? {
-                          activeThreadBranchOverride: activeThreadBranch,
-                          onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
-                        }
-                      : {})}
-                    envLocked={envLocked}
-                    onComposerFocusRequest={scheduleComposerFocus}
-                    {...(canCheckoutPullRequestIntoThread
-                      ? { onCheckoutPullRequestRequest: openPullRequestDialog }
-                      : {})}
-                    {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
-                    availableEnvironments={logicalProjectEnvironments}
-                  />
-                </div>
-              )}
-            </WorkspacePane>
+            <div className="grid min-h-[18rem] min-w-0 grid-cols-1 gap-3 xl:min-h-0 xl:grid-cols-[repeat(auto-fit,minmax(min(100%,24rem),1fr))]">
+              {editorWorkspacePanes.map(renderWorkspacePane)}
+            </div>
 
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-              <WorkspacePane
-                title={activeThread.title}
-                titleControl={aiPaneTitleControl}
-                titleInputLabel="Thread title"
-                titleRenameLabel="Rename thread"
-                {...(isServerThread
-                  ? { onTitleRename: (nextTitle: string | null) => void renameAiThread(nextTitle) }
-                  : {})}
-                className="min-h-[32rem] xl:min-h-0"
-              >
-                <div className="flex min-h-0 min-w-0 flex-1">
-                  <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <div className="relative flex min-h-0 flex-1 flex-col">
-                      <MessagesTimeline
-                        key={activeThread.id}
-                        isWorking={isWorking}
-                        activeTurnInProgress={isWorking || !latestTurnSettled}
-                        activeTurnId={activeLatestTurn?.turnId ?? null}
-                        activeTurnStartedAt={activeWorkStartedAt}
-                        listRef={legendListRef}
-                        timelineEntries={timelineEntries}
-                        completionDividerBeforeEntryId={completionDividerBeforeEntryId}
-                        completionSummary={completionSummary}
-                        turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-                        activeThreadEnvironmentId={activeThread.environmentId}
-                        routeThreadKey={routeThreadKey}
-                        onOpenChangedFileInEditor={onOpenChangedFileInEditor}
-                        onOpenTurnDiff={onOpenTurnDiff}
-                        revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                        onRevertUserMessage={onRevertUserMessage}
-                        isRevertingCheckpoint={isRevertingCheckpoint}
-                        onImageExpand={onExpandTimelineImage}
-                        markdownCwd={gitCwd ?? undefined}
-                        resolvedTheme={resolvedTheme}
-                        timestampFormat={timestampFormat}
-                        workspaceRoot={activeWorkspaceRoot}
-                        skills={activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS}
-                        onIsAtEndChange={onIsAtEndChange}
-                      />
+              <div className="grid min-h-[32rem] min-w-0 flex-1 grid-cols-1 gap-3 xl:min-h-0 xl:grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))]">
+                {aiWorkspacePanes.map(renderWorkspacePane)}
+              </div>
 
-                      {showScrollToBottom && (
-                        <div className="pointer-events-none absolute bottom-1 left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5">
-                          <button
-                            type="button"
-                            onClick={() => scrollToEnd(true)}
-                            className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
-                          >
-                            <ChevronDownIcon className="size-3.5" />
-                            Scroll to bottom
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div
-                      className={cn(
-                        "pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pl-[calc(env(safe-area-inset-left)+0.75rem)] pr-[calc(env(safe-area-inset-right)+0.75rem)] pt-1.5 sm:pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:pl-[calc(env(safe-area-inset-left)+1.25rem)] sm:pr-[calc(env(safe-area-inset-right)+1.25rem)] sm:pt-2",
-                      )}
-                    >
-                      <div className="relative isolate">
-                        <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
-                        <div className="relative z-10">
-                          <ChatComposer
-                            composerRef={composerRef}
-                            composerDraftTarget={composerDraftTarget}
-                            environmentId={environmentId}
-                            routeKind={routeKind}
-                            routeThreadRef={routeThreadRef}
-                            draftId={draftId}
-                            activeThreadId={activeThreadId}
-                            activeThreadEnvironmentId={activeThread?.environmentId}
-                            activeThread={activeThread}
-                            isServerThread={isServerThread}
-                            isLocalDraftThread={isLocalDraftThread}
-                            phase={phase}
-                            isConnecting={isConnecting}
-                            isSendBusy={isSendBusy}
-                            isPreparingWorktree={isPreparingWorktree}
-                            environmentUnavailable={activeEnvironmentUnavailableState}
-                            activePendingApproval={activePendingApproval}
-                            pendingApprovals={pendingApprovals}
-                            pendingUserInputs={pendingUserInputs}
-                            activePendingProgress={activePendingProgress}
-                            activePendingResolvedAnswers={activePendingResolvedAnswers}
-                            activePendingIsResponding={activePendingIsResponding}
-                            activePendingDraftAnswers={activePendingDraftAnswers}
-                            activePendingQuestionIndex={activePendingQuestionIndex}
-                            respondingRequestIds={respondingRequestIds}
-                            showPlanFollowUpPrompt={showPlanFollowUpPrompt}
-                            activeProposedPlan={activeProposedPlan}
-                            activePlan={activePlan as { turnId?: TurnId } | null}
-                            sidebarProposedPlan={sidebarProposedPlan as { turnId?: TurnId } | null}
-                            planSidebarLabel={planSidebarLabel}
-                            planSidebarOpen={planSidebarOpen}
-                            runtimeMode={runtimeMode}
-                            interactionMode={interactionMode}
-                            lockedProvider={lockedProvider}
-                            providerStatuses={providerStatusesForChat as ServerProvider[]}
-                            activeProjectDefaultModelSelection={
-                              activeProject?.defaultModelSelection
-                            }
-                            activeThreadModelSelection={activeThread?.modelSelection}
-                            activeThreadActivities={activeThread?.activities}
-                            resolvedTheme={resolvedTheme}
-                            settings={settings}
-                            keybindings={keybindings}
-                            terminalOpen={Boolean(terminalState.terminalOpen)}
-                            gitCwd={gitCwd}
-                            promptRef={promptRef}
-                            composerImagesRef={composerImagesRef}
-                            composerTerminalContextsRef={composerTerminalContextsRef}
-                            shouldAutoScrollRef={isAtEndRef}
-                            scheduleStickToBottom={scrollToEnd}
-                            onSend={onSend}
-                            onInterrupt={onInterrupt}
-                            onImplementPlanInNewThread={onImplementPlanInNewThread}
-                            onRespondToApproval={onRespondToApproval}
-                            onSelectActivePendingUserInputOption={
-                              onSelectActivePendingUserInputOption
-                            }
-                            onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
-                            onPreviousActivePendingUserInputQuestion={
-                              onPreviousActivePendingUserInputQuestion
-                            }
-                            onChangeActivePendingUserInputCustomAnswer={
-                              onChangeActivePendingUserInputCustomAnswer
-                            }
-                            onProviderModelSelect={onProviderModelSelect}
-                            toggleInteractionMode={toggleInteractionMode}
-                            handleRuntimeModeChange={handleRuntimeModeChange}
-                            handleInteractionModeChange={handleInteractionModeChange}
-                            togglePlanSidebar={togglePlanSidebar}
-                            focusComposer={focusComposer}
-                            scheduleComposerFocus={scheduleComposerFocus}
-                            setThreadError={setThreadError}
-                            onExpandImage={onExpandTimelineImage}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {pullRequestDialogState ? (
-                      <PullRequestThreadDialog
-                        key={pullRequestDialogState.key}
-                        open
-                        environmentId={activeThread.environmentId}
-                        threadId={activeThread.id}
-                        cwd={activeProject?.cwd ?? null}
-                        initialReference={pullRequestDialogState.initialReference}
-                        onOpenChange={(open) => {
-                          if (!open) {
-                            closePullRequestDialog();
-                          }
-                        }}
-                        onPrepared={handlePreparedPullRequestThread}
-                      />
-                    ) : null}
-                  </div>
-
-                  {planSidebarOpen && !shouldUsePlanSidebarSheet ? (
-                    <PlanSidebar
-                      activePlan={activePlan}
-                      activeProposedPlan={sidebarProposedPlan}
-                      label={planSidebarLabel}
-                      environmentId={environmentId}
-                      markdownCwd={gitCwd ?? undefined}
-                      workspaceRoot={activeWorkspaceRoot}
-                      timestampFormat={timestampFormat}
-                      mode="sidebar"
-                      onClose={closePlanSidebar}
-                    />
-                  ) : null}
-                </div>
-              </WorkspacePane>
-
-              {visibleTerminalThreadRef ? (
-                <div className="flex min-h-0 min-w-0 w-full flex-none flex-col">
-                  <PersistentThreadTerminalPaneDeck
-                    threadRef={visibleTerminalThreadRef}
-                    threadId={visibleTerminalThreadRef.threadId}
-                    visible
-                    launchContext={activeTerminalLaunchContext ?? null}
-                    focusRequestId={terminalFocusRequestId}
-                    splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
-                    newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-                    closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
-                    keybindings={keybindings}
-                    onAddTerminalContext={addTerminalContextToDraft}
-                  />
+              {visibleTerminalThreadRef && terminalWorkspacePanes.length > 0 ? (
+                <div
+                  className="grid min-h-0 min-w-0 w-full flex-none grid-cols-1 gap-3 xl:grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))]"
+                  style={{ height: `${terminalPaneDeckHeight}px` }}
+                >
+                  {terminalWorkspacePanes.map(renderWorkspacePane)}
                 </div>
               ) : null}
             </div>
