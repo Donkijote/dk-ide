@@ -872,6 +872,9 @@ export default function ChatView(props: ChatViewProps) {
   const storeSetWorkspaceThreadPaneTitleOverride = useUiStateStore(
     (store) => store.setWorkspaceThreadPaneTitleOverride,
   );
+  const storeEnsureWorkspaceThreadDockedPaneLayout = useUiStateStore(
+    (store) => store.ensureWorkspaceThreadDockedPaneLayout,
+  );
   const renameWorkspacePane = useCallback(
     (paneId: string, title: string | null) => {
       storeSetWorkspaceThreadPaneTitleOverride(routeThreadKey, paneId, title);
@@ -1555,6 +1558,7 @@ export default function ChatView(props: ChatViewProps) {
     versionMismatchServerLabel,
   ]);
   const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
+  const workspaceName = activeProject?.name?.trim() || null;
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
@@ -2090,6 +2094,38 @@ export default function ChatView(props: ChatViewProps) {
       group.terminalIds.includes(terminalState.activeTerminalId),
     ) ??
     null;
+  useEffect(() => {
+    if (!activeThread || !activeThreadKey) {
+      return;
+    }
+    const terminalTitle = activeTerminalGroup
+      ? (basenameOfPanePath(activeWorkspaceRoot) ?? "Terminal")
+      : "Terminal";
+    storeEnsureWorkspaceThreadDockedPaneLayout(activeThreadKey, {
+      threadId: activeThread.id,
+      environmentId: activeThread.environmentId,
+      cwd: activeWorkspaceRoot,
+      aiTitle: activeThread.title,
+      editorTitle: resolveEditorPaneDefaultTitle(
+        workspaceEditorActivePath,
+        workspaceName,
+        activeWorkspaceRoot,
+      ),
+      terminalTitle,
+      editorActivePath: workspaceEditorActivePath,
+      terminalId: terminalState.activeTerminalId || null,
+      terminalGroupId: activeTerminalGroup?.id ?? null,
+    });
+  }, [
+    activeTerminalGroup,
+    activeThread,
+    activeThreadKey,
+    activeWorkspaceRoot,
+    storeEnsureWorkspaceThreadDockedPaneLayout,
+    terminalState.activeTerminalId,
+    workspaceEditorActivePath,
+    workspaceName,
+  ]);
   const hasReachedSplitLimit =
     (activeTerminalGroup?.terminalIds.length ?? 0) >= MAX_TERMINALS_PER_GROUP;
   const setThreadError = useCallback(
@@ -3869,7 +3905,6 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThread, routeKind],
   );
-  const workspaceName = activeProject?.name?.trim() || null;
   // Empty state: no active thread
   if (!activeThread) {
     return <NoActiveThreadState />;

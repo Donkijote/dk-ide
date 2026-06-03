@@ -3,16 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearThreadUi,
+  ensureWorkspaceThreadDockedPaneLayout,
   hydratePersistedProjectState,
   markThreadVisited,
   markThreadUnread,
   PERSISTED_STATE_KEY,
+  type PersistedWorkspaceDockedPane,
   type PersistedUiState,
   persistState,
   reorderProjects,
+  sanitizeWorkspaceDockedPanes,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
   setThreadChangedFilesExpanded,
+  setWorkspaceThreadActiveDockedPane,
+  setWorkspaceThreadDockedPanes,
   setWorkspaceShellSidebarOpen,
   setWorkspaceThreadLastActivePane,
   setWorkspaceThreadPaneTitleOverride,
@@ -463,6 +468,7 @@ describe("uiStateStore pure functions", () => {
 
     expect(state.workspaceShellSidebarOpen).toBe(false);
     expect(state.workspaceThreadLayoutById[thread1]).toEqual({
+      activePaneId: "terminal",
       planSidebarOpen: true,
       lastActivePane: "terminal",
       paneTitleOverrideById: {
@@ -470,6 +476,288 @@ describe("uiStateStore pure functions", () => {
       },
     });
     expect(setWorkspaceShellSidebarOpen(state, false)).toBe(state);
+  });
+
+  it("seeds the persisted docked pane model from the current workspace thread", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const state = ensureWorkspaceThreadDockedPaneLayout(makeUiState(), thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "Implement alpha",
+      editorTitle: "Repo Editor",
+      terminalTitle: "Repo Terminal",
+      editorActivePath: "apps/web/src/main.tsx",
+      terminalId: "terminal-1",
+      terminalGroupId: "group-terminal-1",
+    });
+
+    expect(state.workspaceThreadLayoutById[thread1]).toEqual({
+      activePaneId: "ai",
+      panes: [
+        {
+          paneId: "editor",
+          type: "editor",
+          title: "Repo Editor",
+          environmentId: "env-1",
+          cwd: "/repo",
+          order: 0,
+          size: 1,
+          metadata: {
+            activePath: "apps/web/src/main.tsx",
+          },
+        },
+        {
+          paneId: "ai",
+          type: "ai",
+          title: "Implement alpha",
+          environmentId: "env-1",
+          cwd: "/repo",
+          order: 1,
+          size: 1,
+          metadata: {
+            threadId: thread1,
+          },
+        },
+        {
+          paneId: "terminal",
+          type: "terminal",
+          title: "Repo Terminal",
+          environmentId: "env-1",
+          cwd: "/repo",
+          order: 2,
+          size: 1,
+          metadata: {
+            threadId: thread1,
+            terminalId: "terminal-1",
+            terminalGroupId: "group-terminal-1",
+          },
+        },
+      ],
+    });
+  });
+
+  it("preserves custom docked panes while refreshing runtime attachment context", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const initialPane: PersistedWorkspaceDockedPane = {
+      paneId: "ai",
+      type: "ai",
+      title: "Custom AI",
+      environmentId: "old-env",
+      cwd: "/old",
+      order: 4,
+      size: 2,
+      metadata: {
+        threadId: "old-thread",
+      },
+    };
+    const initialState = makeUiState({
+      workspaceThreadLayoutById: {
+        [thread1]: {
+          activePaneId: "ai",
+          panes: [initialPane],
+        },
+      },
+    });
+
+    const next = ensureWorkspaceThreadDockedPaneLayout(initialState, thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "Default AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+    });
+
+    expect(
+      next.workspaceThreadLayoutById[thread1]?.panes?.find((pane) => pane.paneId === "ai"),
+    ).toMatchObject({
+      paneId: "ai",
+      title: "Custom AI",
+      environmentId: "env-1",
+      cwd: "/repo",
+      order: 4,
+      size: 2,
+      metadata: {
+        threadId: thread1,
+      },
+    });
+    expect(next.workspaceThreadLayoutById[thread1]?.panes?.map((pane) => pane.paneId)).toEqual([
+      "editor",
+      "terminal",
+      "ai",
+    ]);
+  });
+
+  it("tracks active docked pane independently from plan sidebar state", () => {
+    const thread1 = ThreadId.make("thread-1");
+    let state = ensureWorkspaceThreadDockedPaneLayout(makeUiState(), thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+    });
+
+    state = setWorkspaceThreadLastActivePane(state, thread1, "editor");
+    expect(state.workspaceThreadLayoutById[thread1]?.activePaneId).toBe("editor");
+
+    state = setWorkspaceThreadPlanSidebarOpen(state, thread1, true);
+    expect(state.workspaceThreadLayoutById[thread1]).toMatchObject({
+      activePaneId: "editor",
+      lastActivePane: "plan",
+      planSidebarOpen: true,
+    });
+
+    state = setWorkspaceThreadActiveDockedPane(state, thread1, "terminal");
+    expect(state.workspaceThreadLayoutById[thread1]?.activePaneId).toBe("terminal");
+  });
+
+  it("sanitizes invalid persisted docked panes without dropping valid panes", () => {
+    expect(
+      sanitizeWorkspaceDockedPanes([
+        null,
+        {
+          paneId: "terminal",
+          type: "terminal",
+          title: " Terminal ",
+          environmentId: " env-1 ",
+          cwd: "",
+          order: Number.NaN,
+          size: -1,
+          metadata: {
+            threadId: "thread-1",
+            terminalId: "term-1",
+            terminalGroupId: "group-1",
+          },
+        },
+        {
+          paneId: "terminal",
+          type: "terminal",
+          title: "Duplicate",
+          environmentId: "env-1",
+          cwd: "/repo",
+          order: 2,
+          size: 1,
+          metadata: {},
+        },
+        {
+          paneId: "",
+          type: "ai",
+          title: "Invalid",
+          environmentId: "env-1",
+          cwd: "/repo",
+          order: 1,
+          size: 1,
+          metadata: {},
+        },
+        {
+          paneId: "editor",
+          type: "editor",
+          title: "Editor",
+          environmentId: "env-1",
+          cwd: "/repo",
+          order: 0,
+          size: 0.4,
+          metadata: {
+            activePath: "src/main.ts",
+            openPaths: ["src/main.ts", "", "src/main.ts", "src/other.ts"],
+          },
+        },
+      ]),
+    ).toEqual([
+      {
+        paneId: "editor",
+        type: "editor",
+        title: "Editor",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 0,
+        size: 0.4,
+        metadata: {
+          activePath: "src/main.ts",
+          openPaths: ["src/main.ts", "src/other.ts"],
+        },
+      },
+      {
+        paneId: "terminal",
+        type: "terminal",
+        title: "Terminal",
+        environmentId: "env-1",
+        cwd: null,
+        order: 1,
+        size: 1,
+        metadata: {
+          threadId: "thread-1",
+          terminalId: "term-1",
+          terminalGroupId: "group-1",
+        },
+      },
+    ]);
+  });
+
+  it("stores sanitized docked panes for follow-up add close reorder and resize work", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const panes: PersistedWorkspaceDockedPane[] = [
+      {
+        paneId: "ai:secondary",
+        type: "ai",
+        title: "Second AI",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 3,
+        size: 0.5,
+        metadata: {
+          threadId: "thread-2",
+        },
+      },
+      {
+        paneId: "editor",
+        type: "editor",
+        title: "Editor",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 1,
+        size: 1.5,
+        metadata: {
+          openPaths: ["README.md"],
+        },
+      },
+    ];
+
+    const state = setWorkspaceThreadDockedPanes(makeUiState(), thread1, panes, "ai:secondary");
+
+    expect(state.workspaceThreadLayoutById[thread1]).toEqual({
+      activePaneId: "ai:secondary",
+      panes: [
+        {
+          paneId: "editor",
+          type: "editor",
+          title: "Editor",
+          environmentId: "env-1",
+          cwd: "/repo",
+          order: 1,
+          size: 1.5,
+          metadata: {
+            activePath: null,
+            openPaths: ["README.md"],
+          },
+        },
+        {
+          paneId: "ai:secondary",
+          type: "ai",
+          title: "Second AI",
+          environmentId: "env-1",
+          cwd: "/repo",
+          order: 3,
+          size: 0.5,
+          metadata: {
+            threadId: "thread-2",
+          },
+        },
+      ],
+    });
   });
 
   it("clears workspace pane title overrides when the title is empty", () => {
