@@ -11,6 +11,9 @@ interface WorkspacePaneProps {
   readonly description?: ReactNode;
   readonly onTitleRename?: (title: string | null) => void;
   readonly title: string;
+  readonly titleControl?: ReactNode;
+  readonly titleInputLabel?: string;
+  readonly titleRenameLabel?: string;
 }
 
 export function WorkspacePane({
@@ -21,6 +24,9 @@ export function WorkspacePane({
   description,
   onTitleRename,
   title,
+  titleControl,
+  titleInputLabel = "Pane title",
+  titleRenameLabel = "Rename pane",
 }: WorkspacePaneProps) {
   const inputId = useId();
   const [editingTitle, setEditingTitle] = useState(false);
@@ -52,7 +58,7 @@ export function WorkspacePane({
             {editingTitle ? (
               <form className="flex min-w-0 items-center gap-1.5" onSubmit={submitTitle}>
                 <label htmlFor={inputId} className="sr-only">
-                  Pane title
+                  {titleInputLabel}
                 </label>
                 <input
                   id={inputId}
@@ -70,14 +76,14 @@ export function WorkspacePane({
                 <button
                   type="submit"
                   className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  aria-label="Save pane title"
+                  aria-label={`Save ${titleInputLabel.toLowerCase()}`}
                 >
                   <CheckIcon className="size-3.5" />
                 </button>
                 <button
                   type="button"
                   className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  aria-label="Cancel pane title rename"
+                  aria-label={`Cancel ${titleInputLabel.toLowerCase()} rename`}
                   onClick={() => {
                     setDraftTitle(title);
                     setEditingTitle(false);
@@ -88,17 +94,19 @@ export function WorkspacePane({
               </form>
             ) : (
               <div className="flex min-w-0 items-center gap-1.5">
-                <h2
-                  className="min-w-0 truncate font-semibold text-foreground text-sm sm:text-[0.95rem]"
-                  title={title}
-                >
-                  {title}
-                </h2>
+                {titleControl ?? (
+                  <h2
+                    className="min-w-0 truncate font-semibold text-foreground text-sm sm:text-[0.95rem]"
+                    title={title}
+                  >
+                    {title}
+                  </h2>
+                )}
                 {onTitleRename ? (
                   <button
                     type="button"
                     className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-70 transition-colors hover:bg-accent hover:text-foreground hover:opacity-100"
-                    aria-label="Rename pane"
+                    aria-label={titleRenameLabel}
                     onClick={() => {
                       setDraftTitle(title);
                       setEditingTitle(true);

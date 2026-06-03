@@ -1,7 +1,6 @@
 import {
   ArchiveIcon,
   ArrowUpDownIcon,
-  ChevronRightIcon,
   CloudIcon,
   FolderPlusIcon,
   SearchIcon,
@@ -941,7 +940,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
-  const toggleProject = useUiStateStore((state) => state.toggleProject);
   const toggleThreadSelection = useThreadSelectionStore((state) => state.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((state) => state.rangeSelectTo);
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
@@ -1200,51 +1198,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const workspaceThreadCountLabel = formatSidebarWorkspaceThreadCount(visibleProjectThreads.length);
   const workspaceSourceLabel =
     project.groupedProjectCount > 1 ? `${project.groupedProjectCount} sources` : null;
-
-  const handleProjectButtonClick = useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => {
-      if (suppressProjectClickForContextMenuRef.current) {
-        suppressProjectClickForContextMenuRef.current = false;
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      if (dragInProgressRef.current) {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      if (suppressProjectClickAfterDragRef.current) {
-        suppressProjectClickAfterDragRef.current = false;
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      if (useThreadSelectionStore.getState().hasSelection()) {
-        clearSelection();
-      }
-      toggleProject(project.projectKey);
-    },
-    [
-      clearSelection,
-      dragInProgressRef,
-      project.projectKey,
-      suppressProjectClickAfterDragRef,
-      suppressProjectClickForContextMenuRef,
-      toggleProject,
-    ],
-  );
-
-  const handleProjectButtonKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLButtonElement>) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      if (dragInProgressRef.current) {
-        return;
-      }
-      toggleProject(project.projectKey);
-    },
-    [dragInProgressRef, project.projectKey, toggleProject],
+  const latestProjectThread = useMemo(
+    () => sortThreads(visibleProjectThreads, "updated_at")[0] ?? null,
+    [visibleProjectThreads],
   );
 
   const handleProjectButtonPointerDownCapture = useCallback(
@@ -1740,6 +1696,76 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     [createThreadForProjectMember, project.groupedProjectCount, project.memberProjects],
   );
 
+  const openProjectWorkspace = useCallback(() => {
+    if (latestProjectThread) {
+      navigateToThread(scopeThreadRef(latestProjectThread.environmentId, latestProjectThread.id));
+      return;
+    }
+
+    if (useThreadSelectionStore.getState().hasSelection()) {
+      clearSelection();
+    }
+
+    const targetMember =
+      project.memberProjects.find(
+        (member) => member.environmentId === project.environmentId && member.id === project.id,
+      ) ?? project.memberProjects[0];
+    if (!targetMember) {
+      return;
+    }
+
+    createThreadForProjectMember(targetMember);
+  }, [
+    clearSelection,
+    createThreadForProjectMember,
+    latestProjectThread,
+    navigateToThread,
+    project.environmentId,
+    project.id,
+    project.memberProjects,
+  ]);
+
+  const handleProjectButtonClick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      if (suppressProjectClickForContextMenuRef.current) {
+        suppressProjectClickForContextMenuRef.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (dragInProgressRef.current) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (suppressProjectClickAfterDragRef.current) {
+        suppressProjectClickAfterDragRef.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      openProjectWorkspace();
+    },
+    [
+      dragInProgressRef,
+      openProjectWorkspace,
+      suppressProjectClickAfterDragRef,
+      suppressProjectClickForContextMenuRef,
+    ],
+  );
+
+  const handleProjectButtonKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      if (dragInProgressRef.current) {
+        return;
+      }
+      openProjectWorkspace();
+    },
+    [dragInProgressRef, openProjectWorkspace],
+  );
+
   const attemptArchiveThread = useCallback(
     async (threadRef: ScopedThreadRef) => {
       try {
@@ -1983,28 +2009,21 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           onKeyDown={handleProjectButtonKeyDown}
           onContextMenu={handleProjectButtonContextMenu}
         >
-          {!projectExpanded && projectStatus ? (
+          {projectStatus ? (
             <span
               aria-hidden="true"
               title={projectStatus.label}
               className={`-ml-0.5 mt-1.5 relative inline-flex size-3.5 shrink-0 items-center justify-center ${projectStatus.colorClass}`}
             >
-              <span className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover/project-header:opacity-0">
+              <span className="absolute inset-0 flex items-center justify-center">
                 <span
                   className={`size-[9px] rounded-full ${projectStatus.dotClass} ${
                     projectStatus.pulse ? "animate-pulse" : ""
                   }`}
                 />
               </span>
-              <ChevronRightIcon className="absolute inset-0 m-auto size-3.5 text-muted-foreground/70 opacity-0 transition-opacity duration-150 group-hover/project-header:opacity-100" />
             </span>
-          ) : (
-            <ChevronRightIcon
-              className={`-ml-0.5 mt-1.5 size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-150 ${
-                projectExpanded ? "rotate-90" : ""
-              }`}
-            />
-          )}
+          ) : null}
           <span className="mt-0.5 shrink-0">
             <ProjectFavicon environmentId={project.environmentId} cwd={project.cwd} />
           </span>
@@ -2795,7 +2814,6 @@ export default function Sidebar() {
   const projects = useStore(useShallow(selectProjectsAcrossEnvironments));
   const sidebarThreads = useStore(useShallow(selectSidebarThreadsAcrossEnvironments));
   const projectOrder = useUiStateStore((store) => store.projectOrder);
-  const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const navigate = useNavigate();
   const pathname = useLocation({ select: (loc) => loc.pathname });
@@ -2803,6 +2821,7 @@ export default function Sidebar() {
   const sidebarThreadSortOrder = useSettings((s) => s.sidebarThreadSortOrder);
   const sidebarProjectSortOrder = useSettings((s) => s.sidebarProjectSortOrder);
   const sidebarProjectGroupingMode = useSettings((s) => s.sidebarProjectGroupingMode);
+  const defaultThreadEnvMode = useSettings((s) => s.defaultThreadEnvMode);
   const projectGroupingSettings = useSettings(selectProjectGroupingSettings);
   const sidebarThreadPreviewCount = useSettings((s) => s.sidebarThreadPreviewCount);
   const { updateSettings } = useUpdateSettings();
@@ -2976,21 +2995,41 @@ export default function Sidebar() {
       if (useThreadSelectionStore.getState().selectedThreadKeys.size > 0) {
         clearSelection();
       }
-      setProjectExpanded(projectKey, true);
       const targetThread = sortThreads(
         (threadsByProjectKey.get(projectKey) ?? []).filter((thread) => thread.archivedAt === null),
-        sidebarThreadSortOrder,
+        "updated_at",
       )[0];
-      if (!targetThread) {
+      if (targetThread) {
+        navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id));
         return;
       }
-      navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id));
+
+      const targetProject = sidebarProjectByKey.get(projectKey);
+      const targetMember =
+        targetProject?.memberProjects.find(
+          (member) =>
+            member.environmentId === targetProject.environmentId && member.id === targetProject.id,
+        ) ?? targetProject?.memberProjects[0];
+      if (!targetMember) {
+        return;
+      }
+      if (isMobile) {
+        setOpenMobile(false);
+      }
+      void handleNewThread(scopeProjectRef(targetMember.environmentId, targetMember.id), {
+        envMode: resolveSidebarNewThreadEnvMode({
+          defaultEnvMode: defaultThreadEnvMode,
+        }),
+      });
     },
     [
       clearSelection,
+      defaultThreadEnvMode,
+      handleNewThread,
+      isMobile,
       navigateToThread,
-      setProjectExpanded,
-      sidebarThreadSortOrder,
+      sidebarProjectByKey,
+      setOpenMobile,
       threadsByProjectKey,
     ],
   );
