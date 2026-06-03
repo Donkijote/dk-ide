@@ -29,6 +29,7 @@ export type WorkspacePaneId = "ai" | "editor" | "plan" | "terminal";
 
 export interface PersistedWorkspaceThreadLayout {
   lastActivePane?: WorkspacePaneId;
+  paneTitleOverrideById?: Record<string, string>;
   planSidebarOpen?: boolean;
 }
 
@@ -186,12 +187,40 @@ function sanitizePersistedWorkspaceThreadLayout(
     if (typeof layout.planSidebarOpen === "boolean") {
       nextLayout.planSidebarOpen = layout.planSidebarOpen;
     }
+    const paneTitleOverrideById = sanitizeWorkspacePaneTitleOverrides(layout.paneTitleOverrideById);
+    if (Object.keys(paneTitleOverrideById).length > 0) {
+      nextLayout.paneTitleOverrideById = paneTitleOverrideById;
+    }
 
     if (Object.keys(nextLayout).length > 0) {
       nextState[threadId] = nextLayout;
     }
   }
 
+  return nextState;
+}
+
+function sanitizeWorkspacePaneTitle(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const title = value.trim().replace(/\s+/g, " ");
+  return title.length > 0 ? title.slice(0, 120) : null;
+}
+
+function sanitizeWorkspacePaneTitleOverrides(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const nextState: Record<string, string> = {};
+  for (const [paneId, title] of Object.entries(value)) {
+    const normalizedPaneId = sanitizeWorkspacePaneTitle(paneId);
+    const normalizedTitle = sanitizeWorkspacePaneTitle(title);
+    if (normalizedPaneId !== null && normalizedTitle !== null) {
+      nextState[normalizedPaneId] = normalizedTitle;
+    }
+  }
   return nextState;
 }
 
@@ -583,7 +612,8 @@ function workspaceThreadLayoutEqual(
 ): boolean {
   return (
     (left?.lastActivePane ?? undefined) === (right?.lastActivePane ?? undefined) &&
-    (left?.planSidebarOpen === true) === (right?.planSidebarOpen === true)
+    (left?.planSidebarOpen === true) === (right?.planSidebarOpen === true) &&
+    recordsEqual(left?.paneTitleOverrideById ?? {}, right?.paneTitleOverrideById ?? {})
   );
 }
 
@@ -605,7 +635,11 @@ function workspaceThreadLayoutsEqual(
 }
 
 function isDefaultWorkspaceThreadLayout(layout: PersistedWorkspaceThreadLayout): boolean {
-  return layout.planSidebarOpen !== true && layout.lastActivePane === undefined;
+  return (
+    layout.planSidebarOpen !== true &&
+    layout.lastActivePane === undefined &&
+    Object.keys(layout.paneTitleOverrideById ?? {}).length === 0
+  );
 }
 
 function updateWorkspaceThreadLayout(
@@ -734,6 +768,43 @@ export function setWorkspaceThreadLastActivePane(
   }));
 }
 
+export function setWorkspaceThreadPaneTitleOverride(
+  state: UiState,
+  threadId: string,
+  paneId: string,
+  title: string | null,
+): UiState {
+  const normalizedPaneId = sanitizeWorkspacePaneTitle(paneId);
+  if (normalizedPaneId === null) {
+    return state;
+  }
+  const normalizedTitle = sanitizeWorkspacePaneTitle(title);
+
+  return updateWorkspaceThreadLayout(state, threadId, (layout) => {
+    const currentOverrides = layout.paneTitleOverrideById ?? {};
+    const currentTitle = currentOverrides[normalizedPaneId];
+    if (currentTitle === (normalizedTitle ?? undefined)) {
+      return layout;
+    }
+
+    const nextOverrides = { ...currentOverrides };
+    if (normalizedTitle === null) {
+      delete nextOverrides[normalizedPaneId];
+    } else {
+      nextOverrides[normalizedPaneId] = normalizedTitle;
+    }
+
+    if (Object.keys(nextOverrides).length === 0) {
+      const { paneTitleOverrideById: _paneTitleOverrideById, ...nextLayout } = layout;
+      return nextLayout;
+    }
+    return {
+      ...layout,
+      paneTitleOverrideById: nextOverrides,
+    };
+  });
+}
+
 export function toggleProject(state: UiState, projectId: string): UiState {
   const expanded = state.projectExpandedById[projectId] ?? true;
   return {
@@ -812,6 +883,11 @@ interface UiStateStore extends UiState {
   setWorkspaceShellSidebarOpen: (open: boolean) => void;
   setWorkspaceThreadPlanSidebarOpen: (threadId: string, open: boolean) => void;
   setWorkspaceThreadLastActivePane: (threadId: string, pane: WorkspacePaneId) => void;
+  setWorkspaceThreadPaneTitleOverride: (
+    threadId: string,
+    paneId: string,
+    title: string | null,
+  ) => void;
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
   reorderProjects: (
@@ -838,6 +914,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setWorkspaceThreadPlanSidebarOpen(state, threadId, open)),
   setWorkspaceThreadLastActivePane: (threadId, pane) =>
     set((state) => setWorkspaceThreadLastActivePane(state, threadId, pane)),
+  setWorkspaceThreadPaneTitleOverride: (threadId, paneId, title) =>
+    set((state) => setWorkspaceThreadPaneTitleOverride(state, threadId, paneId, title)),
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),

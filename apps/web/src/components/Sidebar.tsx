@@ -64,6 +64,7 @@ import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { renameThreadTitle } from "../lib/threadTitleRename";
 import { isMacPlatform, newCommandId } from "../lib/utils";
 import {
   selectProjectByRef,
@@ -1766,39 +1767,32 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         });
       };
 
-      const trimmed = newTitle.trim();
-      if (trimmed.length === 0) {
-        toastManager.add({
-          type: "warning",
-          title: "Thread title cannot be empty",
-        });
-        finishRename();
-        return;
-      }
-      if (trimmed === originalTitle) {
-        finishRename();
-        return;
-      }
-      const api = readEnvironmentApi(threadRef.environmentId);
-      if (!api) {
-        finishRename();
-        return;
-      }
-      try {
-        await api.orchestration.dispatchCommand({
-          type: "thread.meta.update",
-          commandId: newCommandId(),
-          threadId: threadRef.threadId,
-          title: trimmed,
-        });
-      } catch (error) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Failed to rename thread",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          }),
-        );
+      const result = await renameThreadTitle({
+        threadRef,
+        newTitle,
+        originalTitle,
+      });
+      switch (result.type) {
+        case "empty":
+          toastManager.add({
+            type: "warning",
+            title: "Thread title cannot be empty",
+          });
+          break;
+        case "failed":
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to rename thread",
+              description:
+                result.error instanceof Error ? result.error.message : "An error occurred.",
+            }),
+          );
+          break;
+        case "api-unavailable":
+        case "renamed":
+        case "unchanged":
+          break;
       }
       finishRename();
     },
