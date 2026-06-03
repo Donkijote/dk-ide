@@ -223,7 +223,7 @@ describe("saved environment startup", () => {
 
     mockFetchRemoteSessionState.mockResolvedValue({
       authenticated: true,
-      role: "owner",
+      scopes: ["orchestration:read", "access:write"],
     });
     mockGetSavedEnvironmentRecord.mockImplementation((environmentId: EnvironmentId) =>
       environmentId === savedRecord.environmentId ? savedRecord : null,

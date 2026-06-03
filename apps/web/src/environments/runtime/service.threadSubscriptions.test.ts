@@ -157,7 +157,6 @@ vi.mock("@t3tools/client-runtime", async (importOriginal) => {
     ...actual,
     createWsRpcClient: vi.fn(() => stubWsClient),
     fetchRemoteSessionState: mockFetchRemoteSessionState,
-    isRemoteEnvironmentAuthHttpError: vi.fn(() => false),
     resolveRemoteWebSocketConnectionUrl: mockResolveRemoteWebSocketConnectionUrl,
   };
 });
@@ -308,7 +307,7 @@ describe("retainThreadDetailSubscription", () => {
     mockReadSavedEnvironmentBearerToken.mockResolvedValue(null);
     mockFetchRemoteSessionState.mockResolvedValue({
       authenticated: true,
-      role: "client",
+      scopes: ["orchestration:read"],
     });
     mockConnectionReconnects.length = 0;
   });
