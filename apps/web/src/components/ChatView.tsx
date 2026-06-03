@@ -129,6 +129,7 @@ import {
   resolveAppModelSelectionForInstance,
 } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { renameThreadTitle } from "../lib/threadTitleRename";
 import { providerRuntimeStatusQueryOptions } from "~/lib/providerReactQuery";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -3753,6 +3754,61 @@ export default function ChatView(props: ChatViewProps) {
     }
     void onRevertToTurnCountRef.current(targetTurnCount);
   }, []);
+  const renameAiPane = useCallback(
+    async (nextTitle: string | null) => {
+      if (!activeThread) {
+        return;
+      }
+
+      if (routeKind !== "server") {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to rename thread",
+            description: "Thread rename is only available after the thread is created.",
+          }),
+        );
+        return;
+      }
+
+      const result = await renameThreadTitle({
+        threadRef: scopeThreadRef(activeThread.environmentId, activeThread.id),
+        newTitle: nextTitle,
+        originalTitle: activeThread.title,
+      });
+      switch (result.type) {
+        case "empty":
+          toastManager.add({
+            type: "warning",
+            title: "Thread title cannot be empty",
+          });
+          return;
+        case "api-unavailable":
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to rename thread",
+              description: "Thread API unavailable.",
+            }),
+          );
+          return;
+        case "failed":
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to rename thread",
+              description:
+                result.error instanceof Error ? result.error.message : "An error occurred.",
+            }),
+          );
+          return;
+        case "renamed":
+        case "unchanged":
+          return;
+      }
+    },
+    [activeThread, routeKind],
+  );
   const workspaceName = activeProject?.name?.trim() || null;
   // Empty state: no active thread
   if (!activeThread) {
@@ -3762,7 +3818,6 @@ export default function ChatView(props: ChatViewProps) {
   const editorPaneTitle =
     paneTitleOverrideById.editor ??
     resolveEditorPaneDefaultTitle(workspaceEditorActivePath, workspaceName, activeWorkspaceRoot);
-  const aiPaneTitle = paneTitleOverrideById.ai ?? activeThread.title;
   const workspaceEditorActionProps = {
     activeThreadEnvironmentId: activeThread.environmentId,
     activeThreadId: activeThread.id,
@@ -3880,9 +3935,8 @@ export default function ChatView(props: ChatViewProps) {
 
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
               <WorkspacePane
-                title={aiPaneTitle}
-                description={aiPaneTitle === activeThread.title ? null : activeThread.title}
-                onTitleRename={(nextTitle) => renameWorkspacePane("ai", nextTitle)}
+                title={activeThread.title}
+                onTitleRename={(nextTitle) => void renameAiPane(nextTitle)}
                 className="min-h-[32rem] xl:min-h-0"
               >
                 <div className="flex min-h-0 min-w-0 flex-1">

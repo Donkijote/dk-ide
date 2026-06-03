@@ -649,7 +649,7 @@ describe("uiStateStore persistence round-trip", () => {
     let state = setWorkspaceShellSidebarOpen(makeUiState(), false);
     state = setWorkspaceThreadPlanSidebarOpen(state, thread1, true);
     state = setWorkspaceThreadLastActivePane(state, thread1, "plan");
-    state = setWorkspaceThreadPaneTitleOverride(state, thread1, "ai", "Planning thread");
+    state = setWorkspaceThreadPaneTitleOverride(state, thread1, "editor", "Source");
 
     persistState(state);
 
@@ -662,7 +662,7 @@ describe("uiStateStore persistence round-trip", () => {
       [thread1]: {
         planSidebarOpen: true,
         lastActivePane: "plan",
-        paneTitleOverrideById: { ai: "Planning thread" },
+        paneTitleOverrideById: { editor: "Source" },
       },
     });
   });
