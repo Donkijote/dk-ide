@@ -75,6 +75,7 @@ import {
 } from "../pendingUserInput";
 import {
   selectProjectsAcrossEnvironments,
+  selectSidebarThreadsForProjectRefs,
   selectThreadsAcrossEnvironments,
   useStore,
 } from "../store";
@@ -140,7 +141,7 @@ import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
-import { buildDraftThreadRouteParams } from "../threadRoutes";
+import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -205,9 +206,12 @@ import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
 import { RightPanelSheet } from "./RightPanelSheet";
 import { Button } from "./ui/button";
+import { Select, SelectItem, SelectPopup, SelectTrigger } from "./ui/select";
 import { useSidebar } from "./ui/sidebar";
 import { Toggle } from "./ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { resolveThreadStatusPill } from "./Sidebar.logic";
+import { ThreadStatusLabel } from "./ThreadStatusIndicators";
 import {
   buildVersionMismatchDismissalKey,
   dismissVersionMismatch,
@@ -1246,6 +1250,46 @@ export default function ChatView(props: ChatViewProps) {
     savedEnvironmentRegistry,
     savedEnvironmentRuntimeById,
   ]);
+  const activeWorkspaceProjectRefs = useMemo(() => {
+    if (!activeProject) return [];
+    const logicalKey = deriveLogicalProjectKeyFromSettings(activeProject, projectGroupingSettings);
+    return allProjects
+      .filter(
+        (project) =>
+          deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings) === logicalKey,
+      )
+      .map((project) => scopeProjectRef(project.environmentId, project.id));
+  }, [activeProject, allProjects, projectGroupingSettings]);
+  const activeWorkspaceThreads = useStore(
+    useShallow(
+      useMemo(
+        () => (state: import("../store").AppState) =>
+          activeWorkspaceProjectRefs.length === 0
+            ? []
+            : selectSidebarThreadsForProjectRefs(state, activeWorkspaceProjectRefs),
+        [activeWorkspaceProjectRefs],
+      ),
+    ),
+  );
+  const activeWorkspaceThreadOptions = useMemo(
+    () =>
+      activeWorkspaceThreads
+        .filter((thread) => thread.archivedAt === null)
+        .toSorted((left, right) => {
+          const rightTimestamp = Date.parse(
+            right.latestUserMessageAt ?? right.updatedAt ?? right.createdAt,
+          );
+          const leftTimestamp = Date.parse(
+            left.latestUserMessageAt ?? left.updatedAt ?? left.createdAt,
+          );
+          const byTimestamp =
+            (Number.isNaN(rightTimestamp) ? 0 : rightTimestamp) -
+            (Number.isNaN(leftTimestamp) ? 0 : leftTimestamp);
+          if (byTimestamp !== 0) return byTimestamp;
+          return left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
+        }),
+    [activeWorkspaceThreads],
+  );
   const hasMultipleEnvironments = logicalProjectEnvironments.length > 1;
 
   const openPullRequestDialog = useCallback(
@@ -1998,6 +2042,22 @@ export default function ChatView(props: ChatViewProps) {
       },
     });
   }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
+  const handleAiPaneThreadChange = useCallback(
+    (nextThreadKey: string | null) => {
+      if (nextThreadKey === null || nextThreadKey === activeThreadKey) {
+        return;
+      }
+      const nextThreadRef = parseScopedThreadKey(nextThreadKey);
+      if (!nextThreadRef) {
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(nextThreadRef),
+      });
+    },
+    [activeThreadKey, navigate],
+  );
 
   const envLocked = Boolean(
     activeThread &&
@@ -3754,7 +3814,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     void onRevertToTurnCountRef.current(targetTurnCount);
   }, []);
-  const renameAiPane = useCallback(
+  const renameAiThread = useCallback(
     async (nextTitle: string | null) => {
       if (!activeThread) {
         return;
@@ -3818,6 +3878,33 @@ export default function ChatView(props: ChatViewProps) {
   const editorPaneTitle =
     paneTitleOverrideById.editor ??
     resolveEditorPaneDefaultTitle(workspaceEditorActivePath, workspaceName, activeWorkspaceRoot);
+  const aiPaneTitleControl =
+    isServerThread && activeThreadKey && activeWorkspaceThreadOptions.length > 0 ? (
+      <Select value={activeThreadKey} onValueChange={handleAiPaneThreadChange}>
+        <SelectTrigger
+          aria-label="AI pane thread"
+          className="-ml-2 h-8 min-w-0 max-w-[min(28rem,58vw)] rounded-md px-2 font-semibold text-foreground text-sm sm:text-[0.95rem]"
+          size="sm"
+          variant="ghost"
+        >
+          <span className="min-w-0 flex-1 truncate">{activeThread.title}</span>
+        </SelectTrigger>
+        <SelectPopup align="start" alignItemWithTrigger={false} className="max-h-80">
+          {activeWorkspaceThreadOptions.map((thread) => {
+            const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+            const status = resolveThreadStatusPill({ thread });
+            return (
+              <SelectItem key={threadKey} value={threadKey}>
+                <span className="flex min-w-0 items-center gap-2">
+                  {status ? <ThreadStatusLabel status={status} compact /> : null}
+                  <span className="min-w-0 truncate">{thread.title}</span>
+                </span>
+              </SelectItem>
+            );
+          })}
+        </SelectPopup>
+      </Select>
+    ) : null;
   const workspaceEditorActionProps = {
     activeThreadEnvironmentId: activeThread.environmentId,
     activeThreadId: activeThread.id,
@@ -3936,7 +4023,12 @@ export default function ChatView(props: ChatViewProps) {
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
               <WorkspacePane
                 title={activeThread.title}
-                onTitleRename={(nextTitle) => void renameAiPane(nextTitle)}
+                titleControl={aiPaneTitleControl}
+                titleInputLabel="Thread title"
+                titleRenameLabel="Rename thread"
+                {...(isServerThread
+                  ? { onTitleRename: (nextTitle: string | null) => void renameAiThread(nextTitle) }
+                  : {})}
                 className="min-h-[32rem] xl:min-h-0"
               >
                 <div className="flex min-h-0 min-w-0 flex-1">
