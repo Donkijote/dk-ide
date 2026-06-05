@@ -128,6 +128,7 @@ import {
   Trash2Icon,
   TriangleAlertIcon,
   WifiOffIcon,
+  XIcon,
 } from "lucide-react";
 import { cn, randomHex, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -1338,6 +1339,17 @@ export default function ChatView(props: ChatViewProps) {
     (store) => store.setInteractionMode,
   );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
+  const clearDraftThread = useComposerDraftStore((store) => store.clearDraftThread);
+  const hasUserComposerDraftContent = useComposerDraftStore((store) => {
+    const draft = store.getComposerDraft(composerDraftTarget);
+    return Boolean(
+      draft &&
+      (draft.prompt.trim().length > 0 ||
+        draft.images.length > 0 ||
+        draft.persistedAttachments.length > 0 ||
+        draft.terminalContexts.length > 0),
+    );
+  });
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const getDraftSessionByLogicalProjectKey = useComposerDraftStore(
     (store) => store.getDraftSessionByLogicalProjectKey,
@@ -1713,6 +1725,19 @@ export default function ChatView(props: ChatViewProps) {
         }),
     [activeWorkspaceThreads],
   );
+  const fallbackWorkspaceThread = useMemo(() => {
+    if (activeWorkspaceThreadOptions.length === 0) {
+      return null;
+    }
+    return (
+      activeWorkspaceThreadOptions.find((thread) => {
+        const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+        return threadKey !== activeThreadKey;
+      }) ??
+      activeWorkspaceThreadOptions[0] ??
+      null
+    );
+  }, [activeThreadKey, activeWorkspaceThreadOptions]);
   const hasMultipleEnvironments = logicalProjectEnvironments.length > 1;
 
   const openPullRequestDialog = useCallback(
@@ -2241,6 +2266,54 @@ export default function ChatView(props: ChatViewProps) {
     threadError: activeThread?.error,
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  const canCancelCleanDraftThread = Boolean(
+    isLocalDraftThread &&
+    activeThread &&
+    activeThread.messages.length === 0 &&
+    optimisticUserMessages.length === 0 &&
+    !draftThread?.promotedTo &&
+    !hasUserComposerDraftContent &&
+    (!onWorkspaceAiPaneThreadChange || fallbackWorkspaceThread) &&
+    !isWorking,
+  );
+  const cancelCleanDraftThread = useCallback(() => {
+    if (!canCancelCleanDraftThread) {
+      return;
+    }
+    clearDraftThread(composerDraftTarget);
+
+    if (fallbackWorkspaceThread) {
+      const fallbackThreadRef = scopeThreadRef(
+        fallbackWorkspaceThread.environmentId,
+        fallbackWorkspaceThread.id,
+      );
+      if (onWorkspaceAiPaneThreadChange) {
+        onWorkspaceAiPaneThreadChange(scopedThreadKey(fallbackThreadRef), {
+          title: fallbackWorkspaceThread.title,
+        });
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(fallbackThreadRef),
+        replace: true,
+      });
+      return;
+    }
+
+    if (onWorkspaceAiPaneThreadChange) {
+      onWorkspaceAiPaneThreadChange(null);
+      return;
+    }
+    void navigate({ to: "/", replace: true });
+  }, [
+    canCancelCleanDraftThread,
+    clearDraftThread,
+    composerDraftTarget,
+    fallbackWorkspaceThread,
+    navigate,
+    onWorkspaceAiPaneThreadChange,
+  ]);
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -2670,7 +2743,6 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeWorkspaceThreadOptions, routeThreadKey, storeSetWorkspaceThreadDockedPanes],
   );
-
   const envLocked = Boolean(
     activeThread &&
     (activeThread.messages.length > 0 ||
@@ -4645,13 +4717,35 @@ export default function ChatView(props: ChatViewProps) {
       </TooltipPopup>
     </Tooltip>
   );
+  const aiPaneCancelDraftButton = canCancelCleanDraftThread ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Cancel new thread"
+            data-testid="cancel-clean-draft-thread-button"
+            onClick={cancelCleanDraftThread}
+          >
+            <XIcon className="size-3.5" />
+          </button>
+        }
+      />
+      <TooltipPopup side="bottom">Cancel new thread</TooltipPopup>
+    </Tooltip>
+  ) : null;
   const aiPaneHeaderActions = embeddedPaneActions ? (
     <>
+      {aiPaneCancelDraftButton}
       {aiPaneNewThreadButton}
       {embeddedPaneActions}
     </>
   ) : (
-    aiPaneNewThreadButton
+    <>
+      {aiPaneCancelDraftButton}
+      {aiPaneNewThreadButton}
+    </>
   );
   const workspaceEditorActionProps = {
     activeThreadEnvironmentId: activeThread.environmentId,
