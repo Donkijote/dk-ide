@@ -1,5 +1,5 @@
 import { CheckIcon, PencilIcon, XIcon } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
+import { type FormEvent, type ReactNode, type Ref, useEffect, useId, useState } from "react";
 
 import { cn } from "~/lib/utils";
 
@@ -10,6 +10,7 @@ interface WorkspacePaneProps {
   readonly className?: string;
   readonly description?: ReactNode;
   readonly onTitleRename?: (title: string | null) => void;
+  readonly rootRef?: Ref<HTMLElement>;
   readonly title: string;
   readonly titleControl?: ReactNode;
   readonly titleInputLabel?: string;
@@ -23,6 +24,7 @@ export function WorkspacePane({
   className,
   description,
   onTitleRename,
+  rootRef,
   title,
   titleControl,
   titleInputLabel = "Pane title",
@@ -47,6 +49,7 @@ export function WorkspacePane({
 
   return (
     <section
+      ref={rootRef}
       className={cn(
         "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border border-border/70 bg-background shadow-[0_20px_50px_-32px_rgba(15,23,42,0.35)]",
         className,

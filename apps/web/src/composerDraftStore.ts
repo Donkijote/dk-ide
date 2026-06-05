@@ -328,6 +328,21 @@ interface ComposerDraftStoreState {
       interactionMode?: ProviderInteractionMode;
     },
   ) => void;
+  /** Creates or updates a draft session without assigning it as the project default draft. */
+  createUnmappedDraftThread: (
+    logicalProjectKey: string,
+    projectRef: ScopedProjectRef,
+    draftId: DraftId,
+    options?: {
+      threadId?: ThreadId;
+      branch?: string | null;
+      worktreePath?: string | null;
+      createdAt?: string;
+      envMode?: DraftThreadEnvMode;
+      runtimeMode?: RuntimeMode;
+      interactionMode?: ProviderInteractionMode;
+    },
+  ) => void;
   /** Updates mutable draft-session metadata without touching composer content. */
   setDraftThreadContext: (
     threadRef: ComposerThreadTarget,
@@ -2093,6 +2108,31 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             draftId,
             options,
           );
+        },
+        createUnmappedDraftThread: (logicalProjectKey, projectRef, draftId, options) => {
+          const normalizedLogicalProjectKey = logicalProjectDraftKey(logicalProjectKey);
+          if (normalizedLogicalProjectKey.length === 0 || draftId.length === 0) {
+            return;
+          }
+          set((state) => {
+            const existingThread = state.draftThreadsByThreadKey[draftId];
+            const nextDraftThread = createDraftThreadState(
+              projectRef,
+              options?.threadId ?? existingThread?.threadId ?? ThreadId.make(draftId),
+              normalizedLogicalProjectKey,
+              existingThread,
+              options,
+            );
+            if (draftThreadsEqual(existingThread, nextDraftThread)) {
+              return state;
+            }
+            return {
+              draftThreadsByThreadKey: {
+                ...state.draftThreadsByThreadKey,
+                [draftId]: nextDraftThread,
+              },
+            };
+          });
         },
         setDraftThreadContext: (threadRef, options) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
