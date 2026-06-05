@@ -80,12 +80,24 @@ export interface WorkspaceThreadDockedPaneLayoutInput {
   terminalGroupId?: string | null | undefined;
 }
 
+export interface WorkspaceThreadAddDockedPaneInput {
+  paneId: string;
+  type: WorkspaceDockedPaneType;
+  title: string;
+  environmentId: string;
+  cwd: string | null | undefined;
+  threadId?: string | null | undefined;
+  terminalId?: string | null | undefined;
+  terminalGroupId?: string | null | undefined;
+}
+
 export interface PersistedWorkspaceThreadLayout {
   activePaneId?: WorkspaceDockedPaneId;
   lastActivePane?: WorkspacePaneId;
   panes?: PersistedWorkspaceDockedPane[];
   paneTitleOverrideById?: Record<string, string>;
   planSidebarOpen?: boolean;
+  removedDefaultPaneIds?: WorkspaceDockedPaneId[];
 }
 
 export interface UiProjectState {
@@ -143,6 +155,9 @@ const WORKSPACE_DOCKED_PANE_IDS = {
   editor: "editor",
   terminal: "terminal",
 } as const satisfies Record<WorkspaceDockedPaneType, WorkspaceDockedPaneId>;
+const DEFAULT_WORKSPACE_DOCKED_PANE_ID_SET = new Set<string>(
+  Object.values(WORKSPACE_DOCKED_PANE_IDS),
+);
 // Pre-fix persisted shape only listed expanded cwds, so anything not listed
 // was treated as collapsed. Track whether the loaded blob carried the new
 // `collapsedProjectCwds` field so we can preserve that legacy semantic for
@@ -259,6 +274,10 @@ function sanitizePersistedWorkspaceThreadLayout(
     const paneTitleOverrideById = sanitizeWorkspacePaneTitleOverrides(layout.paneTitleOverrideById);
     if (Object.keys(paneTitleOverrideById).length > 0) {
       nextLayout.paneTitleOverrideById = paneTitleOverrideById;
+    }
+    const removedDefaultPaneIds = sanitizeRemovedDefaultPaneIds(layout.removedDefaultPaneIds);
+    if (removedDefaultPaneIds.length > 0) {
+      nextLayout.removedDefaultPaneIds = removedDefaultPaneIds;
     }
 
     if (Object.keys(nextLayout).length > 0) {
@@ -407,6 +426,11 @@ function sanitizeWorkspacePaneTitleOverrides(value: unknown): Record<string, str
   return nextState;
 }
 
+function sanitizeRemovedDefaultPaneIds(value: unknown): WorkspaceDockedPaneId[] {
+  const values = sanitizeStringArray(value) ?? [];
+  return values.filter((paneId) => DEFAULT_WORKSPACE_DOCKED_PANE_ID_SET.has(paneId));
+}
+
 export function hydratePersistedProjectState(parsed: PersistedUiState): void {
   persistedCollapsedProjectCwds.clear();
   persistedExpandedProjectCwds.clear();
@@ -494,6 +518,10 @@ function recordsEqual<T>(left: Record<string, T>, right: Record<string, T>): boo
     }
   }
   return true;
+}
+
+function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function projectOrdersEqual(left: readonly string[], right: readonly string[]): boolean {
@@ -798,7 +826,8 @@ function workspaceThreadLayoutEqual(
     (left?.lastActivePane ?? undefined) === (right?.lastActivePane ?? undefined) &&
     (left?.planSidebarOpen === true) === (right?.planSidebarOpen === true) &&
     workspaceDockedPanesEqual(left?.panes ?? [], right?.panes ?? []) &&
-    recordsEqual(left?.paneTitleOverrideById ?? {}, right?.paneTitleOverrideById ?? {})
+    recordsEqual(left?.paneTitleOverrideById ?? {}, right?.paneTitleOverrideById ?? {}) &&
+    stringArraysEqual(left?.removedDefaultPaneIds ?? [], right?.removedDefaultPaneIds ?? [])
   );
 }
 
@@ -825,7 +854,8 @@ function isDefaultWorkspaceThreadLayout(layout: PersistedWorkspaceThreadLayout):
     layout.activePaneId === undefined &&
     layout.lastActivePane === undefined &&
     (layout.panes?.length ?? 0) === 0 &&
-    Object.keys(layout.paneTitleOverrideById ?? {}).length === 0
+    Object.keys(layout.paneTitleOverrideById ?? {}).length === 0 &&
+    (layout.removedDefaultPaneIds?.length ?? 0) === 0
   );
 }
 
@@ -1112,8 +1142,10 @@ function workspaceDockedPaneWithRuntimeContext(
       environmentId: defaultPane.environmentId,
       cwd: defaultPane.cwd,
       metadata: {
-        ...pane.metadata,
-        ...defaultPane.metadata,
+        threadId: defaultPane.metadata.threadId,
+        terminalId: pane.metadata.terminalId ?? defaultPane.metadata.terminalId ?? null,
+        terminalGroupId:
+          pane.metadata.terminalGroupId ?? defaultPane.metadata.terminalGroupId ?? null,
       },
     };
   }
@@ -1145,11 +1177,14 @@ export function ensureWorkspaceThreadDockedPaneLayout(
   return updateWorkspaceThreadLayout(state, threadId, (layout) => {
     const existingPanes = layout.panes ?? [];
     const existingPaneIds = new Set(existingPanes.map((pane) => pane.paneId));
+    const removedDefaultPaneIds = new Set(layout.removedDefaultPaneIds ?? []);
     const panes = sanitizeWorkspaceDockedPanes([
       ...existingPanes.map((pane) => workspaceDockedPaneWithRuntimeContext(pane, defaultsById)),
-      ...defaultPanes.filter((pane) => !existingPaneIds.has(pane.paneId)),
+      ...defaultPanes.filter(
+        (pane) => !existingPaneIds.has(pane.paneId) && !removedDefaultPaneIds.has(pane.paneId),
+      ),
     ]);
-    const activePaneId =
+    const candidateActivePaneId =
       layout.activePaneId && panes.some((pane) => pane.paneId === layout.activePaneId)
         ? layout.activePaneId
         : layout.lastActivePane === "ai" ||
@@ -1157,12 +1192,21 @@ export function ensureWorkspaceThreadDockedPaneLayout(
             layout.lastActivePane === "terminal"
           ? WORKSPACE_DOCKED_PANE_IDS[layout.lastActivePane]
           : WORKSPACE_DOCKED_PANE_IDS.ai;
+    const activePaneId = panes.some((pane) => pane.paneId === candidateActivePaneId)
+      ? candidateActivePaneId
+      : (panes.find((pane) => pane.paneId === WORKSPACE_DOCKED_PANE_IDS.ai)?.paneId ??
+        panes[0]?.paneId);
 
-    return {
+    const nextLayout: PersistedWorkspaceThreadLayout = {
       ...layout,
-      activePaneId,
       panes,
     };
+    if (activePaneId) {
+      nextLayout.activePaneId = activePaneId;
+    } else {
+      delete nextLayout.activePaneId;
+    }
+    return nextLayout;
   });
 }
 
@@ -1187,6 +1231,170 @@ export function setWorkspaceThreadDockedPanes(
         ? { activePaneId: normalizedActivePaneId }
         : {}),
     };
+  });
+}
+
+export function addWorkspaceThreadDockedPane(
+  state: UiState,
+  threadId: string,
+  input: WorkspaceThreadAddDockedPaneInput,
+): UiState {
+  const paneId = sanitizeWorkspacePaneTitle(input.paneId);
+  const title = sanitizeWorkspacePaneTitle(input.title);
+  const environmentId = sanitizeOptionalString(input.environmentId);
+  if (paneId === null || title === null || environmentId === null) {
+    return state;
+  }
+
+  const base = {
+    paneId,
+    type: input.type,
+    title,
+    environmentId,
+    cwd: sanitizeOptionalString(input.cwd),
+    order: 0,
+    size: DEFAULT_WORKSPACE_PANE_SIZE,
+  };
+  const pane: PersistedWorkspaceDockedPane =
+    input.type === "ai"
+      ? {
+          ...base,
+          type: "ai",
+          metadata: {
+            threadId: sanitizeOptionalString(input.threadId),
+          },
+        }
+      : input.type === "terminal"
+        ? {
+            ...base,
+            type: "terminal",
+            metadata: {
+              threadId: sanitizeOptionalString(input.threadId),
+              terminalId: sanitizeOptionalString(input.terminalId),
+              terminalGroupId: sanitizeOptionalString(input.terminalGroupId),
+            },
+          }
+        : {
+            ...base,
+            type: "editor",
+            metadata: {},
+          };
+
+  return updateWorkspaceThreadLayout(state, threadId, (layout) => {
+    const existingPanes = layout.panes ?? [];
+    if (existingPanes.some((existingPane) => existingPane.paneId === pane.paneId)) {
+      return {
+        ...layout,
+        activePaneId: pane.paneId,
+      };
+    }
+    const sortedPanes = sanitizeWorkspaceDockedPanes(existingPanes);
+    const sameTypeAnchor =
+      sortedPanes.find((existingPane) => existingPane.type === pane.type) ?? null;
+    const anchorIndex = sameTypeAnchor
+      ? sortedPanes.findIndex((existingPane) => existingPane.paneId === sameTypeAnchor.paneId)
+      : -1;
+    const nextPane = anchorIndex >= 0 ? (sortedPanes[anchorIndex + 1] ?? null) : null;
+    const maxOrder = sortedPanes.reduce(
+      (order, existingPane) => Math.max(order, existingPane.order),
+      -1,
+    );
+    const order =
+      sameTypeAnchor === null
+        ? maxOrder + 1
+        : nextPane
+          ? sameTypeAnchor.order + (nextPane.order - sameTypeAnchor.order) / 2
+          : sameTypeAnchor.order + 1;
+    const panes = sanitizeWorkspaceDockedPanes([
+      ...existingPanes,
+      {
+        ...pane,
+        order,
+        size: sameTypeAnchor?.size ?? pane.size,
+      },
+    ]);
+    return {
+      ...layout,
+      activePaneId: pane.paneId,
+      panes,
+    };
+  });
+}
+
+export function removeWorkspaceThreadDockedPane(
+  state: UiState,
+  threadId: string,
+  paneId: string,
+): UiState {
+  const normalizedPaneId = sanitizeWorkspacePaneTitle(paneId);
+  if (normalizedPaneId === null) {
+    return state;
+  }
+  return updateWorkspaceThreadLayout(state, threadId, (layout) => {
+    const existingPanes = sanitizeWorkspaceDockedPanes(layout.panes);
+    if (!existingPanes.some((pane) => pane.paneId === normalizedPaneId)) {
+      return layout;
+    }
+    const panes = existingPanes.filter((pane) => pane.paneId !== normalizedPaneId);
+    const nextActivePaneId =
+      layout.activePaneId === normalizedPaneId
+        ? (panes.find((pane) => pane.paneId === WORKSPACE_DOCKED_PANE_IDS.ai)?.paneId ??
+          panes[0]?.paneId)
+        : layout.activePaneId;
+    const { [normalizedPaneId]: _removedTitle, ...paneTitleOverrideById } =
+      layout.paneTitleOverrideById ?? {};
+    const removedDefaultPaneIds = DEFAULT_WORKSPACE_DOCKED_PANE_ID_SET.has(normalizedPaneId)
+      ? sanitizeRemovedDefaultPaneIds([...(layout.removedDefaultPaneIds ?? []), normalizedPaneId])
+      : (layout.removedDefaultPaneIds ?? []);
+
+    const nextLayout: PersistedWorkspaceThreadLayout = {
+      ...layout,
+      panes,
+    };
+    if (nextActivePaneId) {
+      nextLayout.activePaneId = nextActivePaneId;
+    } else {
+      delete nextLayout.activePaneId;
+    }
+    if (Object.keys(paneTitleOverrideById).length > 0) {
+      nextLayout.paneTitleOverrideById = paneTitleOverrideById;
+    } else {
+      delete nextLayout.paneTitleOverrideById;
+    }
+    if (removedDefaultPaneIds.length > 0) {
+      nextLayout.removedDefaultPaneIds = removedDefaultPaneIds;
+    } else {
+      delete nextLayout.removedDefaultPaneIds;
+    }
+    return nextLayout;
+  });
+}
+
+export function restoreWorkspaceThreadDefaultDockedPane(
+  state: UiState,
+  threadId: string,
+  paneId: string,
+): UiState {
+  const normalizedPaneId = sanitizeWorkspacePaneTitle(paneId);
+  if (normalizedPaneId === null || !DEFAULT_WORKSPACE_DOCKED_PANE_ID_SET.has(normalizedPaneId)) {
+    return state;
+  }
+  return updateWorkspaceThreadLayout(state, threadId, (layout) => {
+    const removedDefaultPaneIds = (layout.removedDefaultPaneIds ?? []).filter(
+      (removedPaneId) => removedPaneId !== normalizedPaneId,
+    );
+    if ((layout.removedDefaultPaneIds?.length ?? 0) === removedDefaultPaneIds.length) {
+      return layout;
+    }
+    const nextLayout: PersistedWorkspaceThreadLayout = {
+      ...layout,
+    };
+    if (removedDefaultPaneIds.length > 0) {
+      nextLayout.removedDefaultPaneIds = removedDefaultPaneIds;
+    } else {
+      delete nextLayout.removedDefaultPaneIds;
+    }
+    return nextLayout;
   });
 }
 
@@ -1302,6 +1510,12 @@ interface UiStateStore extends UiState {
     panes: readonly PersistedWorkspaceDockedPane[],
     activePaneId?: string | null,
   ) => void;
+  addWorkspaceThreadDockedPane: (
+    threadId: string,
+    input: WorkspaceThreadAddDockedPaneInput,
+  ) => void;
+  removeWorkspaceThreadDockedPane: (threadId: string, paneId: string) => void;
+  restoreWorkspaceThreadDefaultDockedPane: (threadId: string, paneId: string) => void;
   setWorkspaceThreadActiveDockedPane: (threadId: string, paneId: string) => void;
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
@@ -1335,6 +1549,12 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => ensureWorkspaceThreadDockedPaneLayout(state, threadId, input)),
   setWorkspaceThreadDockedPanes: (threadId, panes, activePaneId) =>
     set((state) => setWorkspaceThreadDockedPanes(state, threadId, panes, activePaneId)),
+  addWorkspaceThreadDockedPane: (threadId, input) =>
+    set((state) => addWorkspaceThreadDockedPane(state, threadId, input)),
+  removeWorkspaceThreadDockedPane: (threadId, paneId) =>
+    set((state) => removeWorkspaceThreadDockedPane(state, threadId, paneId)),
+  restoreWorkspaceThreadDefaultDockedPane: (threadId, paneId) =>
+    set((state) => restoreWorkspaceThreadDefaultDockedPane(state, threadId, paneId)),
   setWorkspaceThreadActiveDockedPane: (threadId, paneId) =>
     set((state) => setWorkspaceThreadActiveDockedPane(state, threadId, paneId)),
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),

@@ -2,6 +2,7 @@ import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  addWorkspaceThreadDockedPane,
   clearThreadUi,
   ensureWorkspaceThreadDockedPaneLayout,
   hydratePersistedProjectState,
@@ -12,6 +13,8 @@ import {
   type PersistedUiState,
   persistState,
   reorderProjects,
+  removeWorkspaceThreadDockedPane,
+  restoreWorkspaceThreadDefaultDockedPane,
   sanitizeWorkspaceDockedPanes,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
@@ -612,6 +615,272 @@ describe("uiStateStore pure functions", () => {
 
     state = setWorkspaceThreadActiveDockedPane(state, thread1, "terminal");
     expect(state.workspaceThreadLayoutById[thread1]?.activePaneId).toBe("terminal");
+  });
+
+  it("adds a docked pane with selected environment and cwd context", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const initialState = ensureWorkspaceThreadDockedPaneLayout(makeUiState(), thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+    });
+
+    const next = addWorkspaceThreadDockedPane(initialState, thread1, {
+      paneId: "terminal:secondary",
+      type: "terminal",
+      title: "Tools Terminal",
+      environmentId: "env-1",
+      cwd: "/repo/tools",
+      threadId: thread1,
+      terminalId: "terminal-secondary",
+      terminalGroupId: "group-terminal-secondary",
+    });
+
+    expect(next.workspaceThreadLayoutById[thread1]).toMatchObject({
+      activePaneId: "terminal:secondary",
+    });
+    expect(next.workspaceThreadLayoutById[thread1]?.panes?.at(-1)).toEqual({
+      paneId: "terminal:secondary",
+      type: "terminal",
+      title: "Tools Terminal",
+      environmentId: "env-1",
+      cwd: "/repo/tools",
+      order: 3,
+      size: 1,
+      metadata: {
+        threadId: thread1,
+        terminalId: "terminal-secondary",
+        terminalGroupId: "group-terminal-secondary",
+      },
+    });
+  });
+
+  it("preserves an existing terminal pane group when active terminal runtime context changes", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const initialState = ensureWorkspaceThreadDockedPaneLayout(makeUiState(), thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+      terminalId: "terminal-1",
+      terminalGroupId: "group-terminal-1",
+    });
+
+    const next = ensureWorkspaceThreadDockedPaneLayout(initialState, thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+      terminalId: "terminal-2",
+      terminalGroupId: "group-terminal-2",
+    });
+
+    expect(
+      next.workspaceThreadLayoutById[thread1]?.panes?.find((pane) => pane.paneId === "terminal"),
+    ).toMatchObject({
+      metadata: {
+        threadId: thread1,
+        terminalId: "terminal-1",
+        terminalGroupId: "group-terminal-1",
+      },
+    });
+  });
+
+  it("removes a custom terminal pane without removing the default terminal pane", () => {
+    const thread1 = ThreadId.make("thread-1");
+    let state = ensureWorkspaceThreadDockedPaneLayout(makeUiState(), thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+    });
+    state = addWorkspaceThreadDockedPane(state, thread1, {
+      paneId: "terminal:secondary",
+      type: "terminal",
+      title: "Tools Terminal",
+      environmentId: "env-1",
+      cwd: "/repo/tools",
+      threadId: thread1,
+      terminalId: "terminal-secondary",
+      terminalGroupId: "group-terminal-secondary",
+    });
+
+    const next = removeWorkspaceThreadDockedPane(state, thread1, "terminal:secondary");
+
+    expect(next.workspaceThreadLayoutById[thread1]?.activePaneId).toBe("ai");
+    expect(next.workspaceThreadLayoutById[thread1]?.panes?.map((pane) => pane.paneId)).toEqual([
+      "editor",
+      "ai",
+      "terminal",
+    ]);
+    expect(next.workspaceThreadLayoutById[thread1]?.removedDefaultPaneIds).toBeUndefined();
+  });
+
+  it("removes custom ai and editor panes without tombstoning default panes", () => {
+    const thread1 = ThreadId.make("thread-1");
+    let state = ensureWorkspaceThreadDockedPaneLayout(makeUiState(), thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+    });
+    state = addWorkspaceThreadDockedPane(state, thread1, {
+      paneId: "ai:secondary",
+      type: "ai",
+      title: "Second AI",
+      environmentId: "env-1",
+      cwd: "/repo",
+      threadId: thread1,
+    });
+    state = addWorkspaceThreadDockedPane(state, thread1, {
+      paneId: "editor:docs",
+      type: "editor",
+      title: "Docs Editor",
+      environmentId: "env-1",
+      cwd: "/repo/docs",
+      threadId: thread1,
+    });
+
+    const withoutAi = removeWorkspaceThreadDockedPane(state, thread1, "ai:secondary");
+    const withoutEditor = removeWorkspaceThreadDockedPane(withoutAi, thread1, "editor:docs");
+
+    expect(
+      withoutEditor.workspaceThreadLayoutById[thread1]?.panes?.map((pane) => pane.paneId),
+    ).toEqual(["editor", "ai", "terminal"]);
+    expect(withoutEditor.workspaceThreadLayoutById[thread1]?.removedDefaultPaneIds).toBeUndefined();
+  });
+
+  it("removes the default terminal pane until it is explicitly restored", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const initialState = ensureWorkspaceThreadDockedPaneLayout(makeUiState(), thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+    });
+
+    const removed = removeWorkspaceThreadDockedPane(initialState, thread1, "terminal");
+    const reseeded = ensureWorkspaceThreadDockedPaneLayout(removed, thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+    });
+    const restored = restoreWorkspaceThreadDefaultDockedPane(reseeded, thread1, "terminal");
+    const restoredAndReseeded = ensureWorkspaceThreadDockedPaneLayout(restored, thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+    });
+
+    expect(reseeded.workspaceThreadLayoutById[thread1]?.removedDefaultPaneIds).toEqual([
+      "terminal",
+    ]);
+    expect(reseeded.workspaceThreadLayoutById[thread1]?.panes?.map((pane) => pane.paneId)).toEqual([
+      "editor",
+      "ai",
+    ]);
+    expect(
+      restoredAndReseeded.workspaceThreadLayoutById[thread1]?.panes?.map((pane) => pane.paneId),
+    ).toEqual(["editor", "ai", "terminal"]);
+    expect(
+      restoredAndReseeded.workspaceThreadLayoutById[thread1]?.removedDefaultPaneIds,
+    ).toBeUndefined();
+  });
+
+  it("places added panes next to existing panes of the same type and copies their size", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const initialState = setWorkspaceThreadDockedPanes(
+      makeUiState(),
+      thread1,
+      [
+        {
+          paneId: "editor",
+          type: "editor",
+          title: "Editor",
+          environmentId: "env-1",
+          cwd: "/repo",
+          order: 0,
+          size: 1.75,
+          metadata: {},
+        },
+        {
+          paneId: "editor:notes",
+          type: "editor",
+          title: "Notes Editor",
+          environmentId: "env-1",
+          cwd: "/repo/notes",
+          order: 0.5,
+          size: 0.8,
+          metadata: {},
+        },
+        {
+          paneId: "ai",
+          type: "ai",
+          title: "AI",
+          environmentId: "env-1",
+          cwd: "/repo",
+          order: 1,
+          size: 1,
+          metadata: {
+            threadId: thread1,
+          },
+        },
+        {
+          paneId: "terminal",
+          type: "terminal",
+          title: "Terminal",
+          environmentId: "env-1",
+          cwd: "/repo",
+          order: 2,
+          size: 1,
+          metadata: {
+            threadId: thread1,
+          },
+        },
+      ],
+      "ai",
+    );
+
+    const next = addWorkspaceThreadDockedPane(initialState, thread1, {
+      paneId: "editor:docs",
+      type: "editor",
+      title: "Docs Editor",
+      environmentId: "env-1",
+      cwd: "/repo/docs",
+      threadId: thread1,
+    });
+
+    expect(next.workspaceThreadLayoutById[thread1]?.panes?.map((pane) => pane.paneId)).toEqual([
+      "editor",
+      "editor:docs",
+      "editor:notes",
+      "ai",
+      "terminal",
+    ]);
+    expect(next.workspaceThreadLayoutById[thread1]?.panes?.[1]).toMatchObject({
+      paneId: "editor:docs",
+      order: 0.25,
+      size: 1.75,
+    });
   });
 
   it("sanitizes invalid persisted docked panes without dropping valid panes", () => {

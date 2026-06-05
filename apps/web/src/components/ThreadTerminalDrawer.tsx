@@ -86,6 +86,22 @@ function fitTerminalSafely(fitAddon: FitAddon): boolean {
   }
 }
 
+function serializeRuntimeEnv(runtimeEnv: Record<string, string> | undefined): string | null {
+  if (!runtimeEnv) {
+    return null;
+  }
+  return JSON.stringify(
+    Object.entries(runtimeEnv).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
+  );
+}
+
+function runtimeEnvFromSignature(signature: string | null): Record<string, string> | undefined {
+  if (signature === null) {
+    return undefined;
+  }
+  return Object.fromEntries(JSON.parse(signature) as Array<[string, string]>);
+}
+
 function normalizeComputedColor(value: string | null | undefined, fallback: string): string {
   const normalizedValue = value?.trim().toLowerCase();
   if (
@@ -295,6 +311,11 @@ export function TerminalViewport({
     onAddTerminalContext(selection);
   });
   const readTerminalLabel = useEffectEvent(() => terminalLabel);
+  const runtimeEnvSignature = useMemo(() => serializeRuntimeEnv(runtimeEnv), [runtimeEnv]);
+  const stableRuntimeEnv = useMemo(
+    () => runtimeEnvFromSignature(runtimeEnvSignature),
+    [runtimeEnvSignature],
+  );
 
   useEffect(() => {
     keybindingsRef.current = keybindings;
@@ -646,7 +667,7 @@ export function TerminalViewport({
           ...(worktreePath !== undefined ? { worktreePath } : {}),
           cols: activeTerminal.cols,
           rows: activeTerminal.rows,
-          ...(runtimeEnv ? { env: runtimeEnv } : {}),
+          ...(stableRuntimeEnv ? { env: stableRuntimeEnv } : {}),
         },
         onEvent: (event) => {
           if (disposed) return;
@@ -705,7 +726,7 @@ export function TerminalViewport({
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, environmentId, runtimeEnv, terminalId, threadId]);
+  }, [cwd, environmentId, stableRuntimeEnv, terminalId, threadId]);
 
   useEffect(() => {
     if (!autoFocus) return;

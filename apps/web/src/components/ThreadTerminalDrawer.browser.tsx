@@ -148,6 +148,7 @@ async function mountTerminalViewport(props: {
   threadRef: ReturnType<typeof scopeThreadRef>;
   surfaceBackgroundColor?: string;
   surfaceTextColor?: string;
+  runtimeEnv?: Record<string, string>;
 }) {
   const surface = document.createElement("div");
   surface.className = "thread-terminal-surface thread-terminal-pane";
@@ -178,12 +179,16 @@ async function mountTerminalViewport(props: {
       resizeEpoch={0}
       drawerHeight={320}
       keybindings={[]}
+      {...(props.runtimeEnv ? { runtimeEnv: props.runtimeEnv } : {})}
     />,
     { container: host },
   );
 
   return {
-    rerender: async (nextProps: { threadRef: ReturnType<typeof scopeThreadRef> }) => {
+    rerender: async (nextProps: {
+      threadRef: ReturnType<typeof scopeThreadRef>;
+      runtimeEnv?: Record<string, string>;
+    }) => {
       await screen.rerender(
         <TerminalViewport
           threadRef={nextProps.threadRef}
@@ -198,6 +203,7 @@ async function mountTerminalViewport(props: {
           resizeEpoch={0}
           drawerHeight={320}
           keybindings={[]}
+          {...(nextProps.runtimeEnv ? { runtimeEnv: nextProps.runtimeEnv } : {})}
         />,
       );
     },
@@ -279,6 +285,40 @@ describe("TerminalViewport", () => {
 
       await mounted.rerender({
         threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
+      });
+
+      await vi.waitFor(() => {
+        expect(environment.terminal.open).toHaveBeenCalledTimes(1);
+      });
+      expect(terminalDisposeSpy).not.toHaveBeenCalled();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("does not reopen the terminal when runtime env values stay the same", async () => {
+    const environment = createEnvironmentApi();
+    environmentApiById.set("environment-a", environment);
+
+    const mounted = await mountTerminalViewport({
+      threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
+      runtimeEnv: {
+        T3CODE_WORKTREE_PATH: "/repo/project",
+        T3CODE_PROJECT_ROOT: "/repo/project",
+      },
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(environment.terminal.open).toHaveBeenCalledTimes(1);
+      });
+
+      await mounted.rerender({
+        threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
+        runtimeEnv: {
+          T3CODE_PROJECT_ROOT: "/repo/project",
+          T3CODE_WORKTREE_PATH: "/repo/project",
+        },
       });
 
       await vi.waitFor(() => {
