@@ -119,6 +119,31 @@ describe("terminalUiStateStore actions", () => {
     ]);
   });
 
+  it("splits into the requested pane group instead of the globally active group", () => {
+    const store = useTerminalUiStateStore.getState();
+    store.newTerminal(THREAD_REF, "terminal-1");
+    store.splitTerminal(THREAD_REF, "terminal-2");
+    store.newTerminal(THREAD_REF, "terminal-3");
+    store.splitTerminal(THREAD_REF, "terminal-4", {
+      groupId: "group-terminal-1",
+      anchorTerminalId: "terminal-1",
+    });
+
+    const terminalUiState = selectThreadTerminalUiState(
+      useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+      THREAD_REF,
+    );
+    expect(terminalUiState.activeTerminalId).toBe("terminal-4");
+    expect(terminalUiState.activeTerminalGroupId).toBe("group-terminal-1");
+    expect(terminalUiState.terminalGroups).toEqual([
+      {
+        id: "group-terminal-1",
+        terminalIds: ["terminal-1", "terminal-4", "terminal-2"],
+      },
+      { id: "group-terminal-3", terminalIds: ["terminal-3"] },
+    ]);
+  });
+
   it("ensures unknown server terminals are registered, opened, and activated", () => {
     const store = useTerminalUiStateStore.getState();
     store.ensureTerminal(THREAD_REF, "setup-setup", { open: true, active: true });

@@ -830,7 +830,7 @@ interface ThreadTerminalDrawerProps {
   terminalLabelById?: Readonly<Record<string, string>>;
   focusRequestId: number;
   onSplitTerminal: () => void;
-  onNewTerminal: () => void;
+  onNewTerminalPane: () => void;
   splitShortcutLabel?: string | undefined;
   newShortcutLabel?: string | undefined;
   closeShortcutLabel?: string | undefined;
@@ -846,6 +846,10 @@ interface TerminalActionButtonProps {
   className: string;
   onClick: () => void;
   children: ReactNode;
+}
+
+export function resolveNewTerminalPaneActionLabel(shortcutLabel?: string): string {
+  return shortcutLabel ? `New Terminal Pane (${shortcutLabel})` : "New Terminal Pane";
 }
 
 function TerminalActionButton({ label, className, onClick, children }: TerminalActionButtonProps) {
@@ -886,7 +890,7 @@ export default function ThreadTerminalDrawer({
   terminalLabelById: terminalLabels,
   focusRequestId,
   onSplitTerminal,
-  onNewTerminal,
+  onNewTerminalPane,
   splitShortcutLabel,
   newShortcutLabel,
   closeShortcutLabel,
@@ -1016,9 +1020,7 @@ export default function ThreadTerminalDrawer({
     : splitShortcutLabel
       ? `Split Terminal (${splitShortcutLabel})`
       : "Split Terminal";
-  const newTerminalActionLabel = newShortcutLabel
-    ? `New Terminal (${newShortcutLabel})`
-    : "New Terminal";
+  const newTerminalPaneActionLabel = resolveNewTerminalPaneActionLabel(newShortcutLabel);
   const closeTerminalActionLabel = closeShortcutLabel
     ? `Close Terminal (${closeShortcutLabel})`
     : "Close Terminal";
@@ -1026,9 +1028,9 @@ export default function ThreadTerminalDrawer({
     if (hasReachedSplitLimit) return;
     onSplitTerminal();
   }, [hasReachedSplitLimit, onSplitTerminal]);
-  const onNewTerminalAction = useCallback(() => {
-    onNewTerminal();
-  }, [onNewTerminal]);
+  const onNewTerminalPaneAction = useCallback(() => {
+    onNewTerminalPane();
+  }, [onNewTerminalPane]);
 
   useEffect(() => {
     onHeightChangeRef.current = onHeightChange;
@@ -1169,8 +1171,8 @@ export default function ThreadTerminalDrawer({
             <div className="h-4 w-px bg-border/80" />
             <TerminalActionButton
               className="p-1 text-foreground/90 transition-colors hover:bg-accent"
-              onClick={onNewTerminalAction}
-              label={newTerminalActionLabel}
+              onClick={onNewTerminalPaneAction}
+              label={newTerminalPaneActionLabel}
             >
               <Plus className="size-3.25" />
             </TerminalActionButton>
@@ -1271,8 +1273,8 @@ export default function ThreadTerminalDrawer({
                   </TerminalActionButton>
                   <TerminalActionButton
                     className="inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors hover:bg-accent/70"
-                    onClick={onNewTerminalAction}
-                    label={newTerminalActionLabel}
+                    onClick={onNewTerminalPaneAction}
+                    label={newTerminalPaneActionLabel}
                   >
                     <Plus className="size-3.25" />
                   </TerminalActionButton>

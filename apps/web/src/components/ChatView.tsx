@@ -99,6 +99,7 @@ import {
   type ChatMessage,
   type SessionPhase,
   type Thread,
+  type ThreadTerminalGroup,
   type TurnDiffSummary,
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
@@ -212,6 +213,7 @@ import {
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
+  shouldRemoveTerminalPaneAfterClose,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
 } from "./ChatView.logic";
@@ -1040,19 +1042,25 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
     [storeSetTerminalHeight, threadRef],
   );
 
-  const splitTerminal = useCallback(() => {
-    storeSplitTerminal(threadRef, `terminal-${randomUUID()}`);
-    storeSetWorkspaceThreadLastActivePane(threadKey, "terminal");
-    bumpFocusRequestId();
-  }, [
-    bumpFocusRequestId,
-    storeSetWorkspaceThreadLastActivePane,
-    storeSplitTerminal,
-    threadKey,
-    threadRef,
-  ]);
+  const splitTerminal = useCallback(
+    (terminalGroupId: string, anchorTerminalId: string) => {
+      storeSplitTerminal(threadRef, `terminal-${randomUUID()}`, {
+        groupId: terminalGroupId,
+        anchorTerminalId,
+      });
+      storeSetWorkspaceThreadLastActivePane(threadKey, "terminal");
+      bumpFocusRequestId();
+    },
+    [
+      bumpFocusRequestId,
+      storeSetWorkspaceThreadLastActivePane,
+      storeSplitTerminal,
+      threadKey,
+      threadRef,
+    ],
+  );
 
-  const createNewTerminal = useCallback(() => {
+  const createNewTerminalPane = useCallback(() => {
     storeNewTerminal(threadRef, `terminal-${randomUUID()}`);
     storeSetWorkspaceThreadLastActivePane(threadKey, "terminal");
     bumpFocusRequestId();
@@ -1194,8 +1202,8 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
               focusRequestId={
                 visible && isGroupActive ? focusRequestId + localFocusRequestId + 1 : 0
               }
-              onSplitTerminal={splitTerminal}
-              onNewTerminal={createNewTerminal}
+              onSplitTerminal={() => splitTerminal(terminalGroup.id, groupActiveTerminalId)}
+              onNewTerminalPane={createNewTerminalPane}
               splitShortcutLabel={visible ? splitShortcutLabel : undefined}
               newShortcutLabel={visible ? newShortcutLabel : undefined}
               closeShortcutLabel={visible && isGroupActive ? closeShortcutLabel : undefined}
@@ -2922,21 +2930,33 @@ export default function ChatView(props: ChatViewProps) {
     storeSetWorkspaceThreadLastActivePane,
     storeSplitTerminal,
   ]);
-  const createNewTerminal = useCallback(() => {
-    if (!activeThreadRef) return;
-    const terminalId = `terminal-${randomUUID()}`;
-    storeNewTerminal(activeThreadRef, terminalId);
-    storeSetWorkspaceThreadLastActivePane(scopedThreadKey(activeThreadRef), "terminal");
-    setTerminalFocusRequestId((value) => value + 1);
-  }, [activeThreadRef, storeNewTerminal, storeSetWorkspaceThreadLastActivePane]);
+  const splitWorkspaceTerminalPane = useCallback(
+    (terminalGroupId: string, anchorTerminalId: string) => {
+      if (!activeThreadRef) return;
+      const terminalId = `terminal-${randomUUID()}`;
+      storeSplitTerminal(activeThreadRef, terminalId, {
+        groupId: terminalGroupId,
+        anchorTerminalId,
+      });
+      storeSetWorkspaceThreadLastActivePane(scopedThreadKey(activeThreadRef), "terminal");
+      setTerminalFocusRequestId((value) => value + 1);
+    },
+    [activeThreadRef, storeSetWorkspaceThreadLastActivePane, storeSplitTerminal],
+  );
+  const activeWorkspaceTerminalPane = workspaceDockedPanes.find(
+    (pane): pane is Extract<PersistedWorkspaceDockedPane, { type: "terminal" }> =>
+      pane.type === "terminal" &&
+      (pane.metadata.terminalGroupId === activeTerminalGroup?.id ||
+        pane.metadata.terminalId === terminalState.activeTerminalId),
+  );
   const createNewWorkspaceTerminalPane = useCallback(
-    (pane: Extract<PersistedWorkspaceDockedPane, { type: "terminal" }>) => {
+    (pane?: Extract<PersistedWorkspaceDockedPane, { type: "terminal" }>) => {
       if (!activeThread || !activeThreadKey || !activeThreadRef) {
         return;
       }
       const terminalId = `terminal-${randomUUID()}`;
       const terminalGroupId = `group-${terminalId}`;
-      const cwd = pane.cwd ?? activeWorkspaceRoot ?? activeProjectCwd ?? "";
+      const cwd = pane?.cwd ?? activeWorkspaceRoot ?? activeProjectCwd ?? "";
 
       storeNewTerminal(activeThreadRef, terminalId);
       storeSetTerminalOpen(activeThreadRef, true);
@@ -2966,6 +2986,9 @@ export default function ChatView(props: ChatViewProps) {
       workspaceName,
     ],
   );
+  const createNewTerminalPane = useCallback(() => {
+    createNewWorkspaceTerminalPane(activeWorkspaceTerminalPane);
+  }, [activeWorkspaceTerminalPane, createNewWorkspaceTerminalPane]);
   const markEditorActive = useCallback(() => {
     if (!activeThreadRef) return;
     storeSetWorkspaceThreadLastActivePane(scopedThreadKey(activeThreadRef), "editor");
@@ -3019,14 +3042,38 @@ export default function ChatView(props: ChatViewProps) {
     ],
   );
   const closeWorkspaceTerminalPane = useCallback(
-    (pane: Extract<PersistedWorkspaceDockedPane, { type: "terminal" }>, terminalId: string) => {
+    (
+      pane: Extract<PersistedWorkspaceDockedPane, { type: "terminal" }>,
+      terminalGroup: ThreadTerminalGroup,
+      terminalId: string,
+    ) => {
       closeTerminal(terminalId);
-      if (activeThreadKey) {
+      if (
+        activeThreadKey &&
+        shouldRemoveTerminalPaneAfterClose(terminalGroup.terminalIds, terminalId)
+      ) {
         storeRemoveWorkspaceThreadDockedPane(activeThreadKey, pane.paneId);
       }
     },
     [activeThreadKey, closeTerminal, storeRemoveWorkspaceThreadDockedPane],
   );
+  const closeActiveWorkspaceTerminal = useCallback(() => {
+    if (!activeTerminalGroup || !activeWorkspaceTerminalPane) {
+      closeTerminal(terminalState.activeTerminalId);
+      return;
+    }
+    closeWorkspaceTerminalPane(
+      activeWorkspaceTerminalPane,
+      activeTerminalGroup,
+      terminalState.activeTerminalId,
+    );
+  }, [
+    activeTerminalGroup,
+    activeWorkspaceTerminalPane,
+    closeTerminal,
+    closeWorkspaceTerminalPane,
+    terminalState.activeTerminalId,
+  ]);
   const removeWorkspacePane = useCallback(
     (paneId: string) => {
       if (!activeThreadKey) {
@@ -3686,7 +3733,7 @@ export default function ChatView(props: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         if (!terminalState.terminalOpen) return;
-        closeTerminal(terminalState.activeTerminalId);
+        closeActiveWorkspaceTerminal();
         return;
       }
 
@@ -3696,7 +3743,7 @@ export default function ChatView(props: ChatViewProps) {
         if (!terminalState.terminalOpen) {
           setTerminalOpen(true);
         }
-        createNewTerminal();
+        createNewTerminalPane();
         return;
       }
 
@@ -3729,9 +3776,9 @@ export default function ChatView(props: ChatViewProps) {
     terminalState.terminalOpen,
     terminalState.activeTerminalId,
     activeThreadId,
-    closeTerminal,
+    closeActiveWorkspaceTerminal,
     createScopedAiPaneThread,
-    createNewTerminal,
+    createNewTerminalPane,
     setTerminalOpen,
     runProjectScript,
     splitTerminal,
@@ -5065,8 +5112,8 @@ export default function ChatView(props: ChatViewProps) {
               activeTerminalGroupId={terminalGroup.id}
               terminalLabelById={terminalLabelById}
               focusRequestId={terminalFocusRequestId}
-              onSplitTerminal={splitTerminal}
-              onNewTerminal={() => createNewWorkspaceTerminalPane(pane)}
+              onSplitTerminal={() => splitWorkspaceTerminalPane(terminalGroup.id, activeTerminalId)}
+              onNewTerminalPane={() => createNewWorkspaceTerminalPane(pane)}
               splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
               newShortcutLabel={newTerminalShortcutLabel ?? undefined}
               closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
@@ -5075,7 +5122,9 @@ export default function ChatView(props: ChatViewProps) {
                 storeSetActiveTerminal(activeThreadRef, terminalId);
                 storeSetWorkspaceThreadLastActivePane(routeThreadKey, "terminal");
               }}
-              onCloseTerminal={(terminalId) => closeWorkspaceTerminalPane(pane, terminalId)}
+              onCloseTerminal={(terminalId) =>
+                closeWorkspaceTerminalPane(pane, terminalGroup, terminalId)
+              }
               onHeightChange={(height) => {
                 if (activeThreadRef) {
                   storeSetTerminalOpen(activeThreadRef, true);
