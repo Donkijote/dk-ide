@@ -21,8 +21,8 @@ export function parseSafeExternalUrl(rawUrl: unknown): Option.Option<string> {
 }
 
 export interface ElectronShellShape {
-  readonly openExternal: (rawUrl: unknown) => Effect.Effect<boolean>;
-  readonly copyText: (text: string) => Effect.Effect<void>;
+  readonly openExternal: (rawUrl: unknown) => Effect.Effect<boolean, never, never>;
+  readonly copyText: (text: string) => Effect.Effect<void, never, never>;
 }
 
 export class ElectronShell extends Context.Service<ElectronShell, ElectronShellShape>()(

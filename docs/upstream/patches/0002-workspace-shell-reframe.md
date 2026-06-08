@@ -80,6 +80,8 @@ composition, which are likely to continue evolving upstream.
   navigation, with existing-thread switching moved into the AI pane header
 - `feature/ghi#34`: persisted docked pane layout state for AI, terminal, and
   editor panes, with startup sanitization and local UI-state reconciliation
+- `9623a418b`: shared pane creation with directory selection and independent
+  thread-scoped terminal panes bound to persisted cwd values
 
 ## Sync Notes
 
@@ -126,6 +128,8 @@ composition, which are likely to continue evolving upstream.
 - persist the first docked pane model locally in web UI state so alpha pane
   add, close, rename, reorder, resize, and restore work can build on stable pane
   ids without introducing a server-side workspace domain yet
+- keep terminal server sessions thread-scoped while assigning each terminal pane
+  a unique terminal id, terminal group, environment, and cwd in local pane state
 - split future implementation into smaller patch files when the shell reframe
   turns into concrete workstreams such as sidebar mapping, pane extraction, or
   layout persistence

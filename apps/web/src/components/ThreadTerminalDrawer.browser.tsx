@@ -146,10 +146,14 @@ function createEnvironmentApi() {
 
 async function mountTerminalViewport(props: {
   threadRef: ReturnType<typeof scopeThreadRef>;
+  terminalId?: string;
+  cwd?: string;
   surfaceBackgroundColor?: string;
   surfaceTextColor?: string;
   runtimeEnv?: Record<string, string>;
 }) {
+  const terminalId = props.terminalId ?? "default";
+  const cwd = props.cwd ?? "/repo/project";
   const surface = document.createElement("div");
   surface.className = "thread-terminal-surface thread-terminal-pane";
   if (props.surfaceBackgroundColor) {
@@ -169,9 +173,9 @@ async function mountTerminalViewport(props: {
     <TerminalViewport
       threadRef={props.threadRef}
       threadId={THREAD_ID}
-      terminalId="default"
+      terminalId={terminalId}
       terminalLabel="Terminal"
-      cwd="/repo/project"
+      cwd={cwd}
       onSessionExited={() => undefined}
       onAddTerminalContext={() => undefined}
       focusRequestId={0}
@@ -187,15 +191,17 @@ async function mountTerminalViewport(props: {
   return {
     rerender: async (nextProps: {
       threadRef: ReturnType<typeof scopeThreadRef>;
+      terminalId?: string;
+      cwd?: string;
       runtimeEnv?: Record<string, string>;
     }) => {
       await screen.rerender(
         <TerminalViewport
           threadRef={nextProps.threadRef}
           threadId={THREAD_ID}
-          terminalId="default"
+          terminalId={nextProps.terminalId ?? terminalId}
           terminalLabel="Terminal"
-          cwd="/repo/project"
+          cwd={nextProps.cwd ?? cwd}
           onSessionExited={() => undefined}
           onAddTerminalContext={() => undefined}
           focusRequestId={0}
@@ -327,6 +333,45 @@ describe("TerminalViewport", () => {
       expect(terminalDisposeSpy).not.toHaveBeenCalled();
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  it("opens separate thread-scoped terminal panes with their selected cwd values", async () => {
+    const environment = createEnvironmentApi();
+    environmentApiById.set("environment-a", environment);
+    const threadRef = scopeThreadRef("environment-a" as never, THREAD_ID);
+
+    const workspaceTerminal = await mountTerminalViewport({
+      threadRef,
+      terminalId: "terminal-workspace",
+      cwd: "/repo/project",
+    });
+    const toolsTerminal = await mountTerminalViewport({
+      threadRef,
+      terminalId: "terminal-tools",
+      cwd: "/repo/project/tools",
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(environment.terminal.open).toHaveBeenCalledTimes(2);
+      });
+      expect(environment.terminal.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: THREAD_ID,
+          terminalId: "terminal-workspace",
+          cwd: "/repo/project",
+        }),
+      );
+      expect(environment.terminal.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: THREAD_ID,
+          terminalId: "terminal-tools",
+          cwd: "/repo/project/tools",
+        }),
+      );
+    } finally {
+      await Promise.all([workspaceTerminal.cleanup(), toolsTerminal.cleanup()]);
     }
   });
 
