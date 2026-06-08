@@ -123,7 +123,6 @@ import {
   DiffIcon,
   FileCode2Icon,
   FolderIcon,
-  PanelRightCloseIcon,
   PlusIcon,
   SquarePenIcon,
   TerminalSquareIcon,
@@ -4867,7 +4866,6 @@ export default function ChatView(props: ChatViewProps) {
       {aiPaneCancelDraftButton}
       {aiPaneNewThreadButton}
       {aiPaneDeleteThreadButton}
-      {embeddedPaneActions}
     </>
   );
   const workspaceEditorActionProps = {
@@ -4965,14 +4963,22 @@ export default function ChatView(props: ChatViewProps) {
   const renderWorkspacePane = (pane: PersistedWorkspaceDockedPane) => {
     const paneTitle = paneTitleOverrideById[pane.paneId] ?? pane.title;
     const renderRemovePaneButton = () => (
-      <button
-        type="button"
-        className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        aria-label={`Remove ${paneTitle}`}
-        onClick={() => removeWorkspacePane(pane.paneId)}
-      >
-        <PanelRightCloseIcon className="size-3.5" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              aria-label={`Delete ${paneTitle} pane`}
+              data-testid="delete-workspace-pane-button"
+              onClick={() => removeWorkspacePane(pane.paneId)}
+            >
+              <Trash2Icon className="size-3.5" />
+            </button>
+          }
+        />
+        <TooltipPopup side="bottom">Delete pane</TooltipPopup>
+      </Tooltip>
     );
 
     if (pane.type === "editor") {
@@ -5143,13 +5149,14 @@ export default function ChatView(props: ChatViewProps) {
       <WorkspacePane
         key={pane.paneId}
         title={activeThread.title}
+        titleActions={aiPaneHeaderActions}
         titleControl={aiPaneTitleControl}
         titleInputLabel="Thread title"
         titleRenameLabel="Rename thread"
         {...(isServerThread
           ? { onTitleRename: (nextTitle: string | null) => void renameAiThread(nextTitle) }
           : {})}
-        actions={aiPaneHeaderActions}
+        actions={embeddedPaneActions}
         rootRef={aiPaneRootRef}
         className="min-h-[32rem] xl:min-h-0"
       >
