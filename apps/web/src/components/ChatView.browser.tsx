@@ -4063,7 +4063,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       const newThreadButton = page.getByTestId("new-thread-button");
+      const aiPaneNewThreadButton = page.getByTestId("ai-pane-new-thread-button");
+      const deleteThreadButton = page.getByTestId("ai-pane-delete-thread-button");
       await expect.element(newThreadButton).toBeInTheDocument();
+      await expect.element(aiPaneNewThreadButton).toBeInTheDocument();
+      await expect.element(deleteThreadButton).toBeInTheDocument();
 
       await newThreadButton.click();
 
@@ -4076,6 +4080,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       const cancelButton = page.getByTestId("cancel-clean-draft-thread-button");
       await expect.element(cancelButton).toBeInTheDocument();
+      await expect.element(aiPaneNewThreadButton).not.toBeInTheDocument();
+      await expect.element(deleteThreadButton).not.toBeInTheDocument();
 
       await cancelButton.click();
 
@@ -4085,6 +4091,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "Canceling a clean draft should return to the workspace fallback thread.",
       );
       expect(useComposerDraftStore.getState().getDraftSession(newDraftId)).toBeNull();
+      await expect.element(aiPaneNewThreadButton).toBeInTheDocument();
+      await expect.element(deleteThreadButton).toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }
@@ -4101,6 +4109,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       const newThreadButton = page.getByTestId("new-thread-button");
+      const aiPaneNewThreadButton = page.getByTestId("ai-pane-new-thread-button");
+      const deleteThreadButton = page.getByTestId("ai-pane-delete-thread-button");
       await expect.element(newThreadButton).toBeInTheDocument();
 
       await newThreadButton.click();
@@ -4119,6 +4129,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await waitForLayout();
 
       await expect.element(cancelButton).not.toBeInTheDocument();
+      await expect.element(aiPaneNewThreadButton).toBeInTheDocument();
+      await expect.element(deleteThreadButton).not.toBeInTheDocument();
       expect(useComposerDraftStore.getState().getDraftSession(newDraftId)).not.toBeNull();
     } finally {
       await mounted.cleanup();

@@ -106,6 +106,7 @@ import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import { useThreadActions } from "../hooks/useThreadActions";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
@@ -122,6 +123,7 @@ import {
   DiffIcon,
   FileCode2Icon,
   FolderIcon,
+  PanelRightCloseIcon,
   PlusIcon,
   SquarePenIcon,
   TerminalSquareIcon,
@@ -850,6 +852,19 @@ function formatOutgoingPrompt(params: {
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
 
+type AiPaneDraftOrigin = {
+  threadRef: ScopedThreadRef;
+  title: string;
+  route:
+    | { kind: "server" }
+    | {
+        kind: "draft";
+        draftId: DraftId;
+      };
+};
+
+const aiPaneDraftOrigins = new Map<DraftId, AiPaneDraftOrigin>();
+
 type ChatViewProps =
   | {
       environmentId: EnvironmentId;
@@ -1313,6 +1328,7 @@ export default function ChatView(props: ChatViewProps) {
   const timestampFormat = settings.timestampFormat;
   const autoOpenPlanSidebar = settings.autoOpenPlanSidebar;
   const navigate = useNavigate();
+  const { confirmAndDeleteThread } = useThreadActions();
   const rawSearch = useSearch({
     strict: false,
     select: (params) => parseDiffRouteSearch(params),
@@ -1733,9 +1749,7 @@ export default function ChatView(props: ChatViewProps) {
       activeWorkspaceThreadOptions.find((thread) => {
         const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
         return threadKey !== activeThreadKey;
-      }) ??
-      activeWorkspaceThreadOptions[0] ??
-      null
+      }) ?? null
     );
   }, [activeThreadKey, activeWorkspaceThreadOptions]);
   const hasMultipleEnvironments = logicalProjectEnvironments.length > 1;
@@ -2065,7 +2079,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const createScopedAiPaneThread = useCallback(
     async (mode: "contextual" | "default") => {
-      if (!activeThread || !activeProject) {
+      if (!activeThread || !activeThreadRef || !activeProject) {
         return;
       }
       const activeProjectRef = scopeProjectRef(activeThread.environmentId, activeThread.projectId);
@@ -2076,6 +2090,12 @@ export default function ChatView(props: ChatViewProps) {
       const draftId = newDraftId();
       const nextThreadId = newThreadId();
       const createdAt = new Date().toISOString();
+      aiPaneDraftOrigins.set(draftId, {
+        threadRef: activeThreadRef,
+        title: activeThread.title,
+        route:
+          routeKind === "draft" ? { kind: "draft", draftId: props.draftId } : { kind: "server" },
+      });
       const defaultEnvMode = resolveSidebarNewThreadEnvMode({
         defaultEnvMode: settings.defaultThreadEnvMode,
       });
@@ -2130,12 +2150,15 @@ export default function ChatView(props: ChatViewProps) {
     [
       activeProject,
       activeThread,
+      activeThreadRef,
       applyStickyComposerState,
       bindScopedAiPaneThread,
       createUnmappedDraftThread,
       draftThread,
       interactionMode,
       projectGroupingSettings,
+      props.draftId,
+      routeKind,
       runtimeMode,
       settings.defaultThreadEnvMode,
     ],
@@ -2266,6 +2289,11 @@ export default function ChatView(props: ChatViewProps) {
     threadError: activeThread?.error,
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  useEffect(() => {
+    if (props.draftId && draftThread?.promotedTo) {
+      aiPaneDraftOrigins.delete(props.draftId);
+    }
+  }, [draftThread?.promotedTo, props.draftId]);
   const canCancelCleanDraftThread = Boolean(
     isLocalDraftThread &&
     activeThread &&
@@ -2273,15 +2301,48 @@ export default function ChatView(props: ChatViewProps) {
     optimisticUserMessages.length === 0 &&
     !draftThread?.promotedTo &&
     !hasUserComposerDraftContent &&
-    (!onWorkspaceAiPaneThreadChange || fallbackWorkspaceThread) &&
+    (!onWorkspaceAiPaneThreadChange ||
+      fallbackWorkspaceThread ||
+      (props.draftId && aiPaneDraftOrigins.has(props.draftId))) &&
     !isWorking,
   );
-  const cancelCleanDraftThread = useCallback(() => {
+  const cancelCleanDraftThread = useCallback(async () => {
     if (!canCancelCleanDraftThread) {
       return;
     }
-    clearDraftThread(composerDraftTarget);
+    const draftOrigin = props.draftId ? aiPaneDraftOrigins.get(props.draftId) : undefined;
+    const discardDraft = () => {
+      clearDraftThread(composerDraftTarget);
+      if (props.draftId) {
+        aiPaneDraftOrigins.delete(props.draftId);
+      }
+    };
 
+    if (draftOrigin) {
+      if (onWorkspaceAiPaneThreadChange) {
+        onWorkspaceAiPaneThreadChange(scopedThreadKey(draftOrigin.threadRef), {
+          title: draftOrigin.title,
+        });
+        discardDraft();
+        return;
+      }
+      if (draftOrigin.route.kind === "draft") {
+        await navigate({
+          to: "/draft/$draftId",
+          params: buildDraftThreadRouteParams(draftOrigin.route.draftId),
+          replace: true,
+        });
+        discardDraft();
+        return;
+      }
+      await navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(draftOrigin.threadRef),
+        replace: true,
+      });
+      discardDraft();
+      return;
+    }
     if (fallbackWorkspaceThread) {
       const fallbackThreadRef = scopeThreadRef(
         fallbackWorkspaceThread.environmentId,
@@ -2291,21 +2352,25 @@ export default function ChatView(props: ChatViewProps) {
         onWorkspaceAiPaneThreadChange(scopedThreadKey(fallbackThreadRef), {
           title: fallbackWorkspaceThread.title,
         });
+        discardDraft();
         return;
       }
-      void navigate({
+      await navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(fallbackThreadRef),
         replace: true,
       });
+      discardDraft();
       return;
     }
 
     if (onWorkspaceAiPaneThreadChange) {
       onWorkspaceAiPaneThreadChange(null);
+      discardDraft();
       return;
     }
-    void navigate({ to: "/", replace: true });
+    await navigate({ to: "/", replace: true });
+    discardDraft();
   }, [
     canCancelCleanDraftThread,
     clearDraftThread,
@@ -2313,6 +2378,7 @@ export default function ChatView(props: ChatViewProps) {
     fallbackWorkspaceThread,
     navigate,
     onWorkspaceAiPaneThreadChange,
+    props.draftId,
   ]);
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
@@ -2710,6 +2776,7 @@ export default function ChatView(props: ChatViewProps) {
   const handleWorkspaceAiPaneThreadChange = useCallback(
     (paneId: string, nextThreadKey: string | null, options?: { title?: string }) => {
       if (nextThreadKey === null) {
+        storeRemoveWorkspaceThreadDockedPane(routeThreadKey, paneId);
         return;
       }
       const nextThreadRef = parseScopedThreadKey(nextThreadKey);
@@ -2741,7 +2808,12 @@ export default function ChatView(props: ChatViewProps) {
         paneId,
       );
     },
-    [activeWorkspaceThreadOptions, routeThreadKey, storeSetWorkspaceThreadDockedPanes],
+    [
+      activeWorkspaceThreadOptions,
+      routeThreadKey,
+      storeRemoveWorkspaceThreadDockedPane,
+      storeSetWorkspaceThreadDockedPanes,
+    ],
   );
   const envLocked = Boolean(
     activeThread &&
@@ -2995,6 +3067,42 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadKey, storeRemoveWorkspaceThreadDockedPane],
   );
+  const deleteActiveAiPaneThread = useCallback(async () => {
+    if (!isServerThread || !activeThreadRef) {
+      return;
+    }
+    try {
+      const deleted = await confirmAndDeleteThread(activeThreadRef);
+      if (!deleted || !onWorkspaceAiPaneThreadChange) {
+        return;
+      }
+      if (!fallbackWorkspaceThread) {
+        onWorkspaceAiPaneThreadChange(null);
+        return;
+      }
+      const fallbackThreadRef = scopeThreadRef(
+        fallbackWorkspaceThread.environmentId,
+        fallbackWorkspaceThread.id,
+      );
+      onWorkspaceAiPaneThreadChange(scopedThreadKey(fallbackThreadRef), {
+        title: fallbackWorkspaceThread.title,
+      });
+    } catch (error) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to delete thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    }
+  }, [
+    activeThreadRef,
+    confirmAndDeleteThread,
+    fallbackWorkspaceThread,
+    isServerThread,
+    onWorkspaceAiPaneThreadChange,
+  ]);
   const runProjectScript = useCallback(
     async (
       script: ProjectScript,
@@ -4696,7 +4804,7 @@ export default function ChatView(props: ChatViewProps) {
         </SelectPopup>
       </Select>
     ) : null;
-  const aiPaneNewThreadButton = (
+  const aiPaneNewThreadButton = canCancelCleanDraftThread ? null : (
     <Tooltip>
       <TooltipTrigger
         render={
@@ -4704,6 +4812,7 @@ export default function ChatView(props: ChatViewProps) {
             type="button"
             className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             aria-label="Create new thread in this AI pane"
+            data-testid="ai-pane-new-thread-button"
             onClick={() => void createScopedAiPaneThread("default")}
           >
             <SquarePenIcon className="size-3.5" />
@@ -4726,7 +4835,7 @@ export default function ChatView(props: ChatViewProps) {
             className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             aria-label="Cancel new thread"
             data-testid="cancel-clean-draft-thread-button"
-            onClick={cancelCleanDraftThread}
+            onClick={() => void cancelCleanDraftThread()}
           >
             <XIcon className="size-3.5" />
           </button>
@@ -4735,16 +4844,30 @@ export default function ChatView(props: ChatViewProps) {
       <TooltipPopup side="bottom">Cancel new thread</TooltipPopup>
     </Tooltip>
   ) : null;
-  const aiPaneHeaderActions = embeddedPaneActions ? (
+  const aiPaneDeleteThreadButton = isServerThread ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+            aria-label="Delete thread"
+            data-testid="ai-pane-delete-thread-button"
+            onClick={() => void deleteActiveAiPaneThread()}
+          >
+            <Trash2Icon className="size-3.5" />
+          </button>
+        }
+      />
+      <TooltipPopup side="bottom">Delete thread</TooltipPopup>
+    </Tooltip>
+  ) : null;
+  const aiPaneHeaderActions = (
     <>
       {aiPaneCancelDraftButton}
       {aiPaneNewThreadButton}
+      {aiPaneDeleteThreadButton}
       {embeddedPaneActions}
-    </>
-  ) : (
-    <>
-      {aiPaneCancelDraftButton}
-      {aiPaneNewThreadButton}
     </>
   );
   const workspaceEditorActionProps = {
@@ -4848,7 +4971,7 @@ export default function ChatView(props: ChatViewProps) {
         aria-label={`Remove ${paneTitle}`}
         onClick={() => removeWorkspacePane(pane.paneId)}
       >
-        <Trash2Icon className="size-3.5" />
+        <PanelRightCloseIcon className="size-3.5" />
       </button>
     );
 
