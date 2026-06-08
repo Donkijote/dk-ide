@@ -24,6 +24,32 @@ export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
+export function basenameOfPanePath(path: string | null | undefined): string | null {
+  if (!path) {
+    return null;
+  }
+  const normalizedPath = path.replace(/\\/g, "/").replace(/\/+$/g, "");
+  const segments = normalizedPath.split("/");
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index];
+    if (segment) {
+      return segment;
+    }
+  }
+  return null;
+}
+
+export function resolveEditorPaneDefaultTitle(
+  workspaceName: string | null,
+  workspaceRoot: string | undefined,
+): string {
+  return (
+    (workspaceName ? `${workspaceName} Editor` : null) ??
+    (workspaceRoot ? `${basenameOfPanePath(workspaceRoot) ?? "Workspace"} Editor` : null) ??
+    "Editor"
+  );
+}
+
 export function buildLocalDraftThread(
   threadId: ThreadId,
   draftThread: DraftThreadState,

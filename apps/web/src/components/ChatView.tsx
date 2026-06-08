@@ -193,6 +193,7 @@ import { WorkspaceEditorActions } from "./workspace/WorkspaceEditorActions";
 import { WorkspacePane } from "./workspace/WorkspacePane";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
+  basenameOfPanePath,
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
   collectUserMessageBlobPreviewUrls,
@@ -207,6 +208,7 @@ import {
   deriveLockedProvider,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
+  resolveEditorPaneDefaultTitle,
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
@@ -267,34 +269,6 @@ const EMPTY_PANE_TITLE_OVERRIDES: Record<string, string> = {};
 const EMPTY_TERMINAL_RUNTIME_ENV: Record<string, string> = {};
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
-
-function basenameOfPanePath(path: string | null | undefined): string | null {
-  if (!path) {
-    return null;
-  }
-  const normalizedPath = path.replace(/\\/g, "/").replace(/\/+$/g, "");
-  const segments = normalizedPath.split("/");
-  for (let index = segments.length - 1; index >= 0; index -= 1) {
-    const segment = segments[index];
-    if (segment) {
-      return segment;
-    }
-  }
-  return null;
-}
-
-function resolveEditorPaneDefaultTitle(
-  activePath: string | null,
-  workspaceName: string | null,
-  workspaceRoot: string | undefined,
-): string {
-  return (
-    basenameOfPanePath(activePath) ??
-    (workspaceName ? `${workspaceName} Editor` : null) ??
-    (workspaceRoot ? `${basenameOfPanePath(workspaceRoot) ?? "Workspace"} Editor` : null) ??
-    "Editor"
-  );
-}
 
 function resolvePaneDefaultTitle(
   type: WorkspaceDockedPaneType,
@@ -2857,11 +2831,7 @@ export default function ChatView(props: ChatViewProps) {
       environmentId: activeThread.environmentId,
       cwd: activeWorkspaceRoot,
       aiTitle: activeThread.title,
-      editorTitle: resolveEditorPaneDefaultTitle(
-        workspaceEditorActivePath,
-        workspaceName,
-        activeWorkspaceRoot,
-      ),
+      editorTitle: resolveEditorPaneDefaultTitle(workspaceName, activeWorkspaceRoot),
       terminalTitle,
       editorActivePath: workspaceEditorActivePath,
       terminalId: terminalState.activeTerminalId || null,
@@ -4775,7 +4745,7 @@ export default function ChatView(props: ChatViewProps) {
 
   const editorPaneTitle =
     paneTitleOverrideById.editor ??
-    resolveEditorPaneDefaultTitle(workspaceEditorActivePath, workspaceName, activeWorkspaceRoot);
+    resolveEditorPaneDefaultTitle(workspaceName, activeWorkspaceRoot);
   const aiPaneTitleControl =
     isServerThread && activeThreadKey && activeWorkspaceThreadOptions.length > 0 ? (
       <Select value={activeThreadKey} onValueChange={handleAiPaneThreadChange}>
