@@ -54,7 +54,7 @@ Pane titles are user-renamable. Defaults should be helpful before rename:
 
 - AI panes default from the attached thread title.
 - Terminal panes default from the attached thread title, terminal label, or cwd.
-- Editor panes default from workspace or active file context.
+- Editor panes default from stable workspace context; active file context stays inside the editor.
 
 Persisted layout should restore:
 

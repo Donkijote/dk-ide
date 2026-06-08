@@ -13,17 +13,32 @@ import { type Thread } from "../types";
 
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
+  basenameOfPanePath,
   buildExpiredTerminalContextToastCopy,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   reconcileMountedTerminalThreadIds,
+  resolveEditorPaneDefaultTitle,
   resolveSendEnvMode,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+
+describe("resolveEditorPaneDefaultTitle", () => {
+  it("uses stable workspace context instead of active file context", () => {
+    expect(resolveEditorPaneDefaultTitle("DK IDE", "/repos/dk-ide")).toBe("DK IDE Editor");
+    expect(resolveEditorPaneDefaultTitle(null, "/repos/dk-ide")).toBe("dk-ide Editor");
+    expect(resolveEditorPaneDefaultTitle(null, undefined)).toBe("Editor");
+  });
+
+  it("normalizes workspace paths when deriving the fallback title", () => {
+    expect(basenameOfPanePath("C:\\repos\\dk-ide\\")).toBe("dk-ide");
+    expect(resolveEditorPaneDefaultTitle(null, "/")).toBe("Workspace Editor");
+  });
+});
 
 describe("deriveComposerSendState", () => {
   it("treats expired terminal pills as non-sendable content", () => {
