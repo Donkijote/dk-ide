@@ -24,11 +24,19 @@ interface TerminalPaneHeaderButtonProps {
 
 interface TerminalPanePathProps {
   readonly fullPath: string;
-  readonly label: string;
 }
 
 export function resolveNewTerminalPaneActionLabel(shortcutLabel?: string): string {
   return shortcutLabel ? `New Terminal Pane (${shortcutLabel})` : "New Terminal Pane";
+}
+
+export function resolveTerminalPanePathLabel(fullPath: string): string {
+  const trimmedPath = fullPath.replace(/[\\/]+$/g, "");
+  const segments = trimmedPath.split(/[\\/]+/g).filter(Boolean);
+  if (segments.length === 0) {
+    return fullPath;
+  }
+  return segments.slice(-2).join("/");
 }
 
 function TerminalPaneHeaderButton({
@@ -107,7 +115,7 @@ export function TerminalPaneHeaderActions({
   );
 }
 
-export function TerminalPanePath({ fullPath, label }: TerminalPanePathProps) {
+export function TerminalPanePath({ fullPath }: TerminalPanePathProps) {
   return (
     <Tooltip>
       <TooltipTrigger
@@ -119,7 +127,7 @@ export function TerminalPanePath({ fullPath, label }: TerminalPanePathProps) {
           />
         }
       >
-        {label}
+        {resolveTerminalPanePathLabel(fullPath)}
       </TooltipTrigger>
       <TooltipPopup side="bottom">{fullPath}</TooltipPopup>
     </Tooltip>

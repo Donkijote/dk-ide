@@ -1189,7 +1189,7 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
                 onCloseTerminal={() => closeTerminal(groupActiveTerminalId)}
               />
             }
-            actions={<TerminalPanePath fullPath={cwd} label={basenameOfPanePath(cwd) ?? cwd} />}
+            actions={<TerminalPanePath fullPath={cwd} />}
             className="min-h-0 flex-1"
             bodyClassName="min-h-0"
           >
@@ -5103,9 +5103,7 @@ export default function ChatView(props: ChatViewProps) {
               }
             />
           }
-          actions={
-            cwd ? <TerminalPanePath fullPath={cwd} label={basenameOfPanePath(cwd) ?? cwd} /> : null
-          }
+          actions={cwd ? <TerminalPanePath fullPath={cwd} /> : null}
           className="min-h-0 flex-1"
           bodyClassName="min-h-0"
         >
