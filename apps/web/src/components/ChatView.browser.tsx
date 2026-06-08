@@ -4052,6 +4052,91 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("cancels a clean new draft thread back to the workspace fallback thread", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-cancel-clean-draft-test" as MessageId,
+        targetText: "cancel clean draft target",
+      }),
+    });
+
+    try {
+      const newThreadButton = page.getByTestId("new-thread-button");
+      const aiPaneNewThreadButton = page.getByTestId("ai-pane-new-thread-button");
+      const deleteThreadButton = page.getByTestId("ai-pane-delete-thread-button");
+      await expect.element(newThreadButton).toBeInTheDocument();
+      await expect.element(aiPaneNewThreadButton).toBeInTheDocument();
+      await expect.element(deleteThreadButton).toBeInTheDocument();
+
+      await newThreadButton.click();
+
+      const newThreadPath = await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "Route should have changed to a new draft thread UUID.",
+      );
+      const newDraftId = draftIdFromPath(newThreadPath);
+
+      const cancelButton = page.getByTestId("cancel-clean-draft-thread-button");
+      await expect.element(cancelButton).toBeInTheDocument();
+      await expect.element(aiPaneNewThreadButton).not.toBeInTheDocument();
+      await expect.element(deleteThreadButton).not.toBeInTheDocument();
+
+      await cancelButton.click();
+
+      await waitForURL(
+        mounted.router,
+        (path) => path === serverThreadPath(THREAD_ID),
+        "Canceling a clean draft should return to the workspace fallback thread.",
+      );
+      expect(useComposerDraftStore.getState().getDraftSession(newDraftId)).toBeNull();
+      await expect.element(aiPaneNewThreadButton).toBeInTheDocument();
+      await expect.element(deleteThreadButton).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("hides the clean draft cancel action after the draft has composer content", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-dirty-draft-cancel-test" as MessageId,
+        targetText: "dirty draft cancel target",
+      }),
+    });
+
+    try {
+      const newThreadButton = page.getByTestId("new-thread-button");
+      const aiPaneNewThreadButton = page.getByTestId("ai-pane-new-thread-button");
+      const deleteThreadButton = page.getByTestId("ai-pane-delete-thread-button");
+      await expect.element(newThreadButton).toBeInTheDocument();
+
+      await newThreadButton.click();
+
+      const newThreadPath = await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "Route should have changed to a new draft thread UUID.",
+      );
+      const newDraftId = draftIdFromPath(newThreadPath);
+
+      const cancelButton = page.getByTestId("cancel-clean-draft-thread-button");
+      await expect.element(cancelButton).toBeInTheDocument();
+
+      useComposerDraftStore.getState().setPrompt(newDraftId, "keep this draft");
+      await waitForLayout();
+
+      await expect.element(cancelButton).not.toBeInTheDocument();
+      await expect.element(aiPaneNewThreadButton).toBeInTheDocument();
+      await expect.element(deleteThreadButton).not.toBeInTheDocument();
+      expect(useComposerDraftStore.getState().getDraftSession(newDraftId)).not.toBeNull();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("canonicalizes stale promoted draft routes to the server thread route", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,

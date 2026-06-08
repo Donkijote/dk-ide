@@ -709,6 +709,36 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(store.getComposerDraft(threadRef)?.prompt).toBe("scoped access");
   });
 
+  it("creates unmapped draft threads without replacing the project draft mapping", () => {
+    const store = useComposerDraftStore.getState();
+    const paneDraftId = DraftId.make("draft-pane");
+    const paneThreadId = ThreadId.make("thread-pane");
+    const paneThreadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, paneThreadId);
+
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    store.setPrompt(draftId, "mapped draft");
+    store.createUnmappedDraftThread(scopedProjectKey(projectRef), projectRef, paneDraftId, {
+      threadId: paneThreadId,
+      branch: "feature/pane",
+      envMode: "local",
+    });
+    store.setPrompt(paneThreadRef, "pane draft");
+
+    expect(useComposerDraftStore.getState().getDraftThreadByProjectRef(projectRef)?.threadId).toBe(
+      threadId,
+    );
+    expect(useComposerDraftStore.getState().getDraftThread(paneDraftId)).toMatchObject({
+      threadId: paneThreadId,
+      environmentId: TEST_ENVIRONMENT_ID,
+      projectId,
+      logicalProjectKey: scopedProjectKey(projectRef),
+      branch: "feature/pane",
+      envMode: "local",
+    });
+    expect(store.getComposerDraft(draftId)?.prompt).toBe("mapped draft");
+    expect(store.getComposerDraft(paneThreadRef)?.prompt).toBe("pane draft");
+  });
+
   it("does not clear composer drafts for existing server threads during promotion cleanup", () => {
     const store = useComposerDraftStore.getState();
     const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);

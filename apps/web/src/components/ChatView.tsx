@@ -23,6 +23,7 @@ import {
 } from "@t3tools/contracts";
 import {
   parseScopedThreadKey,
+  scopedProjectKey,
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
@@ -36,7 +37,7 @@ import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/proje
 import { truncate } from "@t3tools/shared/String";
 import { useQuery } from "@tanstack/react-query";
 import { Debouncer } from "@tanstack/react-pacer";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
 import { useVcsStatus } from "~/lib/vcsStatusState";
@@ -105,9 +106,14 @@ import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import { useThreadActions } from "../hooks/useThreadActions";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
+import {
+  resolveSidebarNewThreadEnvMode,
+  resolveSidebarNewThreadSeedContext,
+} from "./Sidebar.logic";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
@@ -118,10 +124,12 @@ import {
   FileCode2Icon,
   FolderIcon,
   PlusIcon,
+  SquarePenIcon,
   TerminalSquareIcon,
   Trash2Icon,
   TriangleAlertIcon,
   WifiOffIcon,
+  XIcon,
 } from "lucide-react";
 import { cn, randomHex, randomUUID } from "~/lib/utils";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -843,21 +851,46 @@ function formatOutgoingPrompt(params: {
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
 
+type AiPaneDraftOrigin = {
+  threadRef: ScopedThreadRef;
+  title: string;
+  route:
+    | { kind: "server" }
+    | {
+        kind: "draft";
+        draftId: DraftId;
+      };
+};
+
+const aiPaneDraftOrigins = new Map<DraftId, AiPaneDraftOrigin>();
+
 type ChatViewProps =
   | {
       environmentId: EnvironmentId;
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
+      embeddedPaneActions?: ReactNode;
+      onWorkspaceAiPaneThreadChange?: (
+        nextThreadKey: string | null,
+        options?: { title?: string },
+      ) => void;
       reserveTitleBarControlInset?: boolean;
       routeKind: "server";
+      workspaceMode?: "full" | "ai-pane";
       draftId?: never;
     }
   | {
       environmentId: EnvironmentId;
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
+      embeddedPaneActions?: ReactNode;
+      onWorkspaceAiPaneThreadChange?: (
+        nextThreadKey: string | null,
+        options?: { title?: string },
+      ) => void;
       reserveTitleBarControlInset?: boolean;
       routeKind: "draft";
+      workspaceMode?: "full" | "ai-pane";
       draftId: DraftId;
     };
 
@@ -1210,8 +1243,11 @@ export default function ChatView(props: ChatViewProps) {
     environmentId,
     threadId,
     routeKind,
+    embeddedPaneActions,
     onDiffPanelOpen,
+    onWorkspaceAiPaneThreadChange,
     reserveTitleBarControlInset = true,
+    workspaceMode = "full",
   } = props;
   const { open: sidebarOpen } = useSidebar();
   const draftId = routeKind === "draft" ? props.draftId : null;
@@ -1256,6 +1292,9 @@ export default function ChatView(props: ChatViewProps) {
   const storeEnsureWorkspaceThreadDockedPaneLayout = useUiStateStore(
     (store) => store.ensureWorkspaceThreadDockedPaneLayout,
   );
+  const storeSetWorkspaceThreadDockedPanes = useUiStateStore(
+    (store) => store.setWorkspaceThreadDockedPanes,
+  );
   const storeAddWorkspaceThreadDockedPane = useUiStateStore(
     (store) => store.addWorkspaceThreadDockedPane,
   );
@@ -1288,6 +1327,7 @@ export default function ChatView(props: ChatViewProps) {
   const timestampFormat = settings.timestampFormat;
   const autoOpenPlanSidebar = settings.autoOpenPlanSidebar;
   const navigate = useNavigate();
+  const { confirmAndDeleteThread } = useThreadActions();
   const rawSearch = useSearch({
     strict: false,
     select: (params) => parseDiffRouteSearch(params),
@@ -1314,6 +1354,17 @@ export default function ChatView(props: ChatViewProps) {
     (store) => store.setInteractionMode,
   );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
+  const clearDraftThread = useComposerDraftStore((store) => store.clearDraftThread);
+  const hasUserComposerDraftContent = useComposerDraftStore((store) => {
+    const draft = store.getComposerDraft(composerDraftTarget);
+    return Boolean(
+      draft &&
+      (draft.prompt.trim().length > 0 ||
+        draft.images.length > 0 ||
+        draft.persistedAttachments.length > 0 ||
+        draft.terminalContexts.length > 0),
+    );
+  });
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const getDraftSessionByLogicalProjectKey = useComposerDraftStore(
     (store) => store.getDraftSessionByLogicalProjectKey,
@@ -1322,6 +1373,10 @@ export default function ChatView(props: ChatViewProps) {
   const setLogicalProjectDraftThreadId = useComposerDraftStore(
     (store) => store.setLogicalProjectDraftThreadId,
   );
+  const createUnmappedDraftThread = useComposerDraftStore(
+    (store) => store.createUnmappedDraftThread,
+  );
+  const applyStickyComposerState = useComposerDraftStore((store) => store.applyStickyState);
   const draftThread = useComposerDraftStore((store) =>
     routeKind === "server"
       ? store.getDraftSessionByRef(routeThreadRef)
@@ -1334,6 +1389,7 @@ export default function ChatView(props: ChatViewProps) {
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
+  const aiPaneRootRef = useRef<HTMLElement | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
@@ -1684,6 +1740,17 @@ export default function ChatView(props: ChatViewProps) {
         }),
     [activeWorkspaceThreads],
   );
+  const fallbackWorkspaceThread = useMemo(() => {
+    if (activeWorkspaceThreadOptions.length === 0) {
+      return null;
+    }
+    return (
+      activeWorkspaceThreadOptions.find((thread) => {
+        const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+        return threadKey !== activeThreadKey;
+      }) ?? null
+    );
+  }, [activeThreadKey, activeWorkspaceThreadOptions]);
   const hasMultipleEnvironments = logicalProjectEnvironments.length > 1;
 
   const openPullRequestDialog = useCallback(
@@ -1996,6 +2063,105 @@ export default function ChatView(props: ChatViewProps) {
       storeSetWorkspaceThreadLastActivePane,
     ],
   );
+  const bindScopedAiPaneThread = useCallback(
+    async (input: { draftId: DraftId; threadRef: ScopedThreadRef; title: string }) => {
+      if (onWorkspaceAiPaneThreadChange) {
+        onWorkspaceAiPaneThreadChange(scopedThreadKey(input.threadRef), { title: input.title });
+        return;
+      }
+      await navigate({
+        to: "/draft/$draftId",
+        params: buildDraftThreadRouteParams(input.draftId),
+      });
+    },
+    [navigate, onWorkspaceAiPaneThreadChange],
+  );
+  const createScopedAiPaneThread = useCallback(
+    async (mode: "contextual" | "default") => {
+      if (!activeThread || !activeThreadRef || !activeProject) {
+        return;
+      }
+      const activeProjectRef = scopeProjectRef(activeThread.environmentId, activeThread.projectId);
+      const logicalProjectKey = deriveLogicalProjectKeyFromSettings(
+        activeProject,
+        projectGroupingSettings,
+      );
+      const draftId = newDraftId();
+      const nextThreadId = newThreadId();
+      const createdAt = new Date().toISOString();
+      aiPaneDraftOrigins.set(draftId, {
+        threadRef: activeThreadRef,
+        title: activeThread.title,
+        route:
+          routeKind === "draft" ? { kind: "draft", draftId: props.draftId } : { kind: "server" },
+      });
+      const defaultEnvMode = resolveSidebarNewThreadEnvMode({
+        defaultEnvMode: settings.defaultThreadEnvMode,
+      });
+      const seedContext =
+        mode === "contextual"
+          ? {
+              branch: activeThread.branch,
+              worktreePath: activeThread.worktreePath,
+              envMode: draftThread?.envMode ?? (activeThread.worktreePath ? "worktree" : "local"),
+            }
+          : resolveSidebarNewThreadSeedContext({
+              projectId: activeThread.projectId,
+              defaultEnvMode,
+              activeThread: {
+                projectId: activeThread.projectId,
+                branch: activeThread.branch,
+                worktreePath: activeThread.worktreePath,
+              },
+              activeDraftThread: draftThread
+                ? {
+                    projectId: draftThread.projectId,
+                    branch: draftThread.branch,
+                    worktreePath: draftThread.worktreePath,
+                    envMode: draftThread.envMode,
+                  }
+                : null,
+            });
+
+      createUnmappedDraftThread(
+        logicalProjectKey || scopedProjectKey(activeProjectRef),
+        activeProjectRef,
+        draftId,
+        {
+          threadId: nextThreadId,
+          createdAt,
+          ...(seedContext.branch !== undefined ? { branch: seedContext.branch } : {}),
+          ...(seedContext.worktreePath !== undefined
+            ? { worktreePath: seedContext.worktreePath }
+            : {}),
+          envMode: seedContext.envMode,
+          runtimeMode,
+          interactionMode,
+        },
+      );
+      applyStickyComposerState(draftId);
+      await bindScopedAiPaneThread({
+        draftId,
+        threadRef: scopeThreadRef(activeThread.environmentId, nextThreadId),
+        title: "New thread",
+      });
+    },
+    [
+      activeProject,
+      activeThread,
+      activeThreadRef,
+      applyStickyComposerState,
+      bindScopedAiPaneThread,
+      createUnmappedDraftThread,
+      draftThread,
+      interactionMode,
+      projectGroupingSettings,
+      props.draftId,
+      routeKind,
+      runtimeMode,
+      settings.defaultThreadEnvMode,
+    ],
+  );
   useEffect(() => {
     setEditorOpenFileRequest(null);
     setWorkspaceEditorActivePath(null);
@@ -2122,6 +2288,97 @@ export default function ChatView(props: ChatViewProps) {
     threadError: activeThread?.error,
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  useEffect(() => {
+    if (props.draftId && draftThread?.promotedTo) {
+      aiPaneDraftOrigins.delete(props.draftId);
+    }
+  }, [draftThread?.promotedTo, props.draftId]);
+  const canCancelCleanDraftThread = Boolean(
+    isLocalDraftThread &&
+    activeThread &&
+    activeThread.messages.length === 0 &&
+    optimisticUserMessages.length === 0 &&
+    !draftThread?.promotedTo &&
+    !hasUserComposerDraftContent &&
+    (!onWorkspaceAiPaneThreadChange ||
+      fallbackWorkspaceThread ||
+      (props.draftId && aiPaneDraftOrigins.has(props.draftId))) &&
+    !isWorking,
+  );
+  const cancelCleanDraftThread = useCallback(async () => {
+    if (!canCancelCleanDraftThread) {
+      return;
+    }
+    const draftOrigin = props.draftId ? aiPaneDraftOrigins.get(props.draftId) : undefined;
+    const discardDraft = () => {
+      clearDraftThread(composerDraftTarget);
+      if (props.draftId) {
+        aiPaneDraftOrigins.delete(props.draftId);
+      }
+    };
+
+    if (draftOrigin) {
+      if (onWorkspaceAiPaneThreadChange) {
+        onWorkspaceAiPaneThreadChange(scopedThreadKey(draftOrigin.threadRef), {
+          title: draftOrigin.title,
+        });
+        discardDraft();
+        return;
+      }
+      if (draftOrigin.route.kind === "draft") {
+        await navigate({
+          to: "/draft/$draftId",
+          params: buildDraftThreadRouteParams(draftOrigin.route.draftId),
+          replace: true,
+        });
+        discardDraft();
+        return;
+      }
+      await navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(draftOrigin.threadRef),
+        replace: true,
+      });
+      discardDraft();
+      return;
+    }
+    if (fallbackWorkspaceThread) {
+      const fallbackThreadRef = scopeThreadRef(
+        fallbackWorkspaceThread.environmentId,
+        fallbackWorkspaceThread.id,
+      );
+      if (onWorkspaceAiPaneThreadChange) {
+        onWorkspaceAiPaneThreadChange(scopedThreadKey(fallbackThreadRef), {
+          title: fallbackWorkspaceThread.title,
+        });
+        discardDraft();
+        return;
+      }
+      await navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(fallbackThreadRef),
+        replace: true,
+      });
+      discardDraft();
+      return;
+    }
+
+    if (onWorkspaceAiPaneThreadChange) {
+      onWorkspaceAiPaneThreadChange(null);
+      discardDraft();
+      return;
+    }
+    await navigate({ to: "/", replace: true });
+    discardDraft();
+  }, [
+    canCancelCleanDraftThread,
+    clearDraftThread,
+    composerDraftTarget,
+    fallbackWorkspaceThread,
+    navigate,
+    onWorkspaceAiPaneThreadChange,
+    props.draftId,
+  ]);
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -2454,6 +2711,21 @@ export default function ChatView(props: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "terminal.close", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
   );
+  const newThreadShortcutLabelOptions = useMemo(
+    () => ({
+      context: {
+        terminalFocus: false,
+        terminalOpen: false,
+      },
+    }),
+    [],
+  );
+  const aiPaneNewThreadShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(keybindings, "chat.newLocal", newThreadShortcutLabelOptions) ??
+      shortcutLabelForCommand(keybindings, "chat.new", newThreadShortcutLabelOptions),
+    [keybindings, newThreadShortcutLabelOptions],
+  );
   const activeTerminalLaunchContext =
     terminalLaunchContext?.threadId === activeThreadId ? terminalLaunchContext : null;
   const diffPanelShortcutLabel = useMemo(
@@ -2485,6 +2757,10 @@ export default function ChatView(props: ChatViewProps) {
       if (nextThreadKey === null || nextThreadKey === activeThreadKey) {
         return;
       }
+      if (onWorkspaceAiPaneThreadChange) {
+        onWorkspaceAiPaneThreadChange(nextThreadKey);
+        return;
+      }
       const nextThreadRef = parseScopedThreadKey(nextThreadKey);
       if (!nextThreadRef) {
         return;
@@ -2494,9 +2770,50 @@ export default function ChatView(props: ChatViewProps) {
         params: buildThreadRouteParams(nextThreadRef),
       });
     },
-    [activeThreadKey, navigate],
+    [activeThreadKey, navigate, onWorkspaceAiPaneThreadChange],
   );
-
+  const handleWorkspaceAiPaneThreadChange = useCallback(
+    (paneId: string, nextThreadKey: string | null, options?: { title?: string }) => {
+      if (nextThreadKey === null) {
+        storeRemoveWorkspaceThreadDockedPane(routeThreadKey, paneId);
+        return;
+      }
+      const nextThreadRef = parseScopedThreadKey(nextThreadKey);
+      if (!nextThreadRef) {
+        return;
+      }
+      const nextThread = activeWorkspaceThreadOptions.find(
+        (thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === nextThreadKey,
+      );
+      const layout = useUiStateStore.getState().workspaceThreadLayoutById[routeThreadKey];
+      const panes = layout?.panes;
+      if (!panes) {
+        return;
+      }
+      storeSetWorkspaceThreadDockedPanes(
+        routeThreadKey,
+        panes.map((pane) =>
+          pane.paneId === paneId && pane.type === "ai"
+            ? Object.assign({}, pane, {
+                title: options?.title ?? nextThread?.title ?? pane.title,
+                environmentId: nextThreadRef.environmentId,
+                metadata: Object.assign({}, pane.metadata, {
+                  threadId: nextThreadRef.threadId,
+                }),
+              })
+            : pane,
+        ),
+        paneId,
+      );
+    },
+    [
+      activeWorkspaceThreadOptions,
+      routeThreadKey,
+      storeRemoveWorkspaceThreadDockedPane,
+      storeSetWorkspaceThreadDockedPanes,
+    ],
+  );
   const envLocked = Boolean(
     activeThread &&
     (activeThread.messages.length > 0 ||
@@ -2749,6 +3066,42 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadKey, storeRemoveWorkspaceThreadDockedPane],
   );
+  const deleteActiveAiPaneThread = useCallback(async () => {
+    if (!isServerThread || !activeThreadRef) {
+      return;
+    }
+    try {
+      const deleted = await confirmAndDeleteThread(activeThreadRef);
+      if (!deleted || !onWorkspaceAiPaneThreadChange) {
+        return;
+      }
+      if (!fallbackWorkspaceThread) {
+        onWorkspaceAiPaneThreadChange(null);
+        return;
+      }
+      const fallbackThreadRef = scopeThreadRef(
+        fallbackWorkspaceThread.environmentId,
+        fallbackWorkspaceThread.id,
+      );
+      onWorkspaceAiPaneThreadChange(scopedThreadKey(fallbackThreadRef), {
+        title: fallbackWorkspaceThread.title,
+      });
+    } catch (error) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to delete thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    }
+  }, [
+    activeThreadRef,
+    confirmAndDeleteThread,
+    fallbackWorkspaceThread,
+    isServerThread,
+    onWorkspaceAiPaneThreadChange,
+  ]);
   const runProjectScript = useCallback(
     async (
       script: ProjectScript,
@@ -3330,6 +3683,18 @@ export default function ChatView(props: ChatViewProps) {
       });
       if (!command) return;
 
+      if (
+        (command === "chat.new" || command === "chat.newLocal") &&
+        aiPaneRootRef.current &&
+        event.target instanceof Node &&
+        aiPaneRootRef.current.contains(event.target)
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        void createScopedAiPaneThread(command === "chat.new" ? "contextual" : "default");
+        return;
+      }
+
       if (command === "terminal.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -3395,6 +3760,7 @@ export default function ChatView(props: ChatViewProps) {
     terminalState.activeTerminalId,
     activeThreadId,
     closeTerminal,
+    createScopedAiPaneThread,
     createNewTerminal,
     setTerminalOpen,
     runProjectScript,
@@ -4437,6 +4803,71 @@ export default function ChatView(props: ChatViewProps) {
         </SelectPopup>
       </Select>
     ) : null;
+  const aiPaneNewThreadButton = canCancelCleanDraftThread ? null : (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Create new thread in this AI pane"
+            data-testid="ai-pane-new-thread-button"
+            onClick={() => void createScopedAiPaneThread("default")}
+          >
+            <SquarePenIcon className="size-3.5" />
+          </button>
+        }
+      />
+      <TooltipPopup side="bottom">
+        {aiPaneNewThreadShortcutLabel
+          ? `New thread (${aiPaneNewThreadShortcutLabel})`
+          : "New thread"}
+      </TooltipPopup>
+    </Tooltip>
+  );
+  const aiPaneCancelDraftButton = canCancelCleanDraftThread ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Cancel new thread"
+            data-testid="cancel-clean-draft-thread-button"
+            onClick={() => void cancelCleanDraftThread()}
+          >
+            <XIcon className="size-3.5" />
+          </button>
+        }
+      />
+      <TooltipPopup side="bottom">Cancel new thread</TooltipPopup>
+    </Tooltip>
+  ) : null;
+  const aiPaneDeleteThreadButton = isServerThread ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+            aria-label="Delete thread"
+            data-testid="ai-pane-delete-thread-button"
+            onClick={() => void deleteActiveAiPaneThread()}
+          >
+            <Trash2Icon className="size-3.5" />
+          </button>
+        }
+      />
+      <TooltipPopup side="bottom">Delete thread</TooltipPopup>
+    </Tooltip>
+  ) : null;
+  const aiPaneHeaderActions = (
+    <>
+      {aiPaneCancelDraftButton}
+      {aiPaneNewThreadButton}
+      {aiPaneDeleteThreadButton}
+    </>
+  );
   const workspaceEditorActionProps = {
     activeThreadEnvironmentId: activeThread.environmentId,
     activeThreadId: activeThread.id,
@@ -4532,14 +4963,22 @@ export default function ChatView(props: ChatViewProps) {
   const renderWorkspacePane = (pane: PersistedWorkspaceDockedPane) => {
     const paneTitle = paneTitleOverrideById[pane.paneId] ?? pane.title;
     const renderRemovePaneButton = () => (
-      <button
-        type="button"
-        className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        aria-label={`Remove ${paneTitle}`}
-        onClick={() => removeWorkspacePane(pane.paneId)}
-      >
-        <Trash2Icon className="size-3.5" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              aria-label={`Delete ${paneTitle} pane`}
+              data-testid="delete-workspace-pane-button"
+              onClick={() => removeWorkspacePane(pane.paneId)}
+            >
+              <Trash2Icon className="size-3.5" />
+            </button>
+          }
+        />
+        <TooltipPopup side="bottom">Delete pane</TooltipPopup>
+      </Tooltip>
     );
 
     if (pane.type === "editor") {
@@ -4685,199 +5124,227 @@ export default function ChatView(props: ChatViewProps) {
     }
 
     const isDefaultAiPane = pane.paneId === "ai";
+    if (!isDefaultAiPane) {
+      const paneThreadId = pane.metadata.threadId ?? activeThread.id;
+      const paneThreadRef = scopeThreadRef(
+        pane.environmentId as EnvironmentId,
+        paneThreadId as ThreadId,
+      );
+      return (
+        <ChatView
+          key={pane.paneId}
+          environmentId={paneThreadRef.environmentId}
+          threadId={paneThreadRef.threadId}
+          routeKind="server"
+          workspaceMode="ai-pane"
+          embeddedPaneActions={renderRemovePaneButton()}
+          onWorkspaceAiPaneThreadChange={(nextThreadKey, options) =>
+            handleWorkspaceAiPaneThreadChange(pane.paneId, nextThreadKey, options)
+          }
+        />
+      );
+    }
+
     return (
       <WorkspacePane
         key={pane.paneId}
-        title={isDefaultAiPane ? activeThread.title : paneTitle}
-        titleControl={isDefaultAiPane ? aiPaneTitleControl : undefined}
-        titleInputLabel={isDefaultAiPane ? "Thread title" : "Pane title"}
-        titleRenameLabel={isDefaultAiPane ? "Rename thread" : "Rename pane"}
-        {...(isDefaultAiPane && isServerThread
+        title={activeThread.title}
+        titleActions={aiPaneHeaderActions}
+        titleControl={aiPaneTitleControl}
+        titleInputLabel="Thread title"
+        titleRenameLabel="Rename thread"
+        {...(isServerThread
           ? { onTitleRename: (nextTitle: string | null) => void renameAiThread(nextTitle) }
-          : {
-              onTitleRename: (nextTitle: string | null) =>
-                renameWorkspacePane(pane.paneId, nextTitle),
-            })}
-        actions={isDefaultAiPane ? undefined : renderRemovePaneButton()}
+          : {})}
+        actions={embeddedPaneActions}
+        rootRef={aiPaneRootRef}
         className="min-h-[32rem] xl:min-h-0"
       >
-        {isDefaultAiPane ? (
-          <div className="flex min-h-0 min-w-0 flex-1">
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <div className="relative flex min-h-0 flex-1 flex-col">
-                <MessagesTimeline
-                  key={activeThread.id}
-                  isWorking={isWorking}
-                  activeTurnInProgress={isWorking || !latestTurnSettled}
-                  activeTurnId={activeLatestTurn?.turnId ?? null}
-                  activeTurnStartedAt={activeWorkStartedAt}
-                  listRef={legendListRef}
-                  timelineEntries={timelineEntries}
-                  completionDividerBeforeEntryId={completionDividerBeforeEntryId}
-                  completionSummary={completionSummary}
-                  turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-                  activeThreadEnvironmentId={activeThread.environmentId}
-                  routeThreadKey={routeThreadKey}
-                  onOpenChangedFileInEditor={onOpenChangedFileInEditor}
-                  onOpenTurnDiff={onOpenTurnDiff}
-                  revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                  onRevertUserMessage={onRevertUserMessage}
-                  isRevertingCheckpoint={isRevertingCheckpoint}
-                  onImageExpand={onExpandTimelineImage}
-                  markdownCwd={gitCwd ?? undefined}
-                  resolvedTheme={resolvedTheme}
-                  timestampFormat={timestampFormat}
-                  workspaceRoot={activeWorkspaceRoot}
-                  skills={activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS}
-                  onIsAtEndChange={onIsAtEndChange}
-                />
+        <div className="flex min-h-0 min-w-0 flex-1">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <MessagesTimeline
+                key={activeThread.id}
+                isWorking={isWorking}
+                activeTurnInProgress={isWorking || !latestTurnSettled}
+                activeTurnId={activeLatestTurn?.turnId ?? null}
+                activeTurnStartedAt={activeWorkStartedAt}
+                listRef={legendListRef}
+                timelineEntries={timelineEntries}
+                completionDividerBeforeEntryId={completionDividerBeforeEntryId}
+                completionSummary={completionSummary}
+                turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                activeThreadEnvironmentId={activeThread.environmentId}
+                routeThreadKey={routeThreadKey}
+                onOpenChangedFileInEditor={onOpenChangedFileInEditor}
+                onOpenTurnDiff={onOpenTurnDiff}
+                revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
+                onRevertUserMessage={onRevertUserMessage}
+                isRevertingCheckpoint={isRevertingCheckpoint}
+                onImageExpand={onExpandTimelineImage}
+                markdownCwd={gitCwd ?? undefined}
+                resolvedTheme={resolvedTheme}
+                timestampFormat={timestampFormat}
+                workspaceRoot={activeWorkspaceRoot}
+                skills={activeProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS}
+                onIsAtEndChange={onIsAtEndChange}
+              />
 
-                {showScrollToBottom && (
-                  <div className="pointer-events-none absolute bottom-1 left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5">
-                    <button
-                      type="button"
-                      onClick={() => scrollToEnd(true)}
-                      className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
-                    >
-                      <ChevronDownIcon className="size-3.5" />
-                      Scroll to bottom
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div className="pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pl-[calc(env(safe-area-inset-left)+0.75rem)] pr-[calc(env(safe-area-inset-right)+0.75rem)] pt-1.5 sm:pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:pl-[calc(env(safe-area-inset-left)+1.25rem)] sm:pr-[calc(env(safe-area-inset-right)+1.25rem)] sm:pt-2">
-                <div className="relative isolate">
-                  <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
-                  <div className="relative z-10">
-                    <ChatComposer
-                      composerRef={composerRef}
-                      composerDraftTarget={composerDraftTarget}
-                      environmentId={environmentId}
-                      routeKind={routeKind}
-                      routeThreadRef={routeThreadRef}
-                      draftId={draftId}
-                      activeThreadId={activeThreadId}
-                      activeThreadEnvironmentId={activeThread?.environmentId}
-                      activeThread={activeThread}
-                      isServerThread={isServerThread}
-                      isLocalDraftThread={isLocalDraftThread}
-                      phase={phase}
-                      isConnecting={isConnecting}
-                      isSendBusy={isSendBusy}
-                      isPreparingWorktree={isPreparingWorktree}
-                      environmentUnavailable={activeEnvironmentUnavailableState}
-                      activePendingApproval={activePendingApproval}
-                      pendingApprovals={pendingApprovals}
-                      pendingUserInputs={pendingUserInputs}
-                      activePendingProgress={activePendingProgress}
-                      activePendingResolvedAnswers={activePendingResolvedAnswers}
-                      activePendingIsResponding={activePendingIsResponding}
-                      activePendingDraftAnswers={activePendingDraftAnswers}
-                      activePendingQuestionIndex={activePendingQuestionIndex}
-                      respondingRequestIds={respondingRequestIds}
-                      showPlanFollowUpPrompt={showPlanFollowUpPrompt}
-                      activeProposedPlan={activeProposedPlan}
-                      activePlan={activePlan as { turnId?: TurnId } | null}
-                      sidebarProposedPlan={sidebarProposedPlan as { turnId?: TurnId } | null}
-                      planSidebarLabel={planSidebarLabel}
-                      planSidebarOpen={planSidebarOpen}
-                      runtimeMode={runtimeMode}
-                      interactionMode={interactionMode}
-                      lockedProvider={lockedProvider}
-                      providerStatuses={providerStatusesForChat as ServerProvider[]}
-                      activeProjectDefaultModelSelection={activeProject?.defaultModelSelection}
-                      activeThreadModelSelection={activeThread?.modelSelection}
-                      activeThreadActivities={activeThread?.activities}
-                      resolvedTheme={resolvedTheme}
-                      settings={settings}
-                      keybindings={keybindings}
-                      terminalOpen={Boolean(terminalState.terminalOpen)}
-                      gitCwd={gitCwd}
-                      promptRef={promptRef}
-                      composerImagesRef={composerImagesRef}
-                      composerTerminalContextsRef={composerTerminalContextsRef}
-                      shouldAutoScrollRef={isAtEndRef}
-                      scheduleStickToBottom={scrollToEnd}
-                      onSend={onSend}
-                      onInterrupt={onInterrupt}
-                      onImplementPlanInNewThread={onImplementPlanInNewThread}
-                      onRespondToApproval={onRespondToApproval}
-                      onSelectActivePendingUserInputOption={onSelectActivePendingUserInputOption}
-                      onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
-                      onPreviousActivePendingUserInputQuestion={
-                        onPreviousActivePendingUserInputQuestion
-                      }
-                      onChangeActivePendingUserInputCustomAnswer={
-                        onChangeActivePendingUserInputCustomAnswer
-                      }
-                      onProviderModelSelect={onProviderModelSelect}
-                      toggleInteractionMode={toggleInteractionMode}
-                      handleRuntimeModeChange={handleRuntimeModeChange}
-                      handleInteractionModeChange={handleInteractionModeChange}
-                      togglePlanSidebar={togglePlanSidebar}
-                      focusComposer={focusComposer}
-                      scheduleComposerFocus={scheduleComposerFocus}
-                      setThreadError={setThreadError}
-                      onExpandImage={onExpandTimelineImage}
-                    />
-                  </div>
+              {showScrollToBottom && (
+                <div className="pointer-events-none absolute bottom-1 left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => scrollToEnd(true)}
+                    className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
+                  >
+                    <ChevronDownIcon className="size-3.5" />
+                    Scroll to bottom
+                  </button>
                 </div>
-              </div>
-
-              {pullRequestDialogState ? (
-                <PullRequestThreadDialog
-                  key={pullRequestDialogState.key}
-                  open
-                  environmentId={activeThread.environmentId}
-                  threadId={activeThread.id}
-                  cwd={activeProject?.cwd ?? null}
-                  initialReference={pullRequestDialogState.initialReference}
-                  onOpenChange={(open) => {
-                    if (!open) {
-                      closePullRequestDialog();
-                    }
-                  }}
-                  onPrepared={handlePreparedPullRequestThread}
-                />
-              ) : null}
+              )}
             </div>
 
-            {planSidebarOpen && !shouldUsePlanSidebarSheet ? (
-              <PlanSidebar
-                activePlan={activePlan}
-                activeProposedPlan={sidebarProposedPlan}
-                label={planSidebarLabel}
-                environmentId={environmentId}
-                markdownCwd={gitCwd ?? undefined}
-                workspaceRoot={activeWorkspaceRoot}
-                timestampFormat={timestampFormat}
-                mode="sidebar"
-                onClose={closePlanSidebar}
+            <div className="pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pl-[calc(env(safe-area-inset-left)+0.75rem)] pr-[calc(env(safe-area-inset-right)+0.75rem)] pt-1.5 sm:pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:pl-[calc(env(safe-area-inset-left)+1.25rem)] sm:pr-[calc(env(safe-area-inset-right)+1.25rem)] sm:pt-2">
+              <div className="relative isolate">
+                <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
+                <div className="relative z-10">
+                  <ChatComposer
+                    composerRef={composerRef}
+                    composerDraftTarget={composerDraftTarget}
+                    environmentId={environmentId}
+                    routeKind={routeKind}
+                    routeThreadRef={routeThreadRef}
+                    draftId={draftId}
+                    activeThreadId={activeThreadId}
+                    activeThreadEnvironmentId={activeThread?.environmentId}
+                    activeThread={activeThread}
+                    isServerThread={isServerThread}
+                    isLocalDraftThread={isLocalDraftThread}
+                    phase={phase}
+                    isConnecting={isConnecting}
+                    isSendBusy={isSendBusy}
+                    isPreparingWorktree={isPreparingWorktree}
+                    environmentUnavailable={activeEnvironmentUnavailableState}
+                    activePendingApproval={activePendingApproval}
+                    pendingApprovals={pendingApprovals}
+                    pendingUserInputs={pendingUserInputs}
+                    activePendingProgress={activePendingProgress}
+                    activePendingResolvedAnswers={activePendingResolvedAnswers}
+                    activePendingIsResponding={activePendingIsResponding}
+                    activePendingDraftAnswers={activePendingDraftAnswers}
+                    activePendingQuestionIndex={activePendingQuestionIndex}
+                    respondingRequestIds={respondingRequestIds}
+                    showPlanFollowUpPrompt={showPlanFollowUpPrompt}
+                    activeProposedPlan={activeProposedPlan}
+                    activePlan={activePlan as { turnId?: TurnId } | null}
+                    sidebarProposedPlan={sidebarProposedPlan as { turnId?: TurnId } | null}
+                    planSidebarLabel={planSidebarLabel}
+                    planSidebarOpen={planSidebarOpen}
+                    runtimeMode={runtimeMode}
+                    interactionMode={interactionMode}
+                    lockedProvider={lockedProvider}
+                    providerStatuses={providerStatusesForChat as ServerProvider[]}
+                    activeProjectDefaultModelSelection={activeProject?.defaultModelSelection}
+                    activeThreadModelSelection={activeThread?.modelSelection}
+                    activeThreadActivities={activeThread?.activities}
+                    resolvedTheme={resolvedTheme}
+                    settings={settings}
+                    keybindings={keybindings}
+                    terminalOpen={Boolean(terminalState.terminalOpen)}
+                    gitCwd={gitCwd}
+                    promptRef={promptRef}
+                    composerImagesRef={composerImagesRef}
+                    composerTerminalContextsRef={composerTerminalContextsRef}
+                    shouldAutoScrollRef={isAtEndRef}
+                    scheduleStickToBottom={scrollToEnd}
+                    onSend={onSend}
+                    onInterrupt={onInterrupt}
+                    onImplementPlanInNewThread={onImplementPlanInNewThread}
+                    onRespondToApproval={onRespondToApproval}
+                    onSelectActivePendingUserInputOption={onSelectActivePendingUserInputOption}
+                    onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
+                    onPreviousActivePendingUserInputQuestion={
+                      onPreviousActivePendingUserInputQuestion
+                    }
+                    onChangeActivePendingUserInputCustomAnswer={
+                      onChangeActivePendingUserInputCustomAnswer
+                    }
+                    onProviderModelSelect={onProviderModelSelect}
+                    toggleInteractionMode={toggleInteractionMode}
+                    handleRuntimeModeChange={handleRuntimeModeChange}
+                    handleInteractionModeChange={handleInteractionModeChange}
+                    togglePlanSidebar={togglePlanSidebar}
+                    focusComposer={focusComposer}
+                    scheduleComposerFocus={scheduleComposerFocus}
+                    setThreadError={setThreadError}
+                    onExpandImage={onExpandTimelineImage}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {pullRequestDialogState ? (
+              <PullRequestThreadDialog
+                key={pullRequestDialogState.key}
+                open
+                environmentId={activeThread.environmentId}
+                threadId={activeThread.id}
+                cwd={activeProject?.cwd ?? null}
+                initialReference={pullRequestDialogState.initialReference}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    closePullRequestDialog();
+                  }
+                }}
+                onPrepared={handlePreparedPullRequestThread}
               />
             ) : null}
           </div>
-        ) : (
-          <div className="flex min-h-0 flex-1 flex-col justify-between gap-6 p-4">
-            <div className="space-y-2">
-              <div className="inline-flex size-9 items-center justify-center rounded-lg border border-border/70 bg-muted/40 text-muted-foreground">
-                <BotIcon className="size-4" />
-              </div>
-              <div className="space-y-1">
-                <p className="font-medium text-sm">AI pane</p>
-                <p className="text-muted-foreground text-sm">
-                  Bound to the current thread until independent AI pane thread binding lands.
-                </p>
-              </div>
-            </div>
-            {pane.cwd ? (
-              <p className="truncate font-mono text-[11px] text-muted-foreground">{pane.cwd}</p>
-            ) : null}
-          </div>
-        )}
+
+          {planSidebarOpen && !shouldUsePlanSidebarSheet ? (
+            <PlanSidebar
+              activePlan={activePlan}
+              activeProposedPlan={sidebarProposedPlan}
+              label={planSidebarLabel}
+              environmentId={environmentId}
+              markdownCwd={gitCwd ?? undefined}
+              workspaceRoot={activeWorkspaceRoot}
+              timestampFormat={timestampFormat}
+              mode="sidebar"
+              onClose={closePlanSidebar}
+            />
+          ) : null}
+        </div>
       </WorkspacePane>
     );
   };
+
+  if (workspaceMode === "ai-pane") {
+    const aiPane = fallbackWorkspaceDockedPanes.find((pane) => pane.type === "ai");
+    return (
+      <>
+        {aiPane ? renderWorkspacePane(aiPane) : null}
+        {shouldUsePlanSidebarSheet ? (
+          <RightPanelSheet open={planSidebarOpen} onClose={closePlanSidebar}>
+            <PlanSidebar
+              activePlan={activePlan}
+              activeProposedPlan={sidebarProposedPlan}
+              label={planSidebarLabel}
+              environmentId={environmentId}
+              markdownCwd={gitCwd ?? undefined}
+              workspaceRoot={activeWorkspaceRoot}
+              timestampFormat={timestampFormat}
+              mode="sheet"
+              onClose={closePlanSidebar}
+            />
+          </RightPanelSheet>
+        ) : null}
+        {expandedImage && (
+          <ExpandedImageDialog preview={expandedImage} onClose={closeExpandedImage} />
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">

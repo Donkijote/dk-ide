@@ -1,7 +1,8 @@
 import { CheckIcon, PencilIcon, XIcon } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
+import { type FormEvent, type ReactNode, type Ref, useEffect, useId, useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 interface WorkspacePaneProps {
   readonly actions?: ReactNode;
@@ -10,7 +11,9 @@ interface WorkspacePaneProps {
   readonly className?: string;
   readonly description?: ReactNode;
   readonly onTitleRename?: (title: string | null) => void;
+  readonly rootRef?: Ref<HTMLElement>;
   readonly title: string;
+  readonly titleActions?: ReactNode;
   readonly titleControl?: ReactNode;
   readonly titleInputLabel?: string;
   readonly titleRenameLabel?: string;
@@ -23,7 +26,9 @@ export function WorkspacePane({
   className,
   description,
   onTitleRename,
+  rootRef,
   title,
+  titleActions,
   titleControl,
   titleInputLabel = "Pane title",
   titleRenameLabel = "Rename pane",
@@ -47,6 +52,7 @@ export function WorkspacePane({
 
   return (
     <section
+      ref={rootRef}
       className={cn(
         "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border border-border/70 bg-background shadow-[0_20px_50px_-32px_rgba(15,23,42,0.35)]",
         className,
@@ -103,17 +109,27 @@ export function WorkspacePane({
                   </h2>
                 )}
                 {onTitleRename ? (
-                  <button
-                    type="button"
-                    className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-70 transition-colors hover:bg-accent hover:text-foreground hover:opacity-100"
-                    aria-label={titleRenameLabel}
-                    onClick={() => {
-                      setDraftTitle(title);
-                      setEditingTitle(true);
-                    }}
-                  >
-                    <PencilIcon className="size-3.5" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-70 transition-colors hover:bg-accent hover:text-foreground hover:opacity-100"
+                          aria-label={titleRenameLabel}
+                          onClick={() => {
+                            setDraftTitle(title);
+                            setEditingTitle(true);
+                          }}
+                        >
+                          <PencilIcon className="size-3.5" />
+                        </button>
+                      }
+                    />
+                    <TooltipPopup side="bottom">{titleRenameLabel}</TooltipPopup>
+                  </Tooltip>
+                ) : null}
+                {titleActions ? (
+                  <div className="flex shrink-0 items-center gap-1">{titleActions}</div>
                 ) : null}
               </div>
             )}

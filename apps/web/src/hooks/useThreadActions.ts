@@ -261,7 +261,7 @@ export function useThreadActions() {
   const confirmAndDeleteThread = useCallback(
     async (target: ScopedThreadRef) => {
       const api = readEnvironmentApi(target.environmentId);
-      if (!api) return;
+      if (!api) return false;
       const localApi = readLocalApi();
       const resolved = resolveThreadTarget(target);
 
@@ -274,11 +274,12 @@ export function useThreadActions() {
           ].join("\n"),
         );
         if (!confirmed) {
-          return;
+          return false;
         }
       }
 
       await deleteThread(target);
+      return true;
     },
     [confirmThreadDelete, deleteThread, resolveThreadTarget],
   );
