@@ -192,6 +192,7 @@ import {
 } from "./workspace/WorkspaceEditorPane";
 import { WorkspaceEditorActions } from "./workspace/WorkspaceEditorActions";
 import { WorkspacePane } from "./workspace/WorkspacePane";
+import { TerminalPaneHeaderActions, TerminalPanePath } from "./workspace/TerminalPaneHeader";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   basenameOfPanePath,
@@ -1177,11 +1178,18 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
             key={terminalGroup.id}
             title={title}
             onTitleRename={(nextTitle) => renameTerminalPane(paneId, nextTitle)}
-            actions={
-              <span className="max-w-[60vw] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-muted-foreground">
-                {cwd}
-              </span>
+            titleActions={
+              <TerminalPaneHeaderActions
+                splitCount={terminalGroup.terminalIds.length}
+                splitShortcutLabel={visible ? splitShortcutLabel : undefined}
+                newShortcutLabel={visible ? newShortcutLabel : undefined}
+                closeShortcutLabel={visible && isGroupActive ? closeShortcutLabel : undefined}
+                onSplitTerminal={() => splitTerminal(terminalGroup.id, groupActiveTerminalId)}
+                onNewTerminalPane={createNewTerminalPane}
+                onCloseTerminal={() => closeTerminal(groupActiveTerminalId)}
+              />
             }
+            actions={<TerminalPanePath fullPath={cwd} label={basenameOfPanePath(cwd) ?? cwd} />}
             className="min-h-0 flex-1"
             bodyClassName="min-h-0"
           >
@@ -1202,10 +1210,6 @@ const PersistentThreadTerminalPaneDeck = memo(function PersistentThreadTerminalP
               focusRequestId={
                 visible && isGroupActive ? focusRequestId + localFocusRequestId + 1 : 0
               }
-              onSplitTerminal={() => splitTerminal(terminalGroup.id, groupActiveTerminalId)}
-              onNewTerminalPane={createNewTerminalPane}
-              splitShortcutLabel={visible ? splitShortcutLabel : undefined}
-              newShortcutLabel={visible ? newShortcutLabel : undefined}
               closeShortcutLabel={visible && isGroupActive ? closeShortcutLabel : undefined}
               keybindings={keybindings}
               onActiveTerminalChange={activateTerminal}
@@ -5086,12 +5090,21 @@ export default function ChatView(props: ChatViewProps) {
           key={pane.paneId}
           title={paneTitle}
           onTitleRename={(nextTitle) => renameWorkspacePane(pane.paneId, nextTitle)}
+          titleActions={
+            <TerminalPaneHeaderActions
+              splitCount={terminalGroup.terminalIds.length}
+              splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
+              newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+              closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+              onSplitTerminal={() => splitWorkspaceTerminalPane(terminalGroup.id, activeTerminalId)}
+              onNewTerminalPane={() => createNewWorkspaceTerminalPane(pane)}
+              onCloseTerminal={() =>
+                closeWorkspaceTerminalPane(pane, terminalGroup, activeTerminalId)
+              }
+            />
+          }
           actions={
-            cwd ? (
-              <span className="max-w-[34vw] overflow-hidden text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-muted-foreground">
-                {cwd}
-              </span>
-            ) : null
+            cwd ? <TerminalPanePath fullPath={cwd} label={basenameOfPanePath(cwd) ?? cwd} /> : null
           }
           className="min-h-0 flex-1"
           bodyClassName="min-h-0"
@@ -5112,10 +5125,6 @@ export default function ChatView(props: ChatViewProps) {
               activeTerminalGroupId={terminalGroup.id}
               terminalLabelById={terminalLabelById}
               focusRequestId={terminalFocusRequestId}
-              onSplitTerminal={() => splitWorkspaceTerminalPane(terminalGroup.id, activeTerminalId)}
-              onNewTerminalPane={() => createNewWorkspaceTerminalPane(pane)}
-              splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
-              newShortcutLabel={newTerminalShortcutLabel ?? undefined}
               closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
               keybindings={keybindings}
               onActiveTerminalChange={(terminalId) => {

@@ -135,6 +135,9 @@ composition, which are likely to continue evolving upstream.
 - keep terminal splits scoped to their owning pane group, preserve the pane when
   one split closes, and reserve "New Terminal Pane" for creating a separate
   docked terminal surface
+- keep terminal lifecycle actions in shared pane chrome beside the pane title,
+  and show only the terminal cwd basename until the full path is requested from
+  its tooltip
 - split future implementation into smaller patch files when the shell reframe
   turns into concrete workstreams such as sidebar mapping, pane extraction, or
   layout persistence

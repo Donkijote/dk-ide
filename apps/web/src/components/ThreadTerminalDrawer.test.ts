@@ -1,20 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  resolveNewTerminalPaneActionLabel,
   resolveTerminalSelectionActionPosition,
   shouldHandleTerminalSelectionMouseUp,
   terminalSelectionActionDelayForClickCount,
 } from "./ThreadTerminalDrawer";
-
-describe("resolveNewTerminalPaneActionLabel", () => {
-  it("distinguishes pane creation from terminal splitting", () => {
-    expect(resolveNewTerminalPaneActionLabel()).toBe("New Terminal Pane");
-    expect(resolveNewTerminalPaneActionLabel("Ctrl+Shift+`")).toBe(
-      "New Terminal Pane (Ctrl+Shift+`)",
-    );
-  });
-});
 
 describe("resolveTerminalSelectionActionPosition", () => {
   it("prefers the selection rect over the last pointer position", () => {
