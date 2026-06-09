@@ -50,6 +50,13 @@ export function resolveEditorPaneDefaultTitle(
   );
 }
 
+export function shouldRemoveTerminalPaneAfterClose(
+  terminalIds: ReadonlyArray<string>,
+  terminalId: string,
+): boolean {
+  return terminalIds.length === 1 && terminalIds[0] === terminalId;
+}
+
 export function buildLocalDraftThread(
   threadId: ThreadId,
   draftThread: DraftThreadState,

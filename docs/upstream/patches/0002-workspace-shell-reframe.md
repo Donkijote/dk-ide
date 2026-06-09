@@ -82,6 +82,8 @@ composition, which are likely to continue evolving upstream.
   editor panes, with startup sanitization and local UI-state reconciliation
 - `9623a418b`: shared pane creation with directory selection and independent
   thread-scoped terminal panes bound to persisted cwd values
+- `improvement/ghi#40`: pane-scoped terminal split and close behavior, with
+  explicit "New Terminal Pane" actions
 
 ## Sync Notes
 
@@ -130,6 +132,12 @@ composition, which are likely to continue evolving upstream.
   ids without introducing a server-side workspace domain yet
 - keep terminal server sessions thread-scoped while assigning each terminal pane
   a unique terminal id, terminal group, environment, and cwd in local pane state
+- keep terminal splits scoped to their owning pane group, preserve the pane when
+  one split closes, and reserve "New Terminal Pane" for creating a separate
+  docked terminal surface
+- keep terminal lifecycle actions in shared pane chrome beside the pane title,
+  and show only the terminal cwd basename until the full path is requested from
+  its tooltip
 - split future implementation into smaller patch files when the shell reframe
   turns into concrete workstreams such as sidebar mapping, pane extraction, or
   layout persistence

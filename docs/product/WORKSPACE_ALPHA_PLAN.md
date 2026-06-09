@@ -182,7 +182,7 @@ Add a narrow `vcs.restoreFiles` style contract and server handler for
 - [ ] Support multiple AI panes bound to separate threads.
 - [ ] Add shared pane creation with workspace or directory target.
 - [x] Support multiple terminal panes with selected cwd.
-- [ ] Preserve terminal tabs and splits inside terminal panes.
+- [x] Preserve terminal tabs and splits inside terminal panes.
 - [ ] Add docked pane resize and drag reorder.
 - [ ] Persist and restore workspace pane sessions.
 - [ ] Commit selected editor files.

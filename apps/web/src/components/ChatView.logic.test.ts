@@ -21,6 +21,7 @@ import {
   reconcileMountedTerminalThreadIds,
   resolveEditorPaneDefaultTitle,
   resolveSendEnvMode,
+  shouldRemoveTerminalPaneAfterClose,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
 } from "./ChatView.logic";
@@ -37,6 +38,19 @@ describe("resolveEditorPaneDefaultTitle", () => {
   it("normalizes workspace paths when deriving the fallback title", () => {
     expect(basenameOfPanePath("C:\\repos\\dk-ide\\")).toBe("dk-ide");
     expect(resolveEditorPaneDefaultTitle(null, "/")).toBe("Workspace Editor");
+  });
+});
+
+describe("shouldRemoveTerminalPaneAfterClose", () => {
+  it("keeps a pane while another split terminal remains", () => {
+    expect(shouldRemoveTerminalPaneAfterClose(["terminal-1", "terminal-2"], "terminal-2")).toBe(
+      false,
+    );
+  });
+
+  it("removes a pane only when its final terminal closes", () => {
+    expect(shouldRemoveTerminalPaneAfterClose(["terminal-1"], "terminal-1")).toBe(true);
+    expect(shouldRemoveTerminalPaneAfterClose(["terminal-1"], "terminal-2")).toBe(false);
   });
 });
 
