@@ -1,5 +1,6 @@
 import {
   DndContext,
+  MeasuringStrategy,
   PointerSensor,
   closestCenter,
   type DragEndEvent,
@@ -32,6 +33,28 @@ import {
 import { cn } from "~/lib/utils";
 
 const WORKSPACE_PANE_GAP = 12;
+const WORKSPACE_PANE_MEASURING = {
+  droppable: {
+    strategy: MeasuringStrategy.WhileDragging,
+  },
+} as const;
+const WORKSPACE_PANE_RESIZE_OBSERVER = { disabled: true } as const;
+
+function disableWorkspacePaneLayoutAnimation(): false {
+  return false;
+}
+
+function useStableWorkspacePaneIds(panes: readonly PersistedWorkspaceDockedPane[]): string[] {
+  const paneIdsRef = useRef<string[]>([]);
+  const paneIds = paneIdsRef.current;
+  if (
+    paneIds.length !== panes.length ||
+    panes.some((pane, index) => pane.paneId !== paneIds[index])
+  ) {
+    paneIdsRef.current = panes.map((pane) => pane.paneId);
+  }
+  return paneIdsRef.current;
+}
 
 interface WorkspacePaneDragHandleValue {
   readonly attributes: ReturnType<typeof useSortable>["attributes"];
@@ -52,15 +75,13 @@ interface WorkspacePaneContainerProps {
 }
 
 function SortableWorkspacePane({ children, hostWidth, pane }: WorkspacePaneContainerProps) {
-  const {
-    attributes,
-    isDragging,
-    listeners,
-    setActivatorNodeRef,
-    setNodeRef,
-    transform,
-    transition,
-  } = useSortable({ id: pane.paneId });
+  const { attributes, isDragging, listeners, setActivatorNodeRef, setNodeRef, transform } =
+    useSortable({
+      id: pane.paneId,
+      animateLayoutChanges: disableWorkspacePaneLayoutAnimation,
+      resizeObserverConfig: WORKSPACE_PANE_RESIZE_OBSERVER,
+      transition: null,
+    });
   const dragHandle = useMemo(
     () => ({ attributes, listeners, setActivatorNodeRef }),
     [attributes, listeners, setActivatorNodeRef],
@@ -75,7 +96,6 @@ function SortableWorkspacePane({ children, hostWidth, pane }: WorkspacePaneConta
         style={{
           width: `${workspacePaneWidth(pane, hostWidth)}px`,
           transform: CSS.Transform.toString(transform),
-          transition,
         }}
       >
         {children}
@@ -141,6 +161,7 @@ export function WorkspacePaneHost({
   const renderedTerminalRowHeight = workspaceTerminalRowHeight(
     previewTerminalRowHeight ?? terminalRowHeight,
   );
+  const paneIds = useStableWorkspacePaneIds(renderedPanes);
   const panePlacements = useMemo(() => workspacePanePlacements(renderedPanes), [renderedPanes]);
   const primaryPane =
     renderedPanes.find((pane) => panePlacements.get(pane.paneId)?.slot === "primary") ?? null;
@@ -363,11 +384,13 @@ export function WorkspacePaneHost({
       className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       data-testid="workspace-pane-host"
     >
-      <DndContext collisionDetection={closestCenter} sensors={sensors} onDragEnd={handleDragEnd}>
-        <SortableContext
-          items={renderedPanes.map((pane) => pane.paneId)}
-          strategy={rectSortingStrategy}
-        >
+      <DndContext
+        collisionDetection={closestCenter}
+        measuring={WORKSPACE_PANE_MEASURING}
+        sensors={sensors}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext items={paneIds} strategy={rectSortingStrategy}>
           <div className="flex h-full min-h-[48rem] w-max items-stretch gap-3 p-3 sm:p-4">
             {primaryPane ? (
               <SortableWorkspacePane hostWidth={hostWidth} pane={primaryPane}>
