@@ -1,8 +1,9 @@
-import { CheckIcon, PencilIcon, XIcon } from "lucide-react";
+import { CheckIcon, GripVerticalIcon, PencilIcon, XIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, type Ref, useEffect, useId, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { useWorkspacePaneDragHandle } from "./WorkspacePaneHost";
 
 interface WorkspacePaneProps {
   readonly actions?: ReactNode;
@@ -33,6 +34,7 @@ export function WorkspacePane({
   titleInputLabel = "Pane title",
   titleRenameLabel = "Rename pane",
 }: WorkspacePaneProps) {
+  const dragHandle = useWorkspacePaneDragHandle();
   const inputId = useId();
   const [editingTitle, setEditingTitle] = useState(false);
   const [draftTitle, setDraftTitle] = useState(title);
@@ -60,6 +62,25 @@ export function WorkspacePane({
     >
       <header className="shrink-0 border-b border-border/60 bg-background">
         <div className="flex min-h-14 min-w-0 items-center gap-3 px-3 py-2 sm:px-4">
+          {dragHandle ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    ref={dragHandle.setActivatorNodeRef}
+                    type="button"
+                    className="inline-flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:cursor-grabbing"
+                    aria-label={`Move ${title} pane`}
+                    {...dragHandle.attributes}
+                    {...dragHandle.listeners}
+                  >
+                    <GripVerticalIcon className="size-4" />
+                  </button>
+                }
+              />
+              <TooltipPopup side="bottom">Drag to move pane</TooltipPopup>
+            </Tooltip>
+          ) : null}
           <div className="min-w-0 flex-1">
             {editingTitle ? (
               <form className="flex min-w-0 items-center gap-1.5" onSubmit={submitTitle}>

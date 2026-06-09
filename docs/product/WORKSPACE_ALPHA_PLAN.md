@@ -183,7 +183,7 @@ Add a narrow `vcs.restoreFiles` style contract and server handler for
 - [ ] Add shared pane creation with workspace or directory target.
 - [x] Support multiple terminal panes with selected cwd.
 - [x] Preserve terminal tabs and splits inside terminal panes.
-- [ ] Add docked pane resize and drag reorder.
+- [x] Add docked pane resize and drag reorder.
 - [ ] Persist and restore workspace pane sessions.
 - [ ] Commit selected editor files.
 - [ ] Roll back selected editor file changes.

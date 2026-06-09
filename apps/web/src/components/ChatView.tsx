@@ -192,6 +192,7 @@ import {
 } from "./workspace/WorkspaceEditorPane";
 import { WorkspaceEditorActions } from "./workspace/WorkspaceEditorActions";
 import { WorkspacePane } from "./workspace/WorkspacePane";
+import { WorkspacePaneHost } from "./workspace/WorkspacePaneHost";
 import { TerminalPaneHeaderActions, TerminalPanePath } from "./workspace/TerminalPaneHeader";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
@@ -228,6 +229,7 @@ import {
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
 import { RightPanelSheet } from "./RightPanelSheet";
+import { mergeVisibleWorkspacePaneUpdates } from "../workspacePaneLayout";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -4960,14 +4962,9 @@ export default function ChatView(props: ChatViewProps) {
   ];
   const renderedWorkspaceDockedPanes =
     workspaceDockedPanes.length > 0 ? workspaceDockedPanes : fallbackWorkspaceDockedPanes;
-  const editorWorkspacePanes = renderedWorkspaceDockedPanes.filter(
-    (pane) => pane.type === "editor",
+  const visibleWorkspaceDockedPanes = renderedWorkspaceDockedPanes.filter(
+    (pane) => pane.type !== "terminal" || visibleTerminalThreadRef !== null,
   );
-  const aiWorkspacePanes = renderedWorkspaceDockedPanes.filter((pane) => pane.type === "ai");
-  const terminalWorkspacePanes = renderedWorkspaceDockedPanes.filter(
-    (pane) => pane.type === "terminal",
-  );
-  const terminalPaneDeckHeight = Math.max(terminalState.terminalHeight, 220);
   const terminalLabelById = Object.fromEntries(
     terminalState.terminalIds.map((terminalId, index) => [terminalId, `Terminal ${index + 1}`]),
   );
@@ -5373,7 +5370,7 @@ export default function ChatView(props: ChatViewProps) {
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
       <header
         className={cn(
           "border-b border-border",
@@ -5423,30 +5420,16 @@ export default function ChatView(props: ChatViewProps) {
         onCreate={addWorkspacePane}
         onOpenChange={setAddPaneDialogOpen}
       />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
-        <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-[112rem] flex-1 flex-col gap-3">
-          <div className="grid min-h-0 min-w-0 w-full flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(32rem,1.12fr)_minmax(24rem,0.88fr)]">
-            <div className="grid min-h-[18rem] min-w-0 grid-cols-1 gap-3 xl:min-h-0 xl:grid-cols-[repeat(auto-fit,minmax(min(100%,24rem),1fr))]">
-              {editorWorkspacePanes.map(renderWorkspacePane)}
-            </div>
-
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-              <div className="grid min-h-[32rem] min-w-0 flex-1 grid-cols-1 gap-3 xl:min-h-0 xl:grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))]">
-                {aiWorkspacePanes.map(renderWorkspacePane)}
-              </div>
-
-              {visibleTerminalThreadRef && terminalWorkspacePanes.length > 0 ? (
-                <div
-                  className="grid min-h-0 min-w-0 w-full flex-none grid-cols-1 gap-3 xl:grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))]"
-                  style={{ height: `${terminalPaneDeckHeight}px` }}
-                >
-                  {terminalWorkspacePanes.map(renderWorkspacePane)}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </div>
+      <WorkspacePaneHost
+        panes={visibleWorkspaceDockedPanes}
+        renderPane={renderWorkspacePane}
+        onPanesChange={(panes) =>
+          storeSetWorkspaceThreadDockedPanes(
+            routeThreadKey,
+            mergeVisibleWorkspacePaneUpdates(renderedWorkspaceDockedPanes, panes),
+          )
+        }
+      />
 
       {hiddenMountedTerminalThreadRefs.map(
         ({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
