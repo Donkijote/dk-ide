@@ -1,4 +1,4 @@
-import type { PersistedWorkspaceDockedPane } from "./uiStateStore";
+import type { PersistedWorkspaceDockedPane, WorkspaceDockedPaneSlot } from "./uiStateStore";
 
 export const MIN_WORKSPACE_PANE_WIDTH = 320;
 export const MIN_WORKSPACE_TERMINAL_ROW_HEIGHT = 220;
@@ -8,6 +8,14 @@ const EDITOR_DEFAULT_WIDTH_RATIO = 0.56;
 const SUPPORTING_PANE_DEFAULT_WIDTH_RATIO = 0.44;
 const EDITOR_MIN_DEFAULT_WIDTH = 512;
 const SUPPORTING_PANE_MIN_DEFAULT_WIDTH = 384;
+
+export type WorkspacePaneDropDirection = "above" | "below" | "before" | "after";
+
+export interface WorkspacePanePlacement {
+  readonly slot: WorkspaceDockedPaneSlot;
+  readonly column: number;
+  readonly row: number;
+}
 
 export function workspacePaneDefaultWidth(
   pane: Pick<PersistedWorkspaceDockedPane, "paneId">,
@@ -54,6 +62,143 @@ export function reorderWorkspacePanes(
   }
   reordered.splice(overIndex, 0, activePane);
   return reordered.map((pane, index) => Object.assign({}, pane, { order: index }));
+}
+
+export function workspacePanePlacements(
+  panes: readonly PersistedWorkspaceDockedPane[],
+): ReadonlyMap<string, WorkspacePanePlacement> {
+  const placements = new Map<string, WorkspacePanePlacement>();
+  let fallbackGridColumn =
+    panes.reduce(
+      (maxColumn, pane) =>
+        pane.dockSlot === "grid" && pane.dockColumn !== undefined
+          ? Math.max(maxColumn, pane.dockColumn)
+          : maxColumn,
+      -1,
+    ) + 1;
+
+  for (const pane of panes) {
+    if (
+      pane.dockSlot !== undefined &&
+      pane.dockColumn !== undefined &&
+      pane.dockRow !== undefined
+    ) {
+      placements.set(pane.paneId, {
+        slot: pane.dockSlot,
+        column: pane.dockColumn,
+        row: pane.dockRow,
+      });
+      continue;
+    }
+    if (pane.paneId === "editor") {
+      placements.set(pane.paneId, { slot: "primary", column: 0, row: 0 });
+      continue;
+    }
+    if (pane.paneId === "ai") {
+      placements.set(pane.paneId, { slot: "upper", column: 0, row: 0 });
+      continue;
+    }
+    placements.set(pane.paneId, { slot: "grid", column: fallbackGridColumn, row: 0 });
+    fallbackGridColumn += 1;
+  }
+
+  return placements;
+}
+
+function withNormalizedWorkspacePanePlacements(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  placements: ReadonlyMap<string, WorkspacePanePlacement>,
+): PersistedWorkspaceDockedPane[] {
+  const sortedPanes = [...panes].toSorted((left, right) => {
+    const leftPlacement = placements.get(left.paneId);
+    const rightPlacement = placements.get(right.paneId);
+    if (!leftPlacement || !rightPlacement) {
+      return left.order - right.order;
+    }
+    const slotOrder = { primary: 0, upper: 1, grid: 2 } as const;
+    return (
+      slotOrder[leftPlacement.slot] - slotOrder[rightPlacement.slot] ||
+      leftPlacement.column - rightPlacement.column ||
+      leftPlacement.row - rightPlacement.row ||
+      left.order - right.order
+    );
+  });
+
+  return sortedPanes.map((pane, order) => {
+    const placement = placements.get(pane.paneId);
+    return placement
+      ? Object.assign({}, pane, {
+          order,
+          dockSlot: placement.slot,
+          dockColumn: placement.column,
+          dockRow: placement.row,
+        })
+      : Object.assign({}, pane, { order });
+  });
+}
+
+export function placeWorkspacePane(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  activePaneId: string,
+  overPaneId: string,
+  direction: WorkspacePaneDropDirection,
+): PersistedWorkspaceDockedPane[] {
+  if (activePaneId === overPaneId) {
+    return [...panes];
+  }
+  const placements = new Map(workspacePanePlacements(panes));
+  const activePlacement = placements.get(activePaneId);
+  const overPlacement = placements.get(overPaneId);
+  if (!activePlacement || !overPlacement) {
+    return [...panes];
+  }
+
+  if (activePlacement.slot !== "grid" || overPlacement.slot !== "grid") {
+    placements.set(activePaneId, overPlacement);
+    placements.set(overPaneId, activePlacement);
+    return withNormalizedWorkspacePanePlacements(panes, placements);
+  }
+
+  const gridColumns = new Map<number, string[]>();
+  for (const pane of panes) {
+    const placement = placements.get(pane.paneId);
+    if (placement?.slot !== "grid") {
+      continue;
+    }
+    const column = gridColumns.get(placement.column) ?? [];
+    column.push(pane.paneId);
+    gridColumns.set(placement.column, column);
+  }
+  for (const column of gridColumns.values()) {
+    column.sort(
+      (leftPaneId, rightPaneId) =>
+        (placements.get(leftPaneId)?.row ?? 0) - (placements.get(rightPaneId)?.row ?? 0),
+    );
+  }
+
+  const columns = [...gridColumns.entries()]
+    .toSorted(([leftColumn], [rightColumn]) => leftColumn - rightColumn)
+    .map(([, paneIds]) => paneIds.filter((paneId) => paneId !== activePaneId))
+    .filter((paneIds) => paneIds.length > 0);
+  const targetColumnIndex = columns.findIndex((paneIds) => paneIds.includes(overPaneId));
+  if (targetColumnIndex < 0) {
+    return [...panes];
+  }
+
+  if (direction === "above" || direction === "below") {
+    const targetColumn = columns[targetColumnIndex]!;
+    const targetRow = targetColumn.indexOf(overPaneId);
+    targetColumn.splice(targetRow + (direction === "below" ? 1 : 0), 0, activePaneId);
+  } else {
+    columns.splice(targetColumnIndex + (direction === "after" ? 1 : 0), 0, [activePaneId]);
+  }
+
+  columns.forEach((paneIds, column) => {
+    paneIds.forEach((paneId, row) => {
+      placements.set(paneId, { slot: "grid", column, row });
+    });
+  });
+  return withNormalizedWorkspacePanePlacements(panes, placements);
 }
 
 export function mergeVisibleWorkspacePaneUpdates(

@@ -5,8 +5,10 @@ import {
   MIN_WORKSPACE_PANE_WIDTH,
   MIN_WORKSPACE_TERMINAL_ROW_HEIGHT,
   mergeVisibleWorkspacePaneUpdates,
+  placeWorkspacePane,
   reorderWorkspacePanes,
   resizeAdjacentWorkspacePanes,
+  workspacePanePlacements,
   workspacePaneWidth,
   workspaceTerminalRowHeight,
 } from "./workspacePaneLayout";
@@ -50,6 +52,43 @@ describe("workspace pane layout", () => {
 
     expect(reordered.map((pane) => pane.paneId)).toEqual(["terminal", "editor", "ai"]);
     expect(reordered.map((pane) => pane.order)).toEqual([0, 1, 2]);
+  });
+
+  it("stacks a terminal below another terminal", () => {
+    const terminal2: PersistedWorkspaceDockedPane = {
+      ...panes[2]!,
+      paneId: "terminal:2",
+      title: "Terminal 2",
+      order: 3,
+    };
+    const placed = placeWorkspacePane([...panes, terminal2], "terminal:2", "terminal", "below");
+    const placements = workspacePanePlacements(placed);
+
+    expect(placed.map((pane) => pane.paneId)).toEqual(["editor", "ai", "terminal", "terminal:2"]);
+    expect(placements.get("terminal")).toEqual({ slot: "grid", column: 0, row: 0 });
+    expect(placements.get("terminal:2")).toEqual({ slot: "grid", column: 0, row: 1 });
+  });
+
+  it("keeps a horizontal drop in a separate terminal column", () => {
+    const terminal2: PersistedWorkspaceDockedPane = {
+      ...panes[2]!,
+      paneId: "terminal:2",
+      title: "Terminal 2",
+      order: 3,
+    };
+    const placed = placeWorkspacePane([...panes, terminal2], "terminal:2", "terminal", "after");
+    const placements = workspacePanePlacements(placed);
+
+    expect(placements.get("terminal")).toEqual({ slot: "grid", column: 0, row: 0 });
+    expect(placements.get("terminal:2")).toEqual({ slot: "grid", column: 1, row: 0 });
+  });
+
+  it("swaps editor and AI layout slots", () => {
+    const placed = placeWorkspacePane(panes, "ai", "editor", "before");
+    const placements = workspacePanePlacements(placed);
+
+    expect(placements.get("ai")?.slot).toBe("primary");
+    expect(placements.get("editor")?.slot).toBe("upper");
   });
 
   it("resizes adjacent panes while preserving their combined width", () => {

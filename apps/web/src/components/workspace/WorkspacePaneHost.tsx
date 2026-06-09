@@ -6,7 +6,7 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
   createContext,
@@ -22,8 +22,10 @@ import {
 
 import type { PersistedWorkspaceDockedPane } from "~/uiStateStore";
 import {
-  reorderWorkspacePanes,
+  placeWorkspacePane,
   resizeAdjacentWorkspacePanes,
+  type WorkspacePaneDropDirection,
+  workspacePanePlacements,
   workspacePaneWidth,
   workspaceTerminalRowHeight,
 } from "~/workspacePaneLayout";
@@ -47,18 +49,6 @@ interface WorkspacePaneContainerProps {
   readonly hostWidth: number;
   readonly pane: PersistedWorkspaceDockedPane;
   readonly children: ReactNode;
-}
-
-function WorkspacePaneContainer({ children, hostWidth, pane }: WorkspacePaneContainerProps) {
-  return (
-    <div
-      className="flex h-full shrink-0 flex-col"
-      data-workspace-pane-id={pane.paneId}
-      style={{ width: `${workspacePaneWidth(pane, hostWidth)}px` }}
-    >
-      {children}
-    </div>
-  );
 }
 
 function SortableWorkspacePane({ children, hostWidth, pane }: WorkspacePaneContainerProps) {
@@ -92,6 +82,26 @@ function SortableWorkspacePane({ children, hostWidth, pane }: WorkspacePaneConta
       </div>
     </WorkspacePaneDragHandleContext.Provider>
   );
+}
+
+function workspacePaneDropDirection({
+  active,
+  over,
+}: Pick<DragEndEvent, "active" | "over">): WorkspacePaneDropDirection {
+  const activeRect = active.rect.current.translated;
+  if (!activeRect || !over) {
+    return "after";
+  }
+  const horizontalOffset =
+    (activeRect.left + activeRect.width / 2 - (over.rect.left + over.rect.width / 2)) /
+    Math.max(over.rect.width, 1);
+  const verticalOffset =
+    (activeRect.top + activeRect.height / 2 - (over.rect.top + over.rect.height / 2)) /
+    Math.max(over.rect.height, 1);
+  if (Math.abs(verticalOffset) > Math.abs(horizontalOffset)) {
+    return verticalOffset < 0 ? "above" : "below";
+  }
+  return horizontalOffset < 0 ? "before" : "after";
 }
 
 interface WorkspacePaneHostProps {
@@ -131,16 +141,42 @@ export function WorkspacePaneHost({
   const renderedTerminalRowHeight = workspaceTerminalRowHeight(
     previewTerminalRowHeight ?? terminalRowHeight,
   );
-  const editorPane = renderedPanes.find((pane) => pane.paneId === "editor") ?? null;
-  const aiPane = renderedPanes.find((pane) => pane.paneId === "ai") ?? null;
-  const lowerPanes = renderedPanes.filter(
-    (pane) => pane.paneId !== editorPane?.paneId && pane.paneId !== aiPane?.paneId,
-  );
+  const panePlacements = useMemo(() => workspacePanePlacements(renderedPanes), [renderedPanes]);
+  const primaryPane =
+    renderedPanes.find((pane) => panePlacements.get(pane.paneId)?.slot === "primary") ?? null;
+  const upperPane =
+    renderedPanes.find((pane) => panePlacements.get(pane.paneId)?.slot === "upper") ?? null;
+  const gridColumns = useMemo(() => {
+    const columns = new Map<number, PersistedWorkspaceDockedPane[]>();
+    for (const pane of renderedPanes) {
+      const placement = panePlacements.get(pane.paneId);
+      if (placement?.slot !== "grid") {
+        continue;
+      }
+      const column = columns.get(placement.column) ?? [];
+      column.push(pane);
+      columns.set(placement.column, column);
+    }
+    return [...columns.entries()]
+      .toSorted(([leftColumn], [rightColumn]) => leftColumn - rightColumn)
+      .map(([column, columnPanes]) => ({
+        column,
+        panes: columnPanes.toSorted(
+          (left, right) =>
+            (panePlacements.get(left.paneId)?.row ?? 0) -
+            (panePlacements.get(right.paneId)?.row ?? 0),
+        ),
+      }));
+  }, [panePlacements, renderedPanes]);
   const lowerRowWidth =
-    lowerPanes.reduce((width, pane) => width + workspacePaneWidth(pane, hostWidth), 0) +
-    Math.max(0, lowerPanes.length - 1) * WORKSPACE_PANE_GAP;
+    gridColumns.reduce(
+      (width, column) =>
+        width + Math.max(...column.panes.map((pane) => workspacePaneWidth(pane, hostWidth)), 0),
+      0,
+    ) +
+    Math.max(0, gridColumns.length - 1) * WORKSPACE_PANE_GAP;
   const rightDockWidth = Math.max(
-    aiPane ? workspacePaneWidth(aiPane, hostWidth) : 0,
+    upperPane ? workspacePaneWidth(upperPane, hostWidth) : 0,
     lowerRowWidth,
   );
   const sensors = useSensors(
@@ -162,11 +198,19 @@ export function WorkspacePaneHost({
   }, []);
 
   const handleDragEnd = useCallback(
-    ({ active, over }: DragEndEvent) => {
+    (event: DragEndEvent) => {
+      const { active, over } = event;
       if (!over || active.id === over.id) {
         return;
       }
-      onPanesChange(reorderWorkspacePanes(panes, String(active.id), String(over.id)));
+      onPanesChange(
+        placeWorkspacePane(
+          panes,
+          String(active.id),
+          String(over.id),
+          workspacePaneDropDirection(event),
+        ),
+      );
     },
     [onPanesChange, panes],
   );
@@ -320,75 +364,82 @@ export function WorkspacePaneHost({
       data-testid="workspace-pane-host"
     >
       <DndContext collisionDetection={closestCenter} sensors={sensors} onDragEnd={handleDragEnd}>
-        <div className="flex h-full min-h-[48rem] w-max items-stretch gap-3 p-3 sm:p-4">
-          {editorPane ? (
-            <WorkspacePaneContainer hostWidth={hostWidth} pane={editorPane}>
-              {renderPane(editorPane)}
-            </WorkspacePaneContainer>
-          ) : null}
+        <SortableContext
+          items={renderedPanes.map((pane) => pane.paneId)}
+          strategy={rectSortingStrategy}
+        >
+          <div className="flex h-full min-h-[48rem] w-max items-stretch gap-3 p-3 sm:p-4">
+            {primaryPane ? (
+              <SortableWorkspacePane hostWidth={hostWidth} pane={primaryPane}>
+                {renderPane(primaryPane)}
+              </SortableWorkspacePane>
+            ) : null}
 
-          {editorPane && (aiPane || lowerPanes[0]) ? (
-            <HorizontalResizeHandle
-              label={`Resize ${editorPane.title} pane`}
-              onPointerDown={(event) =>
-                handleHorizontalResizePointerDown(
-                  event,
-                  editorPane.paneId,
-                  (aiPane ?? lowerPanes[0])!.paneId,
-                )
-              }
-              onPointerMove={handleHorizontalResizePointerMove}
-              onPointerUp={finishHorizontalResize}
-            />
-          ) : null}
+            {primaryPane && (upperPane || gridColumns[0]?.panes[0]) ? (
+              <HorizontalResizeHandle
+                label={`Resize ${primaryPane.title} pane`}
+                onPointerDown={(event) =>
+                  handleHorizontalResizePointerDown(
+                    event,
+                    primaryPane.paneId,
+                    (upperPane ?? gridColumns[0]!.panes[0])!.paneId,
+                  )
+                }
+                onPointerMove={handleHorizontalResizePointerMove}
+                onPointerUp={finishHorizontalResize}
+              />
+            ) : null}
 
-          {aiPane || lowerPanes.length > 0 ? (
-            <div
-              className="relative flex h-full shrink-0 flex-col gap-3"
-              style={{ width: `${rightDockWidth}px` }}
-            >
-              {aiPane ? (
-                <div
-                  className="flex min-h-[32rem] flex-1 flex-col"
-                  data-workspace-pane-id={aiPane.paneId}
-                  style={{ width: `${workspacePaneWidth(aiPane, hostWidth)}px` }}
-                >
-                  {renderPane(aiPane)}
-                </div>
-              ) : null}
+            {upperPane || gridColumns.length > 0 ? (
+              <div
+                className="relative flex h-full shrink-0 flex-col gap-3"
+                style={{ width: `${rightDockWidth}px` }}
+              >
+                {upperPane ? (
+                  <div className="flex min-h-[32rem] flex-1 flex-col">
+                    <SortableWorkspacePane hostWidth={hostWidth} pane={upperPane}>
+                      {renderPane(upperPane)}
+                    </SortableWorkspacePane>
+                  </div>
+                ) : null}
 
-              {aiPane && lowerPanes.length > 0 ? (
-                <VerticalResizeHandle
-                  label={`Resize ${lowerPanes[0]!.title} row`}
-                  onPointerDown={handleVerticalResizePointerDown}
-                  onPointerMove={handleVerticalResizePointerMove}
-                  onPointerUp={finishVerticalResize}
-                />
-              ) : null}
+                {upperPane && gridColumns.length > 0 ? (
+                  <VerticalResizeHandle
+                    label={`Resize ${gridColumns[0]!.panes[0]!.title} row`}
+                    onPointerDown={handleVerticalResizePointerDown}
+                    onPointerMove={handleVerticalResizePointerMove}
+                    onPointerUp={finishVerticalResize}
+                  />
+                ) : null}
 
-              {lowerPanes.length > 0 ? (
-                <SortableContext
-                  items={lowerPanes.map((pane) => pane.paneId)}
-                  strategy={horizontalListSortingStrategy}
-                >
+                {gridColumns.length > 0 ? (
                   <div
-                    className="flex shrink-0 items-stretch gap-3"
+                    className="flex shrink-0 items-start gap-3"
                     data-testid="workspace-terminal-row"
-                    style={{ height: `${renderedTerminalRowHeight}px` }}
                   >
-                    {lowerPanes.map((pane, index) => (
-                      <div key={pane.paneId} className="relative flex h-full shrink-0">
-                        <SortableWorkspacePane hostWidth={hostWidth} pane={pane}>
-                          {renderPane(pane)}
-                        </SortableWorkspacePane>
-                        {lowerPanes[index + 1] ? (
+                    {gridColumns.map((column, columnIndex) => (
+                      <div key={column.column} className="relative flex shrink-0 items-stretch">
+                        <div className="flex shrink-0 flex-col gap-3">
+                          {column.panes.map((pane) => (
+                            <div
+                              key={pane.paneId}
+                              className="flex shrink-0"
+                              style={{ height: `${renderedTerminalRowHeight}px` }}
+                            >
+                              <SortableWorkspacePane hostWidth={hostWidth} pane={pane}>
+                                {renderPane(pane)}
+                              </SortableWorkspacePane>
+                            </div>
+                          ))}
+                        </div>
+                        {gridColumns[columnIndex + 1] ? (
                           <HorizontalResizeHandle
-                            label={`Resize ${pane.title} pane`}
+                            label={`Resize ${column.panes[0]!.title} pane`}
                             onPointerDown={(event) =>
                               handleHorizontalResizePointerDown(
                                 event,
-                                pane.paneId,
-                                lowerPanes[index + 1]!.paneId,
+                                column.panes[0]!.paneId,
+                                gridColumns[columnIndex + 1]!.panes[0]!.paneId,
                               )
                             }
                             onPointerMove={handleHorizontalResizePointerMove}
@@ -398,11 +449,11 @@ export function WorkspacePaneHost({
                       </div>
                     ))}
                   </div>
-                </SortableContext>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </SortableContext>
       </DndContext>
     </div>
   );

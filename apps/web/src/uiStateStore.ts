@@ -28,6 +28,7 @@ export interface PersistedUiState {
 export type WorkspacePaneId = "ai" | "editor" | "plan" | "terminal";
 export type WorkspaceDockedPaneType = "ai" | "editor" | "terminal";
 export type WorkspaceDockedPaneId = string;
+export type WorkspaceDockedPaneSlot = "primary" | "upper" | "grid";
 
 export interface PersistedWorkspaceDockedPaneBase {
   paneId: WorkspaceDockedPaneId;
@@ -37,6 +38,9 @@ export interface PersistedWorkspaceDockedPaneBase {
   cwd: string | null;
   order: number;
   size: number;
+  dockSlot?: WorkspaceDockedPaneSlot;
+  dockColumn?: number;
+  dockRow?: number;
 }
 
 export interface PersistedWorkspaceAiPane extends PersistedWorkspaceDockedPaneBase {
@@ -310,6 +314,14 @@ function sanitizeWorkspacePaneOrder(value: unknown, fallbackOrder: number): numb
   return typeof value === "number" && Number.isFinite(value) ? value : fallbackOrder;
 }
 
+function sanitizeWorkspacePaneSlot(value: unknown): WorkspaceDockedPaneSlot | undefined {
+  return value === "primary" || value === "upper" || value === "grid" ? value : undefined;
+}
+
+function sanitizeWorkspacePaneCoordinate(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
 function sanitizeOptionalString(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -376,6 +388,9 @@ function sanitizeWorkspaceDockedPane(
     return null;
   }
 
+  const dockSlot = sanitizeWorkspacePaneSlot(pane.dockSlot);
+  const dockColumn = sanitizeWorkspacePaneCoordinate(pane.dockColumn);
+  const dockRow = sanitizeWorkspacePaneCoordinate(pane.dockRow);
   const base = {
     paneId,
     type,
@@ -384,6 +399,9 @@ function sanitizeWorkspaceDockedPane(
     cwd: sanitizeOptionalString(pane.cwd),
     order: sanitizeWorkspacePaneOrder(pane.order, fallbackOrder),
     size: sanitizeWorkspacePaneSize(pane.size),
+    ...(dockSlot ? { dockSlot } : {}),
+    ...(dockColumn !== undefined ? { dockColumn } : {}),
+    ...(dockRow !== undefined ? { dockRow } : {}),
   };
   const metadata = sanitizeWorkspacePaneMetadata(type, pane.metadata);
   return { ...base, metadata } as PersistedWorkspaceDockedPane;
@@ -1040,6 +1058,9 @@ function workspaceDockedPaneEqual(
     left.cwd === right.cwd &&
     left.order === right.order &&
     left.size === right.size &&
+    left.dockSlot === right.dockSlot &&
+    left.dockColumn === right.dockColumn &&
+    left.dockRow === right.dockRow &&
     JSON.stringify(left.metadata) === JSON.stringify(right.metadata)
   );
 }
