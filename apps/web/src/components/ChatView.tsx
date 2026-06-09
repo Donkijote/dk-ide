@@ -4965,6 +4965,7 @@ export default function ChatView(props: ChatViewProps) {
   const visibleWorkspaceDockedPanes = renderedWorkspaceDockedPanes.filter(
     (pane) => pane.type !== "terminal" || visibleTerminalThreadRef !== null,
   );
+  const terminalPaneDeckHeight = Math.max(terminalState.terminalHeight, 220);
   const terminalLabelById = Object.fromEntries(
     terminalState.terminalIds.map((terminalId, index) => [terminalId, `Terminal ${index + 1}`]),
   );
@@ -5423,12 +5424,18 @@ export default function ChatView(props: ChatViewProps) {
       <WorkspacePaneHost
         panes={visibleWorkspaceDockedPanes}
         renderPane={renderWorkspacePane}
+        terminalRowHeight={terminalPaneDeckHeight}
         onPanesChange={(panes) =>
           storeSetWorkspaceThreadDockedPanes(
             routeThreadKey,
             mergeVisibleWorkspacePaneUpdates(renderedWorkspaceDockedPanes, panes),
           )
         }
+        onTerminalRowHeightChange={(height) => {
+          if (activeThreadRef) {
+            useTerminalUiStateStore.getState().setTerminalHeight(activeThreadRef, height);
+          }
+        }}
       />
 
       {hiddenMountedTerminalThreadRefs.map(

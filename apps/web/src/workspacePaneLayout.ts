@@ -1,6 +1,7 @@
-import type { PersistedWorkspaceDockedPane, WorkspaceDockedPaneType } from "./uiStateStore";
+import type { PersistedWorkspaceDockedPane } from "./uiStateStore";
 
 export const MIN_WORKSPACE_PANE_WIDTH = 320;
+export const MIN_WORKSPACE_TERMINAL_ROW_HEIGHT = 220;
 
 const MAX_WORKSPACE_PANE_WIDTH = 1_400;
 const EDITOR_DEFAULT_WIDTH_RATIO = 0.56;
@@ -9,11 +10,11 @@ const EDITOR_MIN_DEFAULT_WIDTH = 512;
 const SUPPORTING_PANE_MIN_DEFAULT_WIDTH = 384;
 
 export function workspacePaneDefaultWidth(
-  type: WorkspaceDockedPaneType,
+  pane: Pick<PersistedWorkspaceDockedPane, "paneId">,
   hostWidth: number,
 ): number {
   const safeHostWidth = Number.isFinite(hostWidth) && hostWidth > 0 ? hostWidth : 1_280;
-  return type === "editor"
+  return pane.paneId === "editor"
     ? Math.max(EDITOR_MIN_DEFAULT_WIDTH, safeHostWidth * EDITOR_DEFAULT_WIDTH_RATIO)
     : Math.max(
         SUPPORTING_PANE_MIN_DEFAULT_WIDTH,
@@ -22,13 +23,17 @@ export function workspacePaneDefaultWidth(
 }
 
 export function workspacePaneWidth(
-  pane: Pick<PersistedWorkspaceDockedPane, "size" | "type">,
+  pane: Pick<PersistedWorkspaceDockedPane, "paneId" | "size">,
   hostWidth: number,
 ): number {
   return Math.min(
     MAX_WORKSPACE_PANE_WIDTH,
-    Math.max(MIN_WORKSPACE_PANE_WIDTH, workspacePaneDefaultWidth(pane.type, hostWidth) * pane.size),
+    Math.max(MIN_WORKSPACE_PANE_WIDTH, workspacePaneDefaultWidth(pane, hostWidth) * pane.size),
   );
+}
+
+export function workspaceTerminalRowHeight(height: number): number {
+  return Number.isFinite(height) ? Math.max(MIN_WORKSPACE_TERMINAL_ROW_HEIGHT, height) : 320;
 }
 
 export function reorderWorkspacePanes(
@@ -91,9 +96,9 @@ export function resizeAdjacentWorkspacePanes(
   }
 
   const nextLeadingSize =
-    (leadingWidth + clampedDelta) / workspacePaneDefaultWidth(leadingPane.type, hostWidth);
+    (leadingWidth + clampedDelta) / workspacePaneDefaultWidth(leadingPane, hostWidth);
   const nextTrailingSize =
-    (trailingWidth - clampedDelta) / workspacePaneDefaultWidth(trailingPane.type, hostWidth);
+    (trailingWidth - clampedDelta) / workspacePaneDefaultWidth(trailingPane, hostWidth);
 
   return panes.map((pane, index) => {
     if (index === leadingIndex) {

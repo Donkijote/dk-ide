@@ -84,8 +84,8 @@ composition, which are likely to continue evolving upstream.
   thread-scoped terminal panes bound to persisted cwd values
 - `improvement/ghi#40`: pane-scoped terminal split and close behavior, with
   explicit "New Terminal Pane" actions
-- `feature/ghi#41`: horizontally docked pane host with persisted proportional
-  resize, header drag reorder, and two-axis workspace scrolling
+- `feature/ghi#41`: docked pane host with persisted proportional resize, lower
+  pane-row drag reorder, and two-axis workspace scrolling
 
 ## Sync Notes
 
@@ -143,6 +143,9 @@ composition, which are likely to continue evolving upstream.
 - preserve the current editor and supporting-pane proportions as the default
   pane widths, then let the docked host overflow in both axes so additional or
   enlarged panes remain navigable instead of collapsing the workspace
+- keep the default AI above the default terminal, size every added pane from
+  the default terminal footprint, append terminal panes along the lower row,
+  and hide the workspace scrollbars without disabling two-axis scrolling
 - split future implementation into smaller patch files when the shell reframe
   turns into concrete workstreams such as sidebar mapping, pane extraction, or
   layout persistence

@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import type { PersistedWorkspaceDockedPane } from "./uiStateStore";
 import {
   MIN_WORKSPACE_PANE_WIDTH,
+  MIN_WORKSPACE_TERMINAL_ROW_HEIGHT,
   mergeVisibleWorkspacePaneUpdates,
   reorderWorkspacePanes,
   resizeAdjacentWorkspacePanes,
   workspacePaneWidth,
+  workspaceTerminalRowHeight,
 } from "./workspacePaneLayout";
 
 const panes: PersistedWorkspaceDockedPane[] = [
@@ -69,6 +71,25 @@ describe("workspace pane layout", () => {
     const resized = resizeAdjacentWorkspacePanes(panes, "editor", 10_000, hostWidth);
 
     expect(workspacePaneWidth(resized[1]!, hostWidth)).toBe(MIN_WORKSPACE_PANE_WIDTH);
+  });
+
+  it("uses the terminal footprint for every added pane type", () => {
+    const hostWidth = 1_200;
+    const addedEditor = Object.assign({}, panes[0]!, {
+      paneId: "editor:docs",
+    });
+
+    expect(workspacePaneWidth(addedEditor, hostWidth)).toBe(
+      workspacePaneWidth(panes[2]!, hostWidth),
+    );
+    expect(workspacePaneWidth(addedEditor, hostWidth)).toBeLessThan(
+      workspacePaneWidth(panes[0]!, hostWidth),
+    );
+  });
+
+  it("keeps the terminal row at its previous minimum height", () => {
+    expect(workspaceTerminalRowHeight(120)).toBe(MIN_WORKSPACE_TERMINAL_ROW_HEIGHT);
+    expect(workspaceTerminalRowHeight(360)).toBe(360);
   });
 
   it("keeps hidden panes while applying visible pane reorder and size updates", () => {

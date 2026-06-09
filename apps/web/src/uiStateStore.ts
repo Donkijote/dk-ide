@@ -1289,10 +1289,17 @@ export function addWorkspaceThreadDockedPane(
       };
     }
     const sortedPanes = sanitizeWorkspaceDockedPanes(existingPanes);
-    const sameTypeAnchor =
-      sortedPanes.find((existingPane) => existingPane.type === pane.type) ?? null;
-    const anchorIndex = sameTypeAnchor
-      ? sortedPanes.findIndex((existingPane) => existingPane.paneId === sameTypeAnchor.paneId)
+    const defaultTerminalPane =
+      sortedPanes.find(
+        (existingPane) => existingPane.paneId === WORKSPACE_DOCKED_PANE_IDS.terminal,
+      ) ?? null;
+    const placementAnchor =
+      pane.type === "terminal"
+        ? (sortedPanes.findLast((existingPane) => existingPane.type === "terminal") ??
+          defaultTerminalPane)
+        : (sortedPanes.at(-1) ?? defaultTerminalPane);
+    const anchorIndex = placementAnchor
+      ? sortedPanes.findIndex((existingPane) => existingPane.paneId === placementAnchor.paneId)
       : -1;
     const nextPane = anchorIndex >= 0 ? (sortedPanes[anchorIndex + 1] ?? null) : null;
     const maxOrder = sortedPanes.reduce(
@@ -1300,17 +1307,17 @@ export function addWorkspaceThreadDockedPane(
       -1,
     );
     const order =
-      sameTypeAnchor === null
+      placementAnchor === null
         ? maxOrder + 1
         : nextPane
-          ? sameTypeAnchor.order + (nextPane.order - sameTypeAnchor.order) / 2
-          : sameTypeAnchor.order + 1;
+          ? placementAnchor.order + (nextPane.order - placementAnchor.order) / 2
+          : placementAnchor.order + 1;
     const panes = sanitizeWorkspaceDockedPanes([
       ...existingPanes,
       {
         ...pane,
         order,
-        size: sameTypeAnchor?.size ?? pane.size,
+        size: defaultTerminalPane?.size ?? pane.size,
       },
     ]);
     return {
