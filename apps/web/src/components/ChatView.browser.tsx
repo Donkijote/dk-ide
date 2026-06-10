@@ -58,7 +58,7 @@ import { getRouter } from "../router";
 import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
 import { selectBootstrapCompleteForActiveEnvironment, useStore } from "../store";
 import { terminalSessionManager } from "../terminalSessionState";
-import { useTerminalUiStateStore } from "../terminalUiStateStore";
+import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useUiStateStore } from "../uiStateStore";
 import { createAuthenticatedSessionHandlers } from "../../test/authHttpHandlers";
 import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test/wsRpcHarness";
@@ -91,6 +91,7 @@ vi.mock("../lib/vcsStatusState", () => {
 
   return {
     getVcsStatusSnapshot: () => status,
+    watchVcsStatus: () => () => undefined,
     useVcsStatus: () => status,
     useVcsStatuses: () => new Map(),
     refreshVcsStatus: () => Promise.resolve(null),
@@ -2038,6 +2039,110 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps workspace terminals bound to the workspace when the AI pane thread changes", async () => {
+    const secondaryThreadId = "thread-secondary-ai-pane" as ThreadId;
+    const snapshotWithSecondaryThread = addThreadToSnapshot(
+      createSnapshotForTargetUser({
+        targetMessageId: "msg-user-workspace-terminal-owner" as MessageId,
+        targetText: "workspace terminal owner",
+      }),
+      secondaryThreadId,
+    );
+    const snapshot = {
+      ...snapshotWithSecondaryThread,
+      threads: snapshotWithSecondaryThread.threads.map((thread) =>
+        thread.id === secondaryThreadId
+          ? Object.assign({}, thread, { title: "Secondary AI thread" })
+          : thread,
+      ),
+    };
+
+    useTerminalUiStateStore.setState({
+      terminalUiStateByThreadKey: {
+        [THREAD_KEY]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: ["default"],
+          activeTerminalId: "default",
+          terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+          activeTerminalGroupId: "group-default",
+        },
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+      configureFixture: (nextFixture) => {
+        nextFixture.terminalMetadataEvents = [
+          {
+            type: "upsert",
+            terminal: {
+              threadId: THREAD_ID,
+              terminalId: DEFAULT_TERMINAL_ID,
+              cwd: "/repo/project",
+              worktreePath: null,
+              status: "running",
+              pid: 123,
+              exitCode: null,
+              exitSignal: null,
+              hasRunningSubprocess: false,
+              label: "Terminal 1",
+              updatedAt: isoAt(0),
+            },
+          },
+        ];
+      },
+    });
+
+    try {
+      const aiThreadSelect = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="AI pane thread"]'),
+        "Unable to find AI pane thread selector.",
+      );
+      aiThreadSelect.click();
+      const secondaryThreadItem = await waitForSelectItemContainingText("Secondary AI thread");
+      secondaryThreadItem.click();
+
+      await vi.waitFor(
+        () => {
+          expect(
+            useUiStateStore
+              .getState()
+              .workspaceThreadLayoutById[THREAD_KEY]?.panes?.find((pane) => pane.paneId === "ai"),
+          ).toMatchObject({
+            environmentId: LOCAL_ENVIRONMENT_ID,
+            metadata: {
+              threadId: secondaryThreadId,
+            },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(mounted.router.state.location.pathname).toBe(serverThreadPath(THREAD_ID));
+      expect(
+        selectThreadTerminalUiState(
+          useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+          threadRefFor(THREAD_ID),
+        ).terminalIds,
+      ).toEqual(["default"]);
+      expect(
+        selectThreadTerminalUiState(
+          useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+          threadRefFor(secondaryThreadId),
+        ).terminalIds,
+      ).toEqual([]);
+      expect(
+        wsRequests
+          .filter((request) => request._tag === WS_METHODS.terminalAttach)
+          .map((request) => request.threadId),
+      ).not.toContain(secondaryThreadId);
     } finally {
       await mounted.cleanup();
     }

@@ -540,7 +540,7 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
-  it("preserves custom docked panes while refreshing runtime attachment context", () => {
+  it("preserves a docked AI pane thread binding while refreshing workspace context", () => {
     const thread1 = ThreadId.make("thread-1");
     const initialPane: PersistedWorkspaceDockedPane = {
       paneId: "ai",
@@ -577,12 +577,12 @@ describe("uiStateStore pure functions", () => {
     ).toMatchObject({
       paneId: "ai",
       title: "Custom AI",
-      environmentId: "env-1",
-      cwd: "/repo",
+      environmentId: "old-env",
+      cwd: "/old",
       order: 4,
       size: 2,
       metadata: {
-        threadId: thread1,
+        threadId: "old-thread",
       },
     });
     expect(next.workspaceThreadLayoutById[thread1]?.panes?.map((pane) => pane.paneId)).toEqual([

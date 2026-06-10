@@ -2740,26 +2740,6 @@ export default function ChatView(props: ChatViewProps) {
       },
     });
   }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
-  const handleAiPaneThreadChange = useCallback(
-    (nextThreadKey: string | null) => {
-      if (nextThreadKey === null || nextThreadKey === activeThreadKey) {
-        return;
-      }
-      if (onWorkspaceAiPaneThreadChange) {
-        onWorkspaceAiPaneThreadChange(nextThreadKey);
-        return;
-      }
-      const nextThreadRef = parseScopedThreadKey(nextThreadKey);
-      if (!nextThreadRef) {
-        return;
-      }
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(nextThreadRef),
-      });
-    },
-    [activeThreadKey, navigate, onWorkspaceAiPaneThreadChange],
-  );
   const handleWorkspaceAiPaneThreadChange = useCallback(
     (paneId: string, nextThreadKey: string | null, options?: { title?: string }) => {
       if (nextThreadKey === null) {
@@ -2801,6 +2781,19 @@ export default function ChatView(props: ChatViewProps) {
       storeRemoveWorkspaceThreadDockedPane,
       storeSetWorkspaceThreadDockedPanes,
     ],
+  );
+  const handleAiPaneThreadChange = useCallback(
+    (nextThreadKey: string | null) => {
+      if (nextThreadKey === null || nextThreadKey === activeThreadKey) {
+        return;
+      }
+      if (onWorkspaceAiPaneThreadChange) {
+        onWorkspaceAiPaneThreadChange(nextThreadKey);
+        return;
+      }
+      handleWorkspaceAiPaneThreadChange("ai", nextThreadKey);
+    },
+    [activeThreadKey, handleWorkspaceAiPaneThreadChange, onWorkspaceAiPaneThreadChange],
   );
   const envLocked = Boolean(
     activeThread &&
@@ -5148,12 +5141,13 @@ export default function ChatView(props: ChatViewProps) {
     }
 
     const isDefaultAiPane = pane.paneId === "ai";
-    if (!isDefaultAiPane) {
-      const paneThreadId = pane.metadata.threadId ?? activeThread.id;
-      const paneThreadRef = scopeThreadRef(
-        pane.environmentId as EnvironmentId,
-        paneThreadId as ThreadId,
-      );
+    const paneThreadId = pane.metadata.threadId ?? activeThread.id;
+    const paneThreadRef = scopeThreadRef(
+      pane.environmentId as EnvironmentId,
+      paneThreadId as ThreadId,
+    );
+    const paneThreadKey = scopedThreadKey(paneThreadRef);
+    if (!isDefaultAiPane || paneThreadKey !== activeThreadKey) {
       return (
         <ChatView
           key={pane.paneId}

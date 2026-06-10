@@ -1147,15 +1147,7 @@ function workspaceDockedPaneWithRuntimeContext(
     return pane;
   }
   if (pane.type === "ai" && defaultPane.type === "ai") {
-    return {
-      ...pane,
-      environmentId: defaultPane.environmentId,
-      cwd: defaultPane.cwd,
-      metadata: {
-        ...pane.metadata,
-        ...defaultPane.metadata,
-      },
-    };
+    return pane;
   }
   if (pane.type === "terminal" && defaultPane.type === "terminal") {
     return {
