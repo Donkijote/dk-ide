@@ -577,13 +577,14 @@ function HorizontalResizeHandle({
       role="separator"
       aria-label={label}
       aria-orientation="vertical"
-      className="relative z-30 -mx-2 h-full w-4 shrink-0 cursor-col-resize touch-none"
+      className="relative z-30 -mx-2 w-4 shrink-0 self-stretch cursor-col-resize touch-none"
+      data-workspace-resize-handle="horizontal"
       onPointerCancel={onPointerUp}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      <div className="mx-auto h-full w-px bg-transparent transition-colors hover:bg-ring/70" />
+      <div className="mx-auto h-full w-px bg-border/60 transition-colors hover:bg-ring/70" />
     </div>
   );
 }
@@ -600,12 +601,13 @@ function VerticalResizeHandle({
       aria-label={label}
       aria-orientation="horizontal"
       className="relative z-30 -my-2 h-4 w-full shrink-0 cursor-row-resize touch-none"
+      data-workspace-resize-handle="vertical"
       onPointerCancel={onPointerUp}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      <div className="my-auto h-px w-full bg-transparent transition-colors hover:bg-ring/70" />
+      <div className="my-auto h-px w-full bg-border/60 transition-colors hover:bg-ring/70" />
     </div>
   );
 }

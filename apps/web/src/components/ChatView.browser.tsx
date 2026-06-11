@@ -1159,6 +1159,13 @@ function getWorkspacePane(paneId: string): HTMLElement {
   return pane!;
 }
 
+function getWorkspaceResizeHandleRects(): DOMRect[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>("[data-workspace-resize-handle]"),
+    (handle) => handle.getBoundingClientRect(),
+  );
+}
+
 async function waitForProductionStyles(): Promise<void> {
   await vi.waitFor(
     () => {
@@ -2208,6 +2215,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(firstTerminal.left).toBeGreaterThan(ai.right);
       expect(secondTerminal.left).toBe(firstTerminal.left);
       expect(secondTerminal.top).toBeGreaterThan(firstTerminal.bottom);
+      expect(getWorkspaceResizeHandleRects()).not.toHaveLength(0);
+      for (const handleRect of getWorkspaceResizeHandleRects()) {
+        expect(handleRect.width).toBeGreaterThan(0);
+        expect(handleRect.height).toBeGreaterThan(0);
+      }
     } finally {
       await mounted.cleanup();
       useUiStateStore.setState({ workspaceThreadLayoutById: {} });
