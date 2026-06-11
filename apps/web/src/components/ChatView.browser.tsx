@@ -2096,10 +2096,23 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const editor = getWorkspacePane("editor");
       const ai = getWorkspacePane("ai");
       const terminal = getWorkspacePane("terminal");
+      const horizontalDivider = document
+        .querySelector<HTMLElement>('[data-workspace-resize-divider="horizontal"]')!
+        .getBoundingClientRect();
+      const verticalDivider = document
+        .querySelector<HTMLElement>('[data-workspace-resize-divider="vertical"]')!
+        .getBoundingClientRect();
+      const editorRect = editor.getBoundingClientRect();
+      const aiRect = ai.getBoundingClientRect();
+      const terminalRect = terminal.getBoundingClientRect();
 
-      expect(ai.getBoundingClientRect().height).toBe(editor.getBoundingClientRect().height);
-      expect(terminal.getBoundingClientRect().top).toBeGreaterThan(
-        ai.getBoundingClientRect().bottom,
+      expect(aiRect.height).toBe(editorRect.height);
+      expect(terminalRect.top).toBeGreaterThan(aiRect.bottom);
+      expect(horizontalDivider.left + horizontalDivider.width / 2).toBe(
+        (editorRect.right + aiRect.left) / 2,
+      );
+      expect(verticalDivider.top + verticalDivider.height / 2).toBe(
+        (aiRect.bottom + terminalRect.top) / 2,
       );
 
       host!.scrollTop = host!.scrollHeight;
