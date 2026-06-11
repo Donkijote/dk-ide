@@ -2008,7 +2008,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("attaches the default terminal when opening an empty terminal drawer", async () => {
+  it("attaches the default terminal without a visibility toggle", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -2018,13 +2018,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const toggle = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>('button[aria-label="Toggle terminal drawer"]'),
-        "Unable to find terminal drawer toggle.",
-      );
-      toggle.click();
-
       await vi.waitFor(
         () => {
           const attachRequest = wsRequests.find(
@@ -2039,6 +2032,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+      expect(
+        document.querySelector('button[aria-label*="Toggle terminal"]'),
+      ).not.toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }

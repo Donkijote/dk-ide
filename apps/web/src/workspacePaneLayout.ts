@@ -1,7 +1,6 @@
 import type { PersistedWorkspaceDockedPane, WorkspaceDockedPaneSlot } from "./uiStateStore";
 
-export const MIN_WORKSPACE_PANE_WIDTH = 320;
-export const MIN_WORKSPACE_TERMINAL_ROW_HEIGHT = 220;
+export const MIN_WORKSPACE_TERMINAL_ROW_HEIGHT = 280;
 
 const MAX_WORKSPACE_PANE_WIDTH = 1_400;
 const EDITOR_DEFAULT_WIDTH_RATIO = 0.56;
@@ -34,10 +33,8 @@ export function workspacePaneWidth(
   pane: Pick<PersistedWorkspaceDockedPane, "paneId" | "size">,
   hostWidth: number,
 ): number {
-  return Math.min(
-    MAX_WORKSPACE_PANE_WIDTH,
-    Math.max(MIN_WORKSPACE_PANE_WIDTH, workspacePaneDefaultWidth(pane, hostWidth) * pane.size),
-  );
+  const defaultWidth = workspacePaneDefaultWidth(pane, hostWidth);
+  return Math.min(MAX_WORKSPACE_PANE_WIDTH, Math.max(defaultWidth, defaultWidth * pane.size));
 }
 
 export function workspaceTerminalRowHeight(height: number): number {
@@ -232,18 +229,22 @@ export function resizeAdjacentWorkspacePanes(
 
   const leadingWidth = workspacePaneWidth(leadingPane, hostWidth);
   const trailingWidth = workspacePaneWidth(trailingPane, hostWidth);
-  const clampedDelta = Math.min(
-    Math.max(delta, MIN_WORKSPACE_PANE_WIDTH - leadingWidth),
-    trailingWidth - MIN_WORKSPACE_PANE_WIDTH,
+  const leadingMinimumWidth = workspacePaneDefaultWidth(leadingPane, hostWidth);
+  const trailingMinimumWidth = workspacePaneDefaultWidth(trailingPane, hostWidth);
+  const leadingDelta = Math.min(
+    Math.max(delta, leadingMinimumWidth - leadingWidth),
+    MAX_WORKSPACE_PANE_WIDTH - leadingWidth,
   );
-  if (clampedDelta === 0) {
+  if (leadingDelta === 0) {
     return [...panes];
   }
 
-  const nextLeadingSize =
-    (leadingWidth + clampedDelta) / workspacePaneDefaultWidth(leadingPane, hostWidth);
-  const nextTrailingSize =
-    (trailingWidth - clampedDelta) / workspacePaneDefaultWidth(trailingPane, hostWidth);
+  const trailingDelta =
+    leadingDelta > 0
+      ? -Math.min(leadingDelta, trailingWidth - trailingMinimumWidth)
+      : Math.min(-leadingDelta, MAX_WORKSPACE_PANE_WIDTH - trailingWidth);
+  const nextLeadingSize = (leadingWidth + leadingDelta) / leadingMinimumWidth;
+  const nextTrailingSize = (trailingWidth + trailingDelta) / trailingMinimumWidth;
 
   return panes.map((pane, index) => {
     if (index === leadingIndex) {

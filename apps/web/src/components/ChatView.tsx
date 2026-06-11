@@ -229,7 +229,10 @@ import {
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
 import { RightPanelSheet } from "./RightPanelSheet";
-import { mergeVisibleWorkspacePaneUpdates } from "../workspacePaneLayout";
+import {
+  mergeVisibleWorkspacePaneUpdates,
+  workspaceTerminalRowHeight,
+} from "../workspacePaneLayout";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -586,45 +589,17 @@ interface WorkspaceHeaderPaneActionsProps {
   diffOpen: boolean;
   diffToggleShortcutLabel: string | null;
   isGitRepo: boolean;
-  runningTerminalCount: number;
-  terminalAvailable: boolean;
-  terminalOpen: boolean;
-  terminalToggleShortcutLabel: string | null;
   onAddPane: () => void;
   onToggleDiff: () => void;
-  onToggleTerminal: () => void;
 }
 
 const WorkspaceHeaderPaneActions = memo(function WorkspaceHeaderPaneActions({
   diffOpen,
   diffToggleShortcutLabel,
   isGitRepo,
-  runningTerminalCount,
-  terminalAvailable,
-  terminalOpen,
-  terminalToggleShortcutLabel,
   onAddPane,
   onToggleDiff,
-  onToggleTerminal,
 }: WorkspaceHeaderPaneActionsProps) {
-  const hasRunningTerminals = runningTerminalCount > 0;
-  const terminalStatusLabel =
-    runningTerminalCount === 1
-      ? "1 terminal process running"
-      : `${runningTerminalCount} terminal processes running`;
-  const terminalToggleLabel = hasRunningTerminals
-    ? `${terminalStatusLabel}. Toggle terminal pane`
-    : "Toggle terminal pane";
-  const terminalToggleTooltip = !terminalAvailable
-    ? "Terminal is unavailable until this thread has an active workspace."
-    : hasRunningTerminals
-      ? terminalToggleShortcutLabel
-        ? `${terminalStatusLabel}. Toggle terminal pane (${terminalToggleShortcutLabel})`
-        : `${terminalStatusLabel}. Toggle terminal pane`
-      : terminalToggleShortcutLabel
-        ? `Toggle terminal pane (${terminalToggleShortcutLabel})`
-        : "Toggle terminal pane";
-
   return (
     <div className="flex items-center gap-1.5">
       <Tooltip>
@@ -643,37 +618,6 @@ const WorkspaceHeaderPaneActions = memo(function WorkspaceHeaderPaneActions({
           }
         />
         <TooltipPopup side="bottom">Add pane</TooltipPopup>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Toggle
-              className={cn(
-                "shrink-0",
-                hasRunningTerminals &&
-                  "border-teal-500/35 bg-teal-500/10 text-teal-700 hover:bg-teal-500/15 data-pressed:bg-teal-500/15 dark:border-teal-300/30 dark:bg-teal-300/10 dark:text-teal-200 dark:hover:bg-teal-300/15 dark:data-pressed:bg-teal-300/15",
-              )}
-              pressed={terminalOpen}
-              onPressedChange={onToggleTerminal}
-              aria-label={terminalToggleLabel}
-              variant="outline"
-              size="xs"
-              disabled={!terminalAvailable}
-            >
-              <span className="relative inline-flex size-3 items-center justify-center">
-                <TerminalSquareIcon
-                  className={cn("size-3", hasRunningTerminals && "animate-pulse opacity-100")}
-                />
-                {runningTerminalCount > 1 ? (
-                  <span className="-right-2.5 -top-2 absolute flex h-3 min-w-3 items-center justify-center rounded-full bg-teal-600 px-0.5 font-medium text-[8px] text-white leading-none ring-1 ring-background tabular-nums dark:bg-teal-300 dark:text-teal-950">
-                    {runningTerminalCount}
-                  </span>
-                ) : null}
-              </span>
-            </Toggle>
-          }
-        />
-        <TooltipPopup side="bottom">{terminalToggleTooltip}</TooltipPopup>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger
@@ -2683,10 +2627,6 @@ export default function ChatView(props: ChatViewProps) {
     }),
     [terminalState.terminalOpen],
   );
-  const terminalToggleShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "terminal.toggle"),
-    [keybindings],
-  );
   const splitTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.split", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
@@ -2913,10 +2853,6 @@ export default function ChatView(props: ChatViewProps) {
       storeSetWorkspaceThreadLastActivePane,
     ],
   );
-  const toggleTerminalVisibility = useCallback(() => {
-    if (!activeThreadRef) return;
-    setTerminalOpen(!terminalState.terminalOpen);
-  }, [activeThreadRef, setTerminalOpen, terminalState.terminalOpen]);
   const splitTerminal = useCallback(() => {
     if (!activeThreadRef || hasReachedSplitLimit) return;
     const terminalId = `terminal-${randomUUID()}`;
@@ -3711,13 +3647,6 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "terminal.toggle") {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleTerminalVisibility();
-        return;
-      }
-
       if (command === "terminal.split") {
         event.preventDefault();
         event.stopPropagation();
@@ -3783,7 +3712,6 @@ export default function ChatView(props: ChatViewProps) {
     splitTerminal,
     keybindings,
     onToggleDiff,
-    toggleTerminalVisibility,
   ]);
 
   const onRevertToTurnCount = useCallback(
@@ -4902,11 +4830,6 @@ export default function ChatView(props: ChatViewProps) {
     onUpdateProjectScript: updateProjectScript,
     onDeleteProjectScript: deleteProjectScript,
   };
-  const activeMountedTerminalThreadRef = mountedTerminalThreadRefs.find(
-    ({ key }) => key === activeThreadKey,
-  )?.threadRef;
-  const visibleTerminalThreadRef =
-    activeMountedTerminalThreadRef ?? (terminalState.terminalOpen ? activeThreadRef : null);
   const hiddenMountedTerminalThreadRefs = mountedTerminalThreadRefs.filter(
     ({ key }) => key !== activeThreadKey,
   );
@@ -4955,10 +4878,7 @@ export default function ChatView(props: ChatViewProps) {
   ];
   const renderedWorkspaceDockedPanes =
     workspaceDockedPanes.length > 0 ? workspaceDockedPanes : fallbackWorkspaceDockedPanes;
-  const visibleWorkspaceDockedPanes = renderedWorkspaceDockedPanes.filter(
-    (pane) => pane.type !== "terminal" || visibleTerminalThreadRef !== null,
-  );
-  const terminalPaneDeckHeight = Math.max(terminalState.terminalHeight, 220);
+  const terminalPaneDeckHeight = workspaceTerminalRowHeight(terminalState.terminalHeight);
   const terminalLabelById = Object.fromEntries(
     terminalState.terminalIds.map((terminalId, index) => [terminalId, `Terminal ${index + 1}`]),
   );
@@ -5387,13 +5307,8 @@ export default function ChatView(props: ChatViewProps) {
               diffOpen={diffOpen}
               diffToggleShortcutLabel={diffPanelShortcutLabel}
               isGitRepo={isGitRepo}
-              runningTerminalCount={runningTerminalIds.length}
-              terminalAvailable={activeProject !== undefined}
-              terminalOpen={terminalState.terminalOpen}
-              terminalToggleShortcutLabel={terminalToggleShortcutLabel}
               onAddPane={() => setAddPaneDialogOpen(true)}
               onToggleDiff={onToggleDiff}
-              onToggleTerminal={toggleTerminalVisibility}
             />
           }
           activeThreadTitle={activeThread.title}
@@ -5416,7 +5331,7 @@ export default function ChatView(props: ChatViewProps) {
         onOpenChange={setAddPaneDialogOpen}
       />
       <WorkspacePaneHost
-        panes={visibleWorkspaceDockedPanes}
+        panes={renderedWorkspaceDockedPanes}
         renderPane={renderWorkspacePane}
         terminalRowHeight={terminalPaneDeckHeight}
         onPanesChange={(panes) =>
