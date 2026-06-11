@@ -94,6 +94,22 @@ describe("workspace pane layout", () => {
     expect(placements.get("terminal")).toEqual({ slot: "upper", column: 1, row: 0 });
   });
 
+  it("stacks a terminal below a terminal beside the AI pane", () => {
+    const terminal2: PersistedWorkspaceDockedPane = {
+      ...panes[2]!,
+      paneId: "terminal:2",
+      title: "Terminal 2",
+      order: 3,
+    };
+    const besideAi = placeWorkspacePane([...panes, terminal2], "terminal", "ai", "after");
+    const stacked = placeWorkspacePane(besideAi, "terminal:2", "terminal", "below");
+    const placements = workspacePanePlacements(stacked);
+
+    expect(placements.get("ai")).toEqual({ slot: "upper", column: 0, row: 0 });
+    expect(placements.get("terminal")).toEqual({ slot: "upper", column: 1, row: 0 });
+    expect(placements.get("terminal:2")).toEqual({ slot: "upper", column: 1, row: 1 });
+  });
+
   it("swaps editor and AI layout slots", () => {
     const placed = placeWorkspacePane(panes, "ai", "editor", "before");
     const placements = workspacePanePlacements(placed);

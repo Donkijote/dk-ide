@@ -2107,6 +2107,113 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("renders terminals stacked in a column beside the AI pane", async () => {
+    const secondTerminalId = "upper-terminal-2";
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [THREAD_KEY]: {
+          panes: [
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Editor",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              dockSlot: "primary",
+              dockColumn: 0,
+              dockRow: 0,
+              metadata: {},
+            },
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "AI",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 1,
+              size: 1,
+              dockSlot: "upper",
+              dockColumn: 0,
+              dockRow: 0,
+              metadata: { threadId: THREAD_ID },
+            },
+            {
+              paneId: "terminal",
+              type: "terminal",
+              title: "Terminal",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 2,
+              size: 1,
+              dockSlot: "upper",
+              dockColumn: 1,
+              dockRow: 0,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: DEFAULT_TERMINAL_ID,
+                terminalGroupId: "upper-group-1",
+              },
+            },
+            {
+              paneId: "terminal:upper-2",
+              type: "terminal",
+              title: "Terminal 2",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 3,
+              size: 1,
+              dockSlot: "upper",
+              dockColumn: 1,
+              dockRow: 1,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: secondTerminalId,
+                terminalGroupId: "upper-group-2",
+              },
+            },
+          ],
+        },
+      },
+    });
+    useTerminalUiStateStore.setState({
+      terminalUiStateByThreadKey: {
+        [THREAD_KEY]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: [DEFAULT_TERMINAL_ID, secondTerminalId],
+          activeTerminalId: DEFAULT_TERMINAL_ID,
+          terminalGroups: [
+            { id: "upper-group-1", terminalIds: [DEFAULT_TERMINAL_ID] },
+            { id: "upper-group-2", terminalIds: [secondTerminalId] },
+          ],
+          activeTerminalGroupId: "upper-group-1",
+        },
+      },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-upper-terminal-stack" as MessageId,
+        targetText: "upper terminal stack",
+      }),
+    });
+
+    try {
+      const ai = getWorkspacePane("ai").getBoundingClientRect();
+      const firstTerminal = getWorkspacePane("terminal").getBoundingClientRect();
+      const secondTerminal = getWorkspacePane("terminal:upper-2").getBoundingClientRect();
+
+      expect(firstTerminal.left).toBeGreaterThan(ai.right);
+      expect(secondTerminal.left).toBe(firstTerminal.left);
+      expect(secondTerminal.top).toBeGreaterThan(firstTerminal.bottom);
+    } finally {
+      await mounted.cleanup();
+      useUiStateStore.setState({ workspaceThreadLayoutById: {} });
+    }
+  });
+
   it("keeps workspace terminals bound to the workspace when the AI pane thread changes", async () => {
     const secondaryThreadId = "thread-secondary-ai-pane" as ThreadId;
     const snapshotWithSecondaryThread = addThreadToSnapshot(

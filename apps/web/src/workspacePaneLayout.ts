@@ -163,23 +163,44 @@ export function placeWorkspacePane(
     return [...panes];
   }
 
-  const isHorizontalDrop = direction === "before" || direction === "after";
-  if (overPlacement.slot === "upper" && activePlacement.slot !== "primary" && isHorizontalDrop) {
-    const upperPaneIds = panes
-      .filter((pane) => placements.get(pane.paneId)?.slot === "upper")
-      .toSorted(
-        (left, right) =>
-          (placements.get(left.paneId)?.column ?? 0) - (placements.get(right.paneId)?.column ?? 0),
-      )
-      .map((pane) => pane.paneId)
-      .filter((paneId) => paneId !== activePaneId);
-    const targetIndex = upperPaneIds.indexOf(overPaneId);
-    if (targetIndex < 0) {
+  if (overPlacement.slot === "upper" && activePlacement.slot !== "primary") {
+    const upperColumnsByIndex = new Map<number, string[]>();
+    for (const pane of panes) {
+      const placement = placements.get(pane.paneId);
+      if (placement?.slot !== "upper") {
+        continue;
+      }
+      const column = upperColumnsByIndex.get(placement.column) ?? [];
+      column.push(pane.paneId);
+      upperColumnsByIndex.set(placement.column, column);
+    }
+    for (const column of upperColumnsByIndex.values()) {
+      column.sort(
+        (leftPaneId, rightPaneId) =>
+          (placements.get(leftPaneId)?.row ?? 0) - (placements.get(rightPaneId)?.row ?? 0),
+      );
+    }
+    const upperColumns = [...upperColumnsByIndex.entries()]
+      .toSorted(([leftColumn], [rightColumn]) => leftColumn - rightColumn)
+      .map(([, paneIds]) => paneIds.filter((paneId) => paneId !== activePaneId))
+      .filter((paneIds) => paneIds.length > 0);
+    const targetColumnIndex = upperColumns.findIndex((paneIds) => paneIds.includes(overPaneId));
+    if (targetColumnIndex < 0) {
       return [...panes];
     }
-    upperPaneIds.splice(targetIndex + (direction === "after" ? 1 : 0), 0, activePaneId);
-    upperPaneIds.forEach((paneId, column) => {
-      placements.set(paneId, { slot: "upper", column, row: 0 });
+
+    if (direction === "above" || direction === "below") {
+      const targetColumn = upperColumns[targetColumnIndex]!;
+      const targetRow = targetColumn.indexOf(overPaneId);
+      targetColumn.splice(targetRow + (direction === "below" ? 1 : 0), 0, activePaneId);
+    } else {
+      upperColumns.splice(targetColumnIndex + (direction === "after" ? 1 : 0), 0, [activePaneId]);
+    }
+
+    upperColumns.forEach((paneIds, column) => {
+      paneIds.forEach((paneId, row) => {
+        placements.set(paneId, { slot: "upper", column, row });
+      });
     });
     return withNormalizedWorkspacePanePlacements(panes, placements);
   }

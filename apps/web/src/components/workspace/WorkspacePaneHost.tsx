@@ -167,14 +167,32 @@ export function WorkspacePaneHost({
   const panePlacements = useMemo(() => workspacePanePlacements(renderedPanes), [renderedPanes]);
   const primaryPane =
     renderedPanes.find((pane) => panePlacements.get(pane.paneId)?.slot === "primary") ?? null;
-  const upperPanes = renderedPanes
-    .filter((pane) => panePlacements.get(pane.paneId)?.slot === "upper")
-    .toSorted(
-      (left, right) =>
-        (panePlacements.get(left.paneId)?.column ?? 0) -
-        (panePlacements.get(right.paneId)?.column ?? 0),
-    );
-  const resizableUpperPane = upperPanes.find((pane) => pane.type === "ai") ?? upperPanes[0] ?? null;
+  const upperColumns = useMemo(() => {
+    const columns = new Map<number, PersistedWorkspaceDockedPane[]>();
+    for (const pane of renderedPanes) {
+      const placement = panePlacements.get(pane.paneId);
+      if (placement?.slot !== "upper") {
+        continue;
+      }
+      const column = columns.get(placement.column) ?? [];
+      column.push(pane);
+      columns.set(placement.column, column);
+    }
+    return [...columns.entries()]
+      .toSorted(([leftColumn], [rightColumn]) => leftColumn - rightColumn)
+      .map(([column, columnPanes]) => ({
+        column,
+        panes: columnPanes.toSorted(
+          (left, right) =>
+            (panePlacements.get(left.paneId)?.row ?? 0) -
+            (panePlacements.get(right.paneId)?.row ?? 0),
+        ),
+      }));
+  }, [panePlacements, renderedPanes]);
+  const resizableUpperPane =
+    upperColumns.flatMap((column) => column.panes).find((pane) => pane.type === "ai") ??
+    upperColumns[0]?.panes[0] ??
+    null;
   const gridColumns = useMemo(() => {
     const columns = new Map<number, PersistedWorkspaceDockedPane[]>();
     for (const pane of renderedPanes) {
@@ -205,8 +223,12 @@ export function WorkspacePaneHost({
     ) +
     Math.max(0, gridColumns.length - 1) * WORKSPACE_PANE_GAP;
   const upperRowWidth =
-    upperPanes.reduce((width, pane) => width + workspacePaneWidth(pane, layoutWidth), 0) +
-    Math.max(0, upperPanes.length - 1) * WORKSPACE_PANE_GAP;
+    upperColumns.reduce(
+      (width, column) =>
+        width + Math.max(...column.panes.map((pane) => workspacePaneWidth(pane, layoutWidth)), 0),
+      0,
+    ) +
+    Math.max(0, upperColumns.length - 1) * WORKSPACE_PANE_GAP;
   const rightDockWidth = Math.max(upperRowWidth, lowerRowWidth);
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -417,14 +439,14 @@ export function WorkspacePaneHost({
               </div>
             ) : null}
 
-            {primaryPane && (upperPanes[0] || gridColumns[0]?.panes[0]) ? (
+            {primaryPane && (upperColumns[0]?.panes[0] || gridColumns[0]?.panes[0]) ? (
               <HorizontalResizeHandle
                 label={`Resize ${primaryPane.title} pane`}
                 onPointerDown={(event) =>
                   handleHorizontalResizePointerDown(
                     event,
                     primaryPane.paneId,
-                    (upperPanes[0] ?? gridColumns[0]!.panes[0])!.paneId,
+                    (upperColumns[0]?.panes[0] ?? gridColumns[0]!.panes[0])!.paneId,
                   )
                 }
                 onPointerMove={handleHorizontalResizePointerMove}
@@ -432,37 +454,42 @@ export function WorkspacePaneHost({
               />
             ) : null}
 
-            {upperPanes.length > 0 || gridColumns.length > 0 ? (
+            {upperColumns.length > 0 || gridColumns.length > 0 ? (
               <div
                 className="relative flex shrink-0 flex-col gap-3"
                 style={{ width: `${rightDockWidth}px` }}
               >
-                {upperPanes.length > 0 ? (
+                {upperColumns.length > 0 ? (
                   <div className="flex shrink-0 items-start gap-3">
-                    {upperPanes.map((pane, paneIndex) => (
-                      <div key={pane.paneId} className="relative flex shrink-0 items-stretch">
-                        <div
-                          className="flex shrink-0"
-                          style={{
-                            height: `${
-                              pane.type === "terminal"
-                                ? renderedTerminalRowHeight
-                                : workspacePaneHeight(pane, layoutHeight)
-                            }px`,
-                          }}
-                        >
-                          <SortableWorkspacePane hostWidth={layoutWidth} pane={pane}>
-                            {renderPane(pane)}
-                          </SortableWorkspacePane>
+                    {upperColumns.map((column, columnIndex) => (
+                      <div key={column.column} className="relative flex shrink-0 items-stretch">
+                        <div className="flex shrink-0 flex-col gap-3">
+                          {column.panes.map((pane) => (
+                            <div
+                              key={pane.paneId}
+                              className="flex shrink-0"
+                              style={{
+                                height: `${
+                                  pane.type === "terminal"
+                                    ? renderedTerminalRowHeight
+                                    : workspacePaneHeight(pane, layoutHeight)
+                                }px`,
+                              }}
+                            >
+                              <SortableWorkspacePane hostWidth={layoutWidth} pane={pane}>
+                                {renderPane(pane)}
+                              </SortableWorkspacePane>
+                            </div>
+                          ))}
                         </div>
-                        {upperPanes[paneIndex + 1] ? (
+                        {upperColumns[columnIndex + 1] ? (
                           <HorizontalResizeHandle
-                            label={`Resize ${pane.title} pane`}
+                            label={`Resize ${column.panes[0]!.title} pane`}
                             onPointerDown={(event) =>
                               handleHorizontalResizePointerDown(
                                 event,
-                                pane.paneId,
-                                upperPanes[paneIndex + 1]!.paneId,
+                                column.panes[0]!.paneId,
+                                upperColumns[columnIndex + 1]!.panes[0]!.paneId,
                               )
                             }
                             onPointerMove={handleHorizontalResizePointerMove}
