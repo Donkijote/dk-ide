@@ -10,12 +10,17 @@ const SUPPORTING_PANE_DEFAULT_WIDTH_RATIO = 0.44;
 const EDITOR_MIN_DEFAULT_WIDTH = 512;
 const SUPPORTING_PANE_MIN_DEFAULT_WIDTH = 384;
 
-export type WorkspacePaneDropDirection = "above" | "below" | "before" | "after";
+export type WorkspacePaneDropDirection = "above" | "below" | "before" | "after" | "swap";
 
 export interface WorkspacePanePlacement {
   readonly slot: WorkspaceDockedPaneSlot;
   readonly column: number;
   readonly row: number;
+}
+
+export interface WorkspacePaneColumn {
+  readonly column: number;
+  readonly panes: readonly PersistedWorkspaceDockedPane[];
 }
 
 export function workspacePaneDefaultWidth(
@@ -48,9 +53,7 @@ export function workspacePaneHeight(
   defaultHeight: number,
 ): number {
   const minimumHeight =
-    Number.isFinite(defaultHeight) && defaultHeight > 0
-      ? Math.max(MIN_WORKSPACE_PANE_HEIGHT, defaultHeight)
-      : MIN_WORKSPACE_PANE_HEIGHT;
+    Number.isFinite(defaultHeight) && defaultHeight > 0 ? defaultHeight : MIN_WORKSPACE_PANE_HEIGHT;
   return Math.min(MAX_WORKSPACE_PANE_HEIGHT, Math.max(minimumHeight, pane.height ?? minimumHeight));
 }
 
@@ -74,7 +77,7 @@ export function reorderWorkspacePanes(
   return reordered.map((pane, index) => Object.assign({}, pane, { order: index }));
 }
 
-export function workspacePanePlacements(
+function persistedWorkspacePanePlacements(
   panes: readonly PersistedWorkspaceDockedPane[],
 ): ReadonlyMap<string, WorkspacePanePlacement> {
   const placements = new Map<string, WorkspacePanePlacement>();
@@ -115,36 +118,91 @@ export function workspacePanePlacements(
   return placements;
 }
 
-function withNormalizedWorkspacePanePlacements(
+export function workspacePaneColumns(
   panes: readonly PersistedWorkspaceDockedPane[],
-  placements: ReadonlyMap<string, WorkspacePanePlacement>,
-): PersistedWorkspaceDockedPane[] {
-  const sortedPanes = [...panes].toSorted((left, right) => {
-    const leftPlacement = placements.get(left.paneId);
-    const rightPlacement = placements.get(right.paneId);
-    if (!leftPlacement || !rightPlacement) {
-      return left.order - right.order;
+): readonly WorkspacePaneColumn[] {
+  const placements = persistedWorkspacePanePlacements(panes);
+  const hasLegacySlots = panes.some((pane) => {
+    const slot = placements.get(pane.paneId)?.slot;
+    return slot === "primary" || slot === "upper";
+  });
+  const groupedPanes = new Map<string, PersistedWorkspaceDockedPane[]>();
+
+  for (const pane of panes) {
+    const placement = placements.get(pane.paneId);
+    if (!placement) {
+      continue;
     }
-    const slotOrder = { primary: 0, upper: 1, grid: 2 } as const;
-    return (
-      slotOrder[leftPlacement.slot] - slotOrder[rightPlacement.slot] ||
-      leftPlacement.column - rightPlacement.column ||
-      leftPlacement.row - rightPlacement.row ||
-      left.order - right.order
-    );
+    const key = hasLegacySlots
+      ? placement.slot === "primary"
+        ? `primary:${placement.column}`
+        : `supporting:${placement.column}`
+      : `grid:${placement.column}`;
+    const column = groupedPanes.get(key) ?? [];
+    column.push(pane);
+    groupedPanes.set(key, column);
+  }
+
+  const columnKeys = [...groupedPanes.keys()].toSorted((left, right) => {
+    const [leftGroup, leftColumnText] = left.split(":");
+    const [rightGroup, rightColumnText] = right.split(":");
+    const leftGroupOrder = leftGroup === "primary" ? 0 : 1;
+    const rightGroupOrder = rightGroup === "primary" ? 0 : 1;
+    return leftGroupOrder - rightGroupOrder || Number(leftColumnText) - Number(rightColumnText);
   });
 
-  return sortedPanes.map((pane, order) => {
-    const placement = placements.get(pane.paneId);
-    return placement
-      ? Object.assign({}, pane, {
-          order,
-          dockSlot: placement.slot,
-          dockColumn: placement.column,
-          dockRow: placement.row,
-        })
-      : Object.assign({}, pane, { order });
-  });
+  return columnKeys.map((key, column) => ({
+    column,
+    panes: (groupedPanes.get(key) ?? []).toSorted((left, right) => {
+      const leftPlacement = placements.get(left.paneId);
+      const rightPlacement = placements.get(right.paneId);
+      if (!leftPlacement || !rightPlacement) {
+        return left.order - right.order;
+      }
+      const slotRowOffset = hasLegacySlots && leftPlacement.slot === "grid" ? 1_000_000 : 0;
+      const rightSlotRowOffset = hasLegacySlots && rightPlacement.slot === "grid" ? 1_000_000 : 0;
+      return (
+        slotRowOffset + leftPlacement.row - (rightSlotRowOffset + rightPlacement.row) ||
+        left.order - right.order
+      );
+    }),
+  }));
+}
+
+export function workspacePanePlacements(
+  panes: readonly PersistedWorkspaceDockedPane[],
+): ReadonlyMap<string, WorkspacePanePlacement> {
+  const placements = new Map<string, WorkspacePanePlacement>();
+  for (const column of workspacePaneColumns(panes)) {
+    column.panes.forEach((pane, row) => {
+      placements.set(pane.paneId, { slot: "grid", column: column.column, row });
+    });
+  }
+  return placements;
+}
+
+function withNormalizedWorkspacePaneColumns(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  columns: readonly (readonly string[])[],
+): PersistedWorkspaceDockedPane[] {
+  const paneById = new Map(panes.map((pane) => [pane.paneId, pane]));
+  return columns
+    .flatMap((paneIds, column) =>
+      paneIds.flatMap((paneId, row) => {
+        const pane = paneById.get(paneId);
+        return pane
+          ? [
+              Object.assign({}, pane, {
+                order: column + row,
+                dockSlot: "grid" as const,
+                dockColumn: column,
+                dockRow: row,
+              }),
+            ]
+          : [];
+      }),
+    )
+    .map((pane, order) => Object.assign({}, pane, { order }));
 }
 
 export function placeWorkspacePane(
@@ -156,111 +214,30 @@ export function placeWorkspacePane(
   if (activePaneId === overPaneId) {
     return [...panes];
   }
-  const placements = new Map(workspacePanePlacements(panes));
-  const activePlacement = placements.get(activePaneId);
-  const overPlacement = placements.get(overPaneId);
-  if (!activePlacement || !overPlacement) {
+  const columns = workspacePaneColumns(panes).map((column) =>
+    column.panes.map((pane) => pane.paneId),
+  );
+  const activeColumnIndex = columns.findIndex((paneIds) => paneIds.includes(activePaneId));
+  const overColumnIndex = columns.findIndex((paneIds) => paneIds.includes(overPaneId));
+  if (activeColumnIndex < 0 || overColumnIndex < 0) {
     return [...panes];
   }
-
-  if (
-    overPlacement.slot === "primary" &&
-    activePlacement.slot !== "primary" &&
-    (direction === "above" || direction === "below")
-  ) {
-    const primaryPaneIds = panes
-      .filter((pane) => placements.get(pane.paneId)?.slot === "primary")
-      .toSorted(
-        (left, right) =>
-          (placements.get(left.paneId)?.row ?? 0) - (placements.get(right.paneId)?.row ?? 0),
-      )
-      .map((pane) => pane.paneId)
-      .filter((paneId) => paneId !== activePaneId);
-    const targetRow = primaryPaneIds.indexOf(overPaneId);
-    if (targetRow < 0) {
-      return [...panes];
-    }
-    primaryPaneIds.splice(targetRow + (direction === "below" ? 1 : 0), 0, activePaneId);
-    primaryPaneIds.forEach((paneId, row) => {
-      placements.set(paneId, { slot: "primary", column: 0, row });
-    });
-    return withNormalizedWorkspacePanePlacements(panes, placements);
+  const activeRowIndex = columns[activeColumnIndex]!.indexOf(activePaneId);
+  const overRowIndex = columns[overColumnIndex]!.indexOf(overPaneId);
+  if (direction === "swap") {
+    columns[activeColumnIndex]![activeRowIndex] = overPaneId;
+    columns[overColumnIndex]![overRowIndex] = activePaneId;
+    return withNormalizedWorkspacePaneColumns(panes, columns);
   }
 
-  if (overPlacement.slot === "upper" && activePlacement.slot !== "primary") {
-    const upperColumnsByIndex = new Map<number, string[]>();
-    for (const pane of panes) {
-      const placement = placements.get(pane.paneId);
-      if (placement?.slot !== "upper") {
-        continue;
-      }
-      const column = upperColumnsByIndex.get(placement.column) ?? [];
-      column.push(pane.paneId);
-      upperColumnsByIndex.set(placement.column, column);
-    }
-    for (const column of upperColumnsByIndex.values()) {
-      column.sort(
-        (leftPaneId, rightPaneId) =>
-          (placements.get(leftPaneId)?.row ?? 0) - (placements.get(rightPaneId)?.row ?? 0),
-      );
-    }
-    const upperColumns = [...upperColumnsByIndex.entries()]
-      .toSorted(([leftColumn], [rightColumn]) => leftColumn - rightColumn)
-      .map(([, paneIds]) => paneIds.filter((paneId) => paneId !== activePaneId))
-      .filter((paneIds) => paneIds.length > 0);
-    const targetColumnIndex = upperColumns.findIndex((paneIds) => paneIds.includes(overPaneId));
-    if (targetColumnIndex < 0) {
-      return [...panes];
-    }
-
-    if (direction === "above" || direction === "below") {
-      const targetColumn = upperColumns[targetColumnIndex]!;
-      const targetRow = targetColumn.indexOf(overPaneId);
-      targetColumn.splice(targetRow + (direction === "below" ? 1 : 0), 0, activePaneId);
-    } else {
-      upperColumns.splice(targetColumnIndex + (direction === "after" ? 1 : 0), 0, [activePaneId]);
-    }
-
-    upperColumns.forEach((paneIds, column) => {
-      paneIds.forEach((paneId, row) => {
-        placements.set(paneId, { slot: "upper", column, row });
-      });
-    });
-    return withNormalizedWorkspacePanePlacements(panes, placements);
+  columns[activeColumnIndex]!.splice(activeRowIndex, 1);
+  if (columns[activeColumnIndex]!.length === 0) {
+    columns.splice(activeColumnIndex, 1);
   }
-
-  if (activePlacement.slot !== "grid" || overPlacement.slot !== "grid") {
-    placements.set(activePaneId, overPlacement);
-    placements.set(overPaneId, activePlacement);
-    return withNormalizedWorkspacePanePlacements(panes, placements);
-  }
-
-  const gridColumns = new Map<number, string[]>();
-  for (const pane of panes) {
-    const placement = placements.get(pane.paneId);
-    if (placement?.slot !== "grid") {
-      continue;
-    }
-    const column = gridColumns.get(placement.column) ?? [];
-    column.push(pane.paneId);
-    gridColumns.set(placement.column, column);
-  }
-  for (const column of gridColumns.values()) {
-    column.sort(
-      (leftPaneId, rightPaneId) =>
-        (placements.get(leftPaneId)?.row ?? 0) - (placements.get(rightPaneId)?.row ?? 0),
-    );
-  }
-
-  const columns = [...gridColumns.entries()]
-    .toSorted(([leftColumn], [rightColumn]) => leftColumn - rightColumn)
-    .map(([, paneIds]) => paneIds.filter((paneId) => paneId !== activePaneId))
-    .filter((paneIds) => paneIds.length > 0);
   const targetColumnIndex = columns.findIndex((paneIds) => paneIds.includes(overPaneId));
   if (targetColumnIndex < 0) {
     return [...panes];
   }
-
   if (direction === "above" || direction === "below") {
     const targetColumn = columns[targetColumnIndex]!;
     const targetRow = targetColumn.indexOf(overPaneId);
@@ -268,13 +245,7 @@ export function placeWorkspacePane(
   } else {
     columns.splice(targetColumnIndex + (direction === "after" ? 1 : 0), 0, [activePaneId]);
   }
-
-  columns.forEach((paneIds, column) => {
-    paneIds.forEach((paneId, row) => {
-      placements.set(paneId, { slot: "grid", column, row });
-    });
-  });
-  return withNormalizedWorkspacePanePlacements(panes, placements);
+  return withNormalizedWorkspacePaneColumns(panes, columns);
 }
 
 export function resizeWorkspacePaneHeight(

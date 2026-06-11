@@ -9,6 +9,7 @@ import {
   reorderWorkspacePanes,
   resizeAdjacentWorkspacePanes,
   resizeWorkspacePaneHeight,
+  workspacePaneColumns,
   workspacePaneDefaultWidth,
   workspacePaneHeight,
   workspacePanePlacements,
@@ -68,8 +69,8 @@ describe("workspace pane layout", () => {
     const placements = workspacePanePlacements(placed);
 
     expect(placed.map((pane) => pane.paneId)).toEqual(["editor", "ai", "terminal", "terminal:2"]);
-    expect(placements.get("terminal")).toEqual({ slot: "grid", column: 0, row: 0 });
-    expect(placements.get("terminal:2")).toEqual({ slot: "grid", column: 0, row: 1 });
+    expect(placements.get("terminal")).toEqual({ slot: "grid", column: 1, row: 1 });
+    expect(placements.get("terminal:2")).toEqual({ slot: "grid", column: 1, row: 2 });
   });
 
   it("keeps a horizontal drop in a separate terminal column", () => {
@@ -82,16 +83,16 @@ describe("workspace pane layout", () => {
     const placed = placeWorkspacePane([...panes, terminal2], "terminal:2", "terminal", "after");
     const placements = workspacePanePlacements(placed);
 
-    expect(placements.get("terminal")).toEqual({ slot: "grid", column: 0, row: 0 });
-    expect(placements.get("terminal:2")).toEqual({ slot: "grid", column: 1, row: 0 });
+    expect(placements.get("terminal")).toEqual({ slot: "grid", column: 1, row: 1 });
+    expect(placements.get("terminal:2")).toEqual({ slot: "grid", column: 2, row: 0 });
   });
 
   it("places a terminal beside the AI pane without replacing it", () => {
     const placed = placeWorkspacePane(panes, "terminal", "ai", "after");
     const placements = workspacePanePlacements(placed);
 
-    expect(placements.get("ai")).toEqual({ slot: "upper", column: 0, row: 0 });
-    expect(placements.get("terminal")).toEqual({ slot: "upper", column: 1, row: 0 });
+    expect(placements.get("ai")).toEqual({ slot: "grid", column: 1, row: 0 });
+    expect(placements.get("terminal")).toEqual({ slot: "grid", column: 2, row: 0 });
   });
 
   it("stacks a terminal below a terminal beside the AI pane", () => {
@@ -105,26 +106,56 @@ describe("workspace pane layout", () => {
     const stacked = placeWorkspacePane(besideAi, "terminal:2", "terminal", "below");
     const placements = workspacePanePlacements(stacked);
 
-    expect(placements.get("ai")).toEqual({ slot: "upper", column: 0, row: 0 });
-    expect(placements.get("terminal")).toEqual({ slot: "upper", column: 1, row: 0 });
-    expect(placements.get("terminal:2")).toEqual({ slot: "upper", column: 1, row: 1 });
+    expect(placements.get("ai")).toEqual({ slot: "grid", column: 1, row: 0 });
+    expect(placements.get("terminal")).toEqual({ slot: "grid", column: 2, row: 0 });
+    expect(placements.get("terminal:2")).toEqual({ slot: "grid", column: 2, row: 1 });
   });
 
   it("stacks a terminal below the editor pane", () => {
     const placed = placeWorkspacePane(panes, "terminal", "editor", "below");
     const placements = workspacePanePlacements(placed);
 
-    expect(placements.get("editor")).toEqual({ slot: "primary", column: 0, row: 0 });
-    expect(placements.get("terminal")).toEqual({ slot: "primary", column: 0, row: 1 });
-    expect(placements.get("ai")).toEqual({ slot: "upper", column: 0, row: 0 });
+    expect(placements.get("editor")).toEqual({ slot: "grid", column: 0, row: 0 });
+    expect(placements.get("terminal")).toEqual({ slot: "grid", column: 0, row: 1 });
+    expect(placements.get("ai")).toEqual({ slot: "grid", column: 1, row: 0 });
   });
 
-  it("swaps editor and AI layout slots", () => {
-    const placed = placeWorkspacePane(panes, "ai", "editor", "before");
+  it("swaps panes when dropped over each other", () => {
+    const placed = placeWorkspacePane(panes, "ai", "editor", "swap");
     const placements = workspacePanePlacements(placed);
 
-    expect(placements.get("ai")?.slot).toBe("primary");
-    expect(placements.get("editor")?.slot).toBe("upper");
+    expect(placements.get("ai")).toEqual({ slot: "grid", column: 0, row: 0 });
+    expect(placements.get("editor")).toEqual({ slot: "grid", column: 1, row: 0 });
+    expect(placements.get("terminal")).toEqual({ slot: "grid", column: 1, row: 1 });
+  });
+
+  it("supports repeated row and column moves from any pane position", () => {
+    const terminal2: PersistedWorkspaceDockedPane = {
+      ...panes[2]!,
+      paneId: "terminal:2",
+      title: "Terminal 2",
+      order: 3,
+    };
+    const terminal3: PersistedWorkspaceDockedPane = {
+      ...panes[2]!,
+      paneId: "terminal:3",
+      title: "Terminal 3",
+      order: 4,
+    };
+
+    const besideAi = placeWorkspacePane(
+      [...panes, terminal2, terminal3],
+      "terminal:2",
+      "ai",
+      "after",
+    );
+    const belowBesidePane = placeWorkspacePane(besideAi, "terminal:3", "terminal:2", "below");
+    const belowEditor = placeWorkspacePane(belowBesidePane, "terminal", "editor", "below");
+    const swapped = placeWorkspacePane(belowEditor, "terminal:3", "ai", "swap");
+
+    expect(
+      workspacePaneColumns(swapped).map((column) => column.panes.map((pane) => pane.paneId)),
+    ).toEqual([["editor", "terminal"], ["terminal:3"], ["terminal:2", "ai"]]);
   });
 
   it("transfers available width from the adjacent pane before expanding the workspace", () => {
@@ -194,6 +225,19 @@ describe("workspace pane layout", () => {
     expect(workspacePaneHeight(resized[1]!, MIN_WORKSPACE_PANE_HEIGHT)).toBe(900);
     expect(workspacePaneHeight(undersized[1]!, MIN_WORKSPACE_PANE_HEIGHT)).toBe(
       MIN_WORKSPACE_PANE_HEIGHT,
+    );
+  });
+
+  it("uses the terminal default height as the terminal resize minimum", () => {
+    const undersized = resizeWorkspacePaneHeight(
+      panes,
+      "terminal",
+      100,
+      MIN_WORKSPACE_TERMINAL_ROW_HEIGHT,
+    );
+
+    expect(workspacePaneHeight(undersized[2]!, MIN_WORKSPACE_TERMINAL_ROW_HEIGHT)).toBe(
+      MIN_WORKSPACE_TERMINAL_ROW_HEIGHT,
     );
   });
 

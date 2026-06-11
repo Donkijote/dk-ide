@@ -29,14 +29,13 @@ import {
   resizeAdjacentWorkspacePanes,
   resizeWorkspacePaneHeight,
   type WorkspacePaneDropDirection,
+  workspacePaneColumns,
   workspacePaneHeight,
-  workspacePanePlacements,
   workspacePaneWidth,
   workspaceTerminalRowHeight,
 } from "~/workspacePaneLayout";
 import { cn } from "~/lib/utils";
 
-const WORKSPACE_PANE_GAP = 12;
 const WORKSPACE_PANE_MEASURING = {
   droppable: {
     strategy: MeasuringStrategy.WhileDragging,
@@ -122,6 +121,9 @@ function workspacePaneDropDirection({
   const verticalOffset =
     (activeRect.top + activeRect.height / 2 - (over.rect.top + over.rect.height / 2)) /
     Math.max(over.rect.height, 1);
+  if (Math.abs(horizontalOffset) <= 0.25 && Math.abs(verticalOffset) <= 0.25) {
+    return "swap";
+  }
   if (Math.abs(verticalOffset) > Math.abs(horizontalOffset)) {
     return verticalOffset < 0 ? "above" : "below";
   }
@@ -150,6 +152,7 @@ export function WorkspacePaneHost({
     panes: readonly PersistedWorkspaceDockedPane[];
   } | null>(null);
   const verticalResizeStateRef = useRef<{
+    defaultHeight: number;
     pointerId: number;
     paneId: string;
     startHeight: number;
@@ -164,81 +167,7 @@ export function WorkspacePaneHost({
   const renderedPanes = previewPanes ?? panes;
   const renderedTerminalRowHeight = workspaceTerminalRowHeight(terminalRowHeight);
   const paneIds = useStableWorkspacePaneIds(renderedPanes);
-  const panePlacements = useMemo(() => workspacePanePlacements(renderedPanes), [renderedPanes]);
-  const primaryPanes = renderedPanes
-    .filter((pane) => panePlacements.get(pane.paneId)?.slot === "primary")
-    .toSorted(
-      (left, right) =>
-        (panePlacements.get(left.paneId)?.row ?? 0) - (panePlacements.get(right.paneId)?.row ?? 0),
-    );
-  const primaryPane = primaryPanes[0] ?? null;
-  const upperColumns = useMemo(() => {
-    const columns = new Map<number, PersistedWorkspaceDockedPane[]>();
-    for (const pane of renderedPanes) {
-      const placement = panePlacements.get(pane.paneId);
-      if (placement?.slot !== "upper") {
-        continue;
-      }
-      const column = columns.get(placement.column) ?? [];
-      column.push(pane);
-      columns.set(placement.column, column);
-    }
-    return [...columns.entries()]
-      .toSorted(([leftColumn], [rightColumn]) => leftColumn - rightColumn)
-      .map(([column, columnPanes]) => ({
-        column,
-        panes: columnPanes.toSorted(
-          (left, right) =>
-            (panePlacements.get(left.paneId)?.row ?? 0) -
-            (panePlacements.get(right.paneId)?.row ?? 0),
-        ),
-      }));
-  }, [panePlacements, renderedPanes]);
-  const resizableUpperPane =
-    upperColumns.flatMap((column) => column.panes).find((pane) => pane.type === "ai") ??
-    upperColumns[0]?.panes[0] ??
-    null;
-  const gridColumns = useMemo(() => {
-    const columns = new Map<number, PersistedWorkspaceDockedPane[]>();
-    for (const pane of renderedPanes) {
-      const placement = panePlacements.get(pane.paneId);
-      if (placement?.slot !== "grid") {
-        continue;
-      }
-      const column = columns.get(placement.column) ?? [];
-      column.push(pane);
-      columns.set(placement.column, column);
-    }
-    return [...columns.entries()]
-      .toSorted(([leftColumn], [rightColumn]) => leftColumn - rightColumn)
-      .map(([column, columnPanes]) => ({
-        column,
-        panes: columnPanes.toSorted(
-          (left, right) =>
-            (panePlacements.get(left.paneId)?.row ?? 0) -
-            (panePlacements.get(right.paneId)?.row ?? 0),
-        ),
-      }));
-  }, [panePlacements, renderedPanes]);
-  const lowerRowWidth =
-    gridColumns.reduce(
-      (width, column) =>
-        width + Math.max(...column.panes.map((pane) => workspacePaneWidth(pane, layoutWidth)), 0),
-      0,
-    ) +
-    Math.max(0, gridColumns.length - 1) * WORKSPACE_PANE_GAP;
-  const upperRowWidth =
-    upperColumns.reduce(
-      (width, column) =>
-        width + Math.max(...column.panes.map((pane) => workspacePaneWidth(pane, layoutWidth)), 0),
-      0,
-    ) +
-    Math.max(0, upperColumns.length - 1) * WORKSPACE_PANE_GAP;
-  const rightDockWidth = Math.max(upperRowWidth, lowerRowWidth);
-  const primaryColumnWidth = Math.max(
-    ...primaryPanes.map((pane) => workspacePaneWidth(pane, layoutWidth)),
-    0,
-  );
+  const columns = useMemo(() => workspacePaneColumns(renderedPanes), [renderedPanes]);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -362,10 +291,12 @@ export function WorkspacePaneHost({
     (event: ReactPointerEvent<HTMLDivElement>, pane: PersistedWorkspaceDockedPane) => {
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
+      const defaultHeight = pane.type === "terminal" ? renderedTerminalRowHeight : layoutHeight;
       verticalResizeStateRef.current = {
+        defaultHeight,
         pointerId: event.pointerId,
         paneId: pane.paneId,
-        startHeight: workspacePaneHeight(pane, layoutHeight),
+        startHeight: workspacePaneHeight(pane, defaultHeight),
         startY: event.clientY,
         panes,
       };
@@ -373,7 +304,7 @@ export function WorkspacePaneHost({
       document.body.style.cursor = "row-resize";
       document.body.style.userSelect = "none";
     },
-    [layoutHeight, panes],
+    [layoutHeight, panes, renderedTerminalRowHeight],
   );
 
   const handleVerticalResizePointerMove = useCallback(
@@ -387,11 +318,11 @@ export function WorkspacePaneHost({
           resizeState.panes,
           resizeState.paneId,
           resizeState.startHeight + event.clientY - resizeState.startY,
-          layoutHeight,
+          resizeState.defaultHeight,
         ),
       );
     },
-    [layoutHeight],
+    [],
   );
 
   const finishVerticalResize = useCallback(
@@ -407,7 +338,7 @@ export function WorkspacePaneHost({
         resizeState.panes,
         resizeState.paneId,
         resizeState.startHeight + event.clientY - resizeState.startY,
-        layoutHeight,
+        resizeState.defaultHeight,
       );
       verticalResizeStateRef.current = null;
       setPreviewPanes(null);
@@ -415,7 +346,7 @@ export function WorkspacePaneHost({
       document.body.style.userSelect = "";
       onPanesChange(nextPanes);
     },
-    [layoutHeight, onPanesChange],
+    [onPanesChange],
   );
 
   useEffect(
@@ -440,141 +371,59 @@ export function WorkspacePaneHost({
       >
         <SortableContext items={paneIds} strategy={rectSortingStrategy}>
           <div className="flex w-max items-start p-3 sm:p-4">
-            {primaryPanes.length > 0 ? (
-              <div
-                className="flex shrink-0 flex-col gap-3"
-                style={{ width: `${primaryColumnWidth}px` }}
-              >
-                {primaryPanes.map((pane) => (
-                  <div
-                    key={pane.paneId}
-                    className="flex shrink-0"
-                    style={{
-                      height: `${
-                        pane.type === "terminal"
-                          ? renderedTerminalRowHeight
-                          : workspacePaneHeight(pane, layoutHeight)
-                      }px`,
-                    }}
-                  >
-                    <SortableWorkspacePane hostWidth={layoutWidth} pane={pane}>
-                      {renderPane(pane)}
-                    </SortableWorkspacePane>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {primaryPane && (upperColumns[0]?.panes[0] || gridColumns[0]?.panes[0]) ? (
-              <HorizontalResizeHandle
-                label={`Resize ${primaryPane.title} pane`}
-                onPointerDown={(event) =>
-                  handleHorizontalResizePointerDown(
-                    event,
-                    primaryPane.paneId,
-                    (upperColumns[0]?.panes[0] ?? gridColumns[0]!.panes[0])!.paneId,
-                  )
-                }
-                onPointerMove={handleHorizontalResizePointerMove}
-                onPointerUp={finishHorizontalResize}
-              />
-            ) : null}
-
-            {upperColumns.length > 0 || gridColumns.length > 0 ? (
-              <div
-                className="relative flex shrink-0 flex-col"
-                style={{ width: `${rightDockWidth}px` }}
-              >
-                {upperColumns.length > 0 ? (
-                  <div className="flex shrink-0 items-start">
-                    {upperColumns.map((column, columnIndex) => (
-                      <div key={column.column} className="relative flex shrink-0 items-stretch">
-                        <div className="flex shrink-0 flex-col gap-3">
-                          {column.panes.map((pane) => (
-                            <div
-                              key={pane.paneId}
-                              className="flex shrink-0"
-                              style={{
-                                height: `${
-                                  pane.type === "terminal"
-                                    ? renderedTerminalRowHeight
-                                    : workspacePaneHeight(pane, layoutHeight)
-                                }px`,
-                              }}
-                            >
-                              <SortableWorkspacePane hostWidth={layoutWidth} pane={pane}>
-                                {renderPane(pane)}
-                              </SortableWorkspacePane>
-                            </div>
-                          ))}
+            {columns.map((column, columnIndex) => {
+              const columnWidth = Math.max(
+                ...column.panes.map((pane) => workspacePaneWidth(pane, layoutWidth)),
+                0,
+              );
+              const nextColumn = columns[columnIndex + 1];
+              return (
+                <div key={column.column} className="flex shrink-0 items-stretch">
+                  <div className="flex shrink-0 flex-col" style={{ width: `${columnWidth}px` }}>
+                    {column.panes.map((pane, rowIndex) => {
+                      const defaultHeight =
+                        pane.type === "terminal" ? renderedTerminalRowHeight : layoutHeight;
+                      return (
+                        <div key={pane.paneId} className="flex shrink-0 flex-col">
+                          <div
+                            className="flex shrink-0"
+                            style={{ height: `${workspacePaneHeight(pane, defaultHeight)}px` }}
+                          >
+                            <SortableWorkspacePane hostWidth={layoutWidth} pane={pane}>
+                              {renderPane(pane)}
+                            </SortableWorkspacePane>
+                          </div>
+                          {column.panes[rowIndex + 1] ? (
+                            <VerticalResizeHandle
+                              label={`Resize ${pane.title} pane`}
+                              onPointerDown={(event) =>
+                                handleVerticalResizePointerDown(event, pane)
+                              }
+                              onPointerMove={handleVerticalResizePointerMove}
+                              onPointerUp={finishVerticalResize}
+                            />
+                          ) : null}
                         </div>
-                        {upperColumns[columnIndex + 1] ? (
-                          <HorizontalResizeHandle
-                            label={`Resize ${column.panes[0]!.title} pane`}
-                            onPointerDown={(event) =>
-                              handleHorizontalResizePointerDown(
-                                event,
-                                column.panes[0]!.paneId,
-                                upperColumns[columnIndex + 1]!.panes[0]!.paneId,
-                              )
-                            }
-                            onPointerMove={handleHorizontalResizePointerMove}
-                            onPointerUp={finishHorizontalResize}
-                          />
-                        ) : null}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
-                ) : null}
-
-                {resizableUpperPane && gridColumns.length > 0 ? (
-                  <VerticalResizeHandle
-                    label={`Resize ${resizableUpperPane.title} pane`}
-                    onPointerDown={(event) =>
-                      handleVerticalResizePointerDown(event, resizableUpperPane)
-                    }
-                    onPointerMove={handleVerticalResizePointerMove}
-                    onPointerUp={finishVerticalResize}
-                  />
-                ) : null}
-
-                {gridColumns.length > 0 ? (
-                  <div className="flex shrink-0 items-start" data-testid="workspace-terminal-row">
-                    {gridColumns.map((column, columnIndex) => (
-                      <div key={column.column} className="relative flex shrink-0 items-stretch">
-                        <div className="flex shrink-0 flex-col gap-3">
-                          {column.panes.map((pane) => (
-                            <div
-                              key={pane.paneId}
-                              className="flex shrink-0"
-                              style={{ height: `${renderedTerminalRowHeight}px` }}
-                            >
-                              <SortableWorkspacePane hostWidth={layoutWidth} pane={pane}>
-                                {renderPane(pane)}
-                              </SortableWorkspacePane>
-                            </div>
-                          ))}
-                        </div>
-                        {gridColumns[columnIndex + 1] ? (
-                          <HorizontalResizeHandle
-                            label={`Resize ${column.panes[0]!.title} pane`}
-                            onPointerDown={(event) =>
-                              handleHorizontalResizePointerDown(
-                                event,
-                                column.panes[0]!.paneId,
-                                gridColumns[columnIndex + 1]!.panes[0]!.paneId,
-                              )
-                            }
-                            onPointerMove={handleHorizontalResizePointerMove}
-                            onPointerUp={finishHorizontalResize}
-                          />
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+                  {nextColumn ? (
+                    <HorizontalResizeHandle
+                      label={`Resize ${column.panes[0]!.title} pane`}
+                      onPointerDown={(event) =>
+                        handleHorizontalResizePointerDown(
+                          event,
+                          column.panes[0]!.paneId,
+                          nextColumn.panes[0]!.paneId,
+                        )
+                      }
+                      onPointerMove={handleHorizontalResizePointerMove}
+                      onPointerUp={finishHorizontalResize}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         </SortableContext>
       </DndContext>
