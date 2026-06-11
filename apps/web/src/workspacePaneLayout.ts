@@ -163,6 +163,30 @@ export function placeWorkspacePane(
     return [...panes];
   }
 
+  if (
+    overPlacement.slot === "primary" &&
+    activePlacement.slot !== "primary" &&
+    (direction === "above" || direction === "below")
+  ) {
+    const primaryPaneIds = panes
+      .filter((pane) => placements.get(pane.paneId)?.slot === "primary")
+      .toSorted(
+        (left, right) =>
+          (placements.get(left.paneId)?.row ?? 0) - (placements.get(right.paneId)?.row ?? 0),
+      )
+      .map((pane) => pane.paneId)
+      .filter((paneId) => paneId !== activePaneId);
+    const targetRow = primaryPaneIds.indexOf(overPaneId);
+    if (targetRow < 0) {
+      return [...panes];
+    }
+    primaryPaneIds.splice(targetRow + (direction === "below" ? 1 : 0), 0, activePaneId);
+    primaryPaneIds.forEach((paneId, row) => {
+      placements.set(paneId, { slot: "primary", column: 0, row });
+    });
+    return withNormalizedWorkspacePanePlacements(panes, placements);
+  }
+
   if (overPlacement.slot === "upper" && activePlacement.slot !== "primary") {
     const upperColumnsByIndex = new Map<number, string[]>();
     for (const pane of panes) {

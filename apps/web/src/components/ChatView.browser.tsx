@@ -1166,6 +1166,14 @@ function getWorkspaceResizeHandleRects(): DOMRect[] {
   );
 }
 
+function getWorkspaceDividerRect(label: string, orientation: "horizontal" | "vertical"): DOMRect {
+  const divider = document.querySelector<HTMLElement>(
+    `[role="separator"][aria-label="${label}"][aria-orientation="${orientation === "horizontal" ? "vertical" : "horizontal"}"] [data-workspace-resize-divider="${orientation}"]`,
+  );
+  expect(divider).not.toBeNull();
+  return divider!.getBoundingClientRect();
+}
+
 async function waitForProductionStyles(): Promise<void> {
   await vi.waitFor(
     () => {
@@ -2221,18 +2229,108 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
+      const editor = getWorkspacePane("editor").getBoundingClientRect();
       const ai = getWorkspacePane("ai").getBoundingClientRect();
       const firstTerminal = getWorkspacePane("terminal").getBoundingClientRect();
       const secondTerminal = getWorkspacePane("terminal:upper-2").getBoundingClientRect();
+      const rightAiDivider = getWorkspaceDividerRect("Resize AI pane", "horizontal");
 
       expect(firstTerminal.left).toBeGreaterThan(ai.right);
+      expect(firstTerminal.left - ai.right).toBe(ai.left - editor.right);
       expect(secondTerminal.left).toBe(firstTerminal.left);
       expect(secondTerminal.top).toBeGreaterThan(firstTerminal.bottom);
+      expect(rightAiDivider.left + rightAiDivider.width / 2).toBe(
+        (ai.right + firstTerminal.left) / 2,
+      );
       expect(getWorkspaceResizeHandleRects()).not.toHaveLength(0);
       for (const handleRect of getWorkspaceResizeHandleRects()) {
         expect(handleRect.width).toBeGreaterThan(0);
         expect(handleRect.height).toBeGreaterThan(0);
       }
+    } finally {
+      await mounted.cleanup();
+      useUiStateStore.setState({ workspaceThreadLayoutById: {} });
+    }
+  });
+
+  it("renders a terminal stacked below the editor pane", async () => {
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [THREAD_KEY]: {
+          panes: [
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Editor",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              dockSlot: "primary",
+              dockColumn: 0,
+              dockRow: 0,
+              metadata: {},
+            },
+            {
+              paneId: "terminal",
+              type: "terminal",
+              title: "Terminal",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 1,
+              size: 1,
+              dockSlot: "primary",
+              dockColumn: 0,
+              dockRow: 1,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: DEFAULT_TERMINAL_ID,
+                terminalGroupId: "primary-group",
+              },
+            },
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "AI",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 2,
+              size: 1,
+              dockSlot: "upper",
+              dockColumn: 0,
+              dockRow: 0,
+              metadata: { threadId: THREAD_ID },
+            },
+          ],
+        },
+      },
+    });
+    useTerminalUiStateStore.setState({
+      terminalUiStateByThreadKey: {
+        [THREAD_KEY]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: [DEFAULT_TERMINAL_ID],
+          activeTerminalId: DEFAULT_TERMINAL_ID,
+          terminalGroups: [{ id: "primary-group", terminalIds: [DEFAULT_TERMINAL_ID] }],
+          activeTerminalGroupId: "primary-group",
+        },
+      },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-primary-terminal-stack" as MessageId,
+        targetText: "primary terminal stack",
+      }),
+    });
+
+    try {
+      const editor = getWorkspacePane("editor").getBoundingClientRect();
+      const terminal = getWorkspacePane("terminal").getBoundingClientRect();
+
+      expect(terminal.left).toBe(editor.left);
+      expect(terminal.top).toBeGreaterThan(editor.bottom);
     } finally {
       await mounted.cleanup();
       useUiStateStore.setState({ workspaceThreadLayoutById: {} });

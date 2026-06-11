@@ -110,6 +110,15 @@ describe("workspace pane layout", () => {
     expect(placements.get("terminal:2")).toEqual({ slot: "upper", column: 1, row: 1 });
   });
 
+  it("stacks a terminal below the editor pane", () => {
+    const placed = placeWorkspacePane(panes, "terminal", "editor", "below");
+    const placements = workspacePanePlacements(placed);
+
+    expect(placements.get("editor")).toEqual({ slot: "primary", column: 0, row: 0 });
+    expect(placements.get("terminal")).toEqual({ slot: "primary", column: 0, row: 1 });
+    expect(placements.get("ai")).toEqual({ slot: "upper", column: 0, row: 0 });
+  });
+
   it("swaps editor and AI layout slots", () => {
     const placed = placeWorkspacePane(panes, "ai", "editor", "before");
     const placements = workspacePanePlacements(placed);

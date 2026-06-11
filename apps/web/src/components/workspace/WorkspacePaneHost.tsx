@@ -165,8 +165,13 @@ export function WorkspacePaneHost({
   const renderedTerminalRowHeight = workspaceTerminalRowHeight(terminalRowHeight);
   const paneIds = useStableWorkspacePaneIds(renderedPanes);
   const panePlacements = useMemo(() => workspacePanePlacements(renderedPanes), [renderedPanes]);
-  const primaryPane =
-    renderedPanes.find((pane) => panePlacements.get(pane.paneId)?.slot === "primary") ?? null;
+  const primaryPanes = renderedPanes
+    .filter((pane) => panePlacements.get(pane.paneId)?.slot === "primary")
+    .toSorted(
+      (left, right) =>
+        (panePlacements.get(left.paneId)?.row ?? 0) - (panePlacements.get(right.paneId)?.row ?? 0),
+    );
+  const primaryPane = primaryPanes[0] ?? null;
   const upperColumns = useMemo(() => {
     const columns = new Map<number, PersistedWorkspaceDockedPane[]>();
     for (const pane of renderedPanes) {
@@ -230,6 +235,10 @@ export function WorkspacePaneHost({
     ) +
     Math.max(0, upperColumns.length - 1) * WORKSPACE_PANE_GAP;
   const rightDockWidth = Math.max(upperRowWidth, lowerRowWidth);
+  const primaryColumnWidth = Math.max(
+    ...primaryPanes.map((pane) => workspacePaneWidth(pane, layoutWidth)),
+    0,
+  );
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -430,12 +439,29 @@ export function WorkspacePaneHost({
         onDragEnd={handleDragEnd}
       >
         <SortableContext items={paneIds} strategy={rectSortingStrategy}>
-          <div className="flex w-max items-start gap-3 p-3 sm:p-4">
-            {primaryPane ? (
-              <div className="flex shrink-0" style={{ height: `${layoutHeight}px` }}>
-                <SortableWorkspacePane hostWidth={layoutWidth} pane={primaryPane}>
-                  {renderPane(primaryPane)}
-                </SortableWorkspacePane>
+          <div className="flex w-max items-start p-3 sm:p-4">
+            {primaryPanes.length > 0 ? (
+              <div
+                className="flex shrink-0 flex-col gap-3"
+                style={{ width: `${primaryColumnWidth}px` }}
+              >
+                {primaryPanes.map((pane) => (
+                  <div
+                    key={pane.paneId}
+                    className="flex shrink-0"
+                    style={{
+                      height: `${
+                        pane.type === "terminal"
+                          ? renderedTerminalRowHeight
+                          : workspacePaneHeight(pane, layoutHeight)
+                      }px`,
+                    }}
+                  >
+                    <SortableWorkspacePane hostWidth={layoutWidth} pane={pane}>
+                      {renderPane(pane)}
+                    </SortableWorkspacePane>
+                  </div>
+                ))}
               </div>
             ) : null}
 
@@ -456,11 +482,11 @@ export function WorkspacePaneHost({
 
             {upperColumns.length > 0 || gridColumns.length > 0 ? (
               <div
-                className="relative flex shrink-0 flex-col gap-3"
+                className="relative flex shrink-0 flex-col"
                 style={{ width: `${rightDockWidth}px` }}
               >
                 {upperColumns.length > 0 ? (
-                  <div className="flex shrink-0 items-start gap-3">
+                  <div className="flex shrink-0 items-start">
                     {upperColumns.map((column, columnIndex) => (
                       <div key={column.column} className="relative flex shrink-0 items-stretch">
                         <div className="flex shrink-0 flex-col gap-3">
@@ -513,10 +539,7 @@ export function WorkspacePaneHost({
                 ) : null}
 
                 {gridColumns.length > 0 ? (
-                  <div
-                    className="flex shrink-0 items-start gap-3"
-                    data-testid="workspace-terminal-row"
-                  >
+                  <div className="flex shrink-0 items-start" data-testid="workspace-terminal-row">
                     {gridColumns.map((column, columnIndex) => (
                       <div key={column.column} className="relative flex shrink-0 items-stretch">
                         <div className="flex shrink-0 flex-col gap-3">
@@ -577,7 +600,7 @@ function HorizontalResizeHandle({
       role="separator"
       aria-label={label}
       aria-orientation="vertical"
-      className="relative z-30 -mx-2 w-4 shrink-0 self-stretch cursor-col-resize touch-none"
+      className="relative z-30 w-3 shrink-0 self-stretch cursor-col-resize touch-none"
       data-workspace-resize-handle="horizontal"
       onPointerCancel={onPointerUp}
       onPointerDown={onPointerDown}
@@ -603,7 +626,7 @@ function VerticalResizeHandle({
       role="separator"
       aria-label={label}
       aria-orientation="horizontal"
-      className="relative z-30 -my-2 flex h-4 w-full shrink-0 cursor-row-resize items-center touch-none"
+      className="relative z-30 flex h-3 w-full shrink-0 cursor-row-resize items-center touch-none"
       data-workspace-resize-handle="vertical"
       onPointerCancel={onPointerUp}
       onPointerDown={onPointerDown}
