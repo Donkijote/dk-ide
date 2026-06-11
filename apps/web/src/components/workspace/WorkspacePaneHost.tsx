@@ -16,6 +16,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -152,7 +153,7 @@ export function WorkspacePaneHost({
     startHeight: number;
     startY: number;
   } | null>(null);
-  const [hostWidth, setHostWidth] = useState(1_280);
+  const [layoutWidth, setLayoutWidth] = useState(1_280);
   const [previewPanes, setPreviewPanes] = useState<readonly PersistedWorkspaceDockedPane[] | null>(
     null,
   );
@@ -192,12 +193,12 @@ export function WorkspacePaneHost({
   const lowerRowWidth =
     gridColumns.reduce(
       (width, column) =>
-        width + Math.max(...column.panes.map((pane) => workspacePaneWidth(pane, hostWidth)), 0),
+        width + Math.max(...column.panes.map((pane) => workspacePaneWidth(pane, layoutWidth)), 0),
       0,
     ) +
     Math.max(0, gridColumns.length - 1) * WORKSPACE_PANE_GAP;
   const rightDockWidth = Math.max(
-    upperPane ? workspacePaneWidth(upperPane, hostWidth) : 0,
+    upperPane ? workspacePaneWidth(upperPane, layoutWidth) : 0,
     lowerRowWidth,
   );
   const sensors = useSensors(
@@ -206,16 +207,14 @@ export function WorkspacePaneHost({
     }),
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host) {
       return;
     }
-    const updateHostWidth = () => setHostWidth(host.clientWidth);
-    updateHostWidth();
-    const observer = new ResizeObserver(updateHostWidth);
-    observer.observe(host);
-    return () => observer.disconnect();
+    if (host.clientWidth > 0) {
+      setLayoutWidth(host.clientWidth);
+    }
   }, []);
 
   const handleDragEnd = useCallback(
@@ -252,12 +251,12 @@ export function WorkspacePaneHost({
         [leadingPane, trailingPane],
         leadingPaneId,
         delta,
-        hostWidth,
+        layoutWidth,
       );
       const resizedById = new Map(resizedPair.map((pane) => [pane.paneId, pane]));
       return sourcePanes.map((pane) => resizedById.get(pane.paneId) ?? pane);
     },
-    [hostWidth],
+    [layoutWidth],
   );
 
   const handleHorizontalResizePointerDown = useCallback(
@@ -393,7 +392,7 @@ export function WorkspacePaneHost({
         <SortableContext items={paneIds} strategy={rectSortingStrategy}>
           <div className="flex h-full min-h-[48rem] w-max items-stretch gap-3 p-3 sm:p-4">
             {primaryPane ? (
-              <SortableWorkspacePane hostWidth={hostWidth} pane={primaryPane}>
+              <SortableWorkspacePane hostWidth={layoutWidth} pane={primaryPane}>
                 {renderPane(primaryPane)}
               </SortableWorkspacePane>
             ) : null}
@@ -420,7 +419,7 @@ export function WorkspacePaneHost({
               >
                 {upperPane ? (
                   <div className="flex min-h-[32rem] flex-1 flex-col">
-                    <SortableWorkspacePane hostWidth={hostWidth} pane={upperPane}>
+                    <SortableWorkspacePane hostWidth={layoutWidth} pane={upperPane}>
                       {renderPane(upperPane)}
                     </SortableWorkspacePane>
                   </div>
@@ -449,7 +448,7 @@ export function WorkspacePaneHost({
                               className="flex shrink-0"
                               style={{ height: `${renderedTerminalRowHeight}px` }}
                             >
-                              <SortableWorkspacePane hostWidth={hostWidth} pane={pane}>
+                              <SortableWorkspacePane hostWidth={layoutWidth} pane={pane}>
                                 {renderPane(pane)}
                               </SortableWorkspacePane>
                             </div>

@@ -1145,6 +1145,14 @@ async function setViewport(viewport: ViewportSpec): Promise<void> {
   await waitForLayout();
 }
 
+function getWorkspacePaneWidths(): number[] {
+  return ["editor", "ai", "terminal"].map((paneId) => {
+    const pane = document.querySelector<HTMLElement>(`[data-workspace-pane-id="${paneId}"]`);
+    expect(pane).not.toBeNull();
+    return pane!.getBoundingClientRect().width;
+  });
+}
+
 async function waitForProductionStyles(): Promise<void> {
   await vi.waitFor(
     () => {
@@ -2035,6 +2043,26 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(
         document.querySelector('button[aria-label*="Toggle terminal"]'),
       ).not.toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps workspace pane widths fixed when the app window grows", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-fixed-workspace-pane-widths" as MessageId,
+        targetText: "fixed workspace pane widths",
+      }),
+    });
+
+    try {
+      const initialWidths = getWorkspacePaneWidths();
+
+      await mounted.setViewport(WIDE_FOOTER_VIEWPORT);
+
+      expect(getWorkspacePaneWidths()).toEqual(initialWidths);
     } finally {
       await mounted.cleanup();
     }
