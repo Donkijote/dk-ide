@@ -1013,6 +1013,7 @@ describe("uiStateStore pure functions", () => {
         cwd: "/repo",
         order: 3,
         size: 0.5,
+        height: 900,
         metadata: {
           threadId: "thread-2",
         },
@@ -1057,6 +1058,7 @@ describe("uiStateStore pure functions", () => {
           cwd: "/repo",
           order: 3,
           size: 0.5,
+          height: 900,
           metadata: {
             threadId: "thread-2",
           },

@@ -1153,6 +1153,12 @@ function getWorkspacePaneWidths(): number[] {
   });
 }
 
+function getWorkspacePane(paneId: string): HTMLElement {
+  const pane = document.querySelector<HTMLElement>(`[data-workspace-pane-id="${paneId}"]`);
+  expect(pane).not.toBeNull();
+  return pane!;
+}
+
 async function waitForProductionStyles(): Promise<void> {
   await vi.waitFor(
     () => {
@@ -2063,6 +2069,39 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.setViewport(WIDE_FOOTER_VIEWPORT);
 
       expect(getWorkspacePaneWidths()).toEqual(initialWidths);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps AI full height above terminals with bottom workspace spacing", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-full-height-ai-pane" as MessageId,
+        targetText: "full height AI pane",
+      }),
+    });
+
+    try {
+      const host = document.querySelector<HTMLElement>('[data-testid="workspace-pane-host"]');
+      expect(host).not.toBeNull();
+      const editor = getWorkspacePane("editor");
+      const ai = getWorkspacePane("ai");
+      const terminal = getWorkspacePane("terminal");
+
+      expect(ai.getBoundingClientRect().height).toBe(editor.getBoundingClientRect().height);
+      expect(terminal.getBoundingClientRect().top).toBeGreaterThan(
+        ai.getBoundingClientRect().bottom,
+      );
+
+      host!.scrollTop = host!.scrollHeight;
+      await waitForLayout();
+
+      const leftSpacing = editor.getBoundingClientRect().left - host!.getBoundingClientRect().left;
+      const bottomSpacing =
+        host!.getBoundingClientRect().bottom - terminal.getBoundingClientRect().bottom;
+      expect(bottomSpacing).toBe(leftSpacing);
     } finally {
       await mounted.cleanup();
     }

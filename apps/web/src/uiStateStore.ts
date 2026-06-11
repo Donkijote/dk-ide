@@ -38,6 +38,7 @@ export interface PersistedWorkspaceDockedPaneBase {
   cwd: string | null;
   order: number;
   size: number;
+  height?: number;
   dockSlot?: WorkspaceDockedPaneSlot;
   dockColumn?: number;
   dockRow?: number;
@@ -310,6 +311,12 @@ function sanitizeWorkspacePaneSize(value: unknown): number {
     : DEFAULT_WORKSPACE_PANE_SIZE;
 }
 
+function sanitizeWorkspacePaneHeight(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.min(value, 10_000)
+    : undefined;
+}
+
 function sanitizeWorkspacePaneOrder(value: unknown, fallbackOrder: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallbackOrder;
 }
@@ -391,6 +398,7 @@ function sanitizeWorkspaceDockedPane(
   const dockSlot = sanitizeWorkspacePaneSlot(pane.dockSlot);
   const dockColumn = sanitizeWorkspacePaneCoordinate(pane.dockColumn);
   const dockRow = sanitizeWorkspacePaneCoordinate(pane.dockRow);
+  const height = sanitizeWorkspacePaneHeight(pane.height);
   const base = {
     paneId,
     type,
@@ -399,6 +407,7 @@ function sanitizeWorkspaceDockedPane(
     cwd: sanitizeOptionalString(pane.cwd),
     order: sanitizeWorkspacePaneOrder(pane.order, fallbackOrder),
     size: sanitizeWorkspacePaneSize(pane.size),
+    ...(height !== undefined ? { height } : {}),
     ...(dockSlot ? { dockSlot } : {}),
     ...(dockColumn !== undefined ? { dockColumn } : {}),
     ...(dockRow !== undefined ? { dockRow } : {}),
@@ -1058,6 +1067,7 @@ function workspaceDockedPaneEqual(
     left.cwd === right.cwd &&
     left.order === right.order &&
     left.size === right.size &&
+    left.height === right.height &&
     left.dockSlot === right.dockSlot &&
     left.dockColumn === right.dockColumn &&
     left.dockRow === right.dockRow &&

@@ -1,8 +1,10 @@
 import type { PersistedWorkspaceDockedPane, WorkspaceDockedPaneSlot } from "./uiStateStore";
 
 export const MIN_WORKSPACE_TERMINAL_ROW_HEIGHT = 280;
+export const MIN_WORKSPACE_PANE_HEIGHT = 736;
 
 const MAX_WORKSPACE_PANE_WIDTH = 1_400;
+const MAX_WORKSPACE_PANE_HEIGHT = 4_000;
 const EDITOR_DEFAULT_WIDTH_RATIO = 0.56;
 const SUPPORTING_PANE_DEFAULT_WIDTH_RATIO = 0.44;
 const EDITOR_MIN_DEFAULT_WIDTH = 512;
@@ -39,6 +41,17 @@ export function workspacePaneWidth(
 
 export function workspaceTerminalRowHeight(height: number): number {
   return Number.isFinite(height) ? Math.max(MIN_WORKSPACE_TERMINAL_ROW_HEIGHT, height) : 320;
+}
+
+export function workspacePaneHeight(
+  pane: Pick<PersistedWorkspaceDockedPane, "height">,
+  defaultHeight: number,
+): number {
+  const minimumHeight =
+    Number.isFinite(defaultHeight) && defaultHeight > 0
+      ? Math.max(MIN_WORKSPACE_PANE_HEIGHT, defaultHeight)
+      : MIN_WORKSPACE_PANE_HEIGHT;
+  return Math.min(MAX_WORKSPACE_PANE_HEIGHT, Math.max(minimumHeight, pane.height ?? minimumHeight));
 }
 
 export function reorderWorkspacePanes(
@@ -150,6 +163,27 @@ export function placeWorkspacePane(
     return [...panes];
   }
 
+  const isHorizontalDrop = direction === "before" || direction === "after";
+  if (overPlacement.slot === "upper" && activePlacement.slot !== "primary" && isHorizontalDrop) {
+    const upperPaneIds = panes
+      .filter((pane) => placements.get(pane.paneId)?.slot === "upper")
+      .toSorted(
+        (left, right) =>
+          (placements.get(left.paneId)?.column ?? 0) - (placements.get(right.paneId)?.column ?? 0),
+      )
+      .map((pane) => pane.paneId)
+      .filter((paneId) => paneId !== activePaneId);
+    const targetIndex = upperPaneIds.indexOf(overPaneId);
+    if (targetIndex < 0) {
+      return [...panes];
+    }
+    upperPaneIds.splice(targetIndex + (direction === "after" ? 1 : 0), 0, activePaneId);
+    upperPaneIds.forEach((paneId, column) => {
+      placements.set(paneId, { slot: "upper", column, row: 0 });
+    });
+    return withNormalizedWorkspacePanePlacements(panes, placements);
+  }
+
   if (activePlacement.slot !== "grid" || overPlacement.slot !== "grid") {
     placements.set(activePaneId, overPlacement);
     placements.set(overPaneId, activePlacement);
@@ -196,6 +230,24 @@ export function placeWorkspacePane(
     });
   });
   return withNormalizedWorkspacePanePlacements(panes, placements);
+}
+
+export function resizeWorkspacePaneHeight(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  paneId: string,
+  height: number,
+  defaultHeight: number,
+): PersistedWorkspaceDockedPane[] {
+  if (!Number.isFinite(height)) {
+    return [...panes];
+  }
+  return panes.map((pane) =>
+    pane.paneId === paneId
+      ? Object.assign({}, pane, {
+          height: workspacePaneHeight({ height }, defaultHeight),
+        })
+      : pane,
+  );
 }
 
 export function mergeVisibleWorkspacePaneUpdates(

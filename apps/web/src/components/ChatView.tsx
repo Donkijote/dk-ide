@@ -5340,11 +5340,6 @@ export default function ChatView(props: ChatViewProps) {
             mergeVisibleWorkspacePaneUpdates(renderedWorkspaceDockedPanes, panes),
           )
         }
-        onTerminalRowHeightChange={(height) => {
-          if (activeThreadRef) {
-            useTerminalUiStateStore.getState().setTerminalHeight(activeThreadRef, height);
-          }
-        }}
       />
 
       {hiddenMountedTerminalThreadRefs.map(

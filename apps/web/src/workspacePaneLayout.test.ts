@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import type { PersistedWorkspaceDockedPane } from "./uiStateStore";
 import {
+  MIN_WORKSPACE_PANE_HEIGHT,
   MIN_WORKSPACE_TERMINAL_ROW_HEIGHT,
   mergeVisibleWorkspacePaneUpdates,
   placeWorkspacePane,
   reorderWorkspacePanes,
   resizeAdjacentWorkspacePanes,
+  resizeWorkspacePaneHeight,
   workspacePaneDefaultWidth,
+  workspacePaneHeight,
   workspacePanePlacements,
   workspacePaneWidth,
   workspaceTerminalRowHeight,
@@ -83,6 +86,14 @@ describe("workspace pane layout", () => {
     expect(placements.get("terminal:2")).toEqual({ slot: "grid", column: 1, row: 0 });
   });
 
+  it("places a terminal beside the AI pane without replacing it", () => {
+    const placed = placeWorkspacePane(panes, "terminal", "ai", "after");
+    const placements = workspacePanePlacements(placed);
+
+    expect(placements.get("ai")).toEqual({ slot: "upper", column: 0, row: 0 });
+    expect(placements.get("terminal")).toEqual({ slot: "upper", column: 1, row: 0 });
+  });
+
   it("swaps editor and AI layout slots", () => {
     const placed = placeWorkspacePane(panes, "ai", "editor", "before");
     const placements = workspacePanePlacements(placed);
@@ -149,6 +160,16 @@ describe("workspace pane layout", () => {
   it("uses the default terminal row height as its minimum", () => {
     expect(workspaceTerminalRowHeight(120)).toBe(MIN_WORKSPACE_TERMINAL_ROW_HEIGHT);
     expect(workspaceTerminalRowHeight(360)).toBe(360);
+  });
+
+  it("uses the full default pane height as the minimum when resizing downward", () => {
+    const resized = resizeWorkspacePaneHeight(panes, "ai", 900, MIN_WORKSPACE_PANE_HEIGHT);
+    const undersized = resizeWorkspacePaneHeight(panes, "ai", 200, MIN_WORKSPACE_PANE_HEIGHT);
+
+    expect(workspacePaneHeight(resized[1]!, MIN_WORKSPACE_PANE_HEIGHT)).toBe(900);
+    expect(workspacePaneHeight(undersized[1]!, MIN_WORKSPACE_PANE_HEIGHT)).toBe(
+      MIN_WORKSPACE_PANE_HEIGHT,
+    );
   });
 
   it("keeps hidden panes while applying visible pane reorder and size updates", () => {
