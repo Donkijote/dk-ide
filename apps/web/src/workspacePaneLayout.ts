@@ -2,6 +2,7 @@ import type { PersistedWorkspaceDockedPane, WorkspaceDockedPaneSlot } from "./ui
 
 export const MIN_WORKSPACE_TERMINAL_ROW_HEIGHT = 280;
 export const MIN_WORKSPACE_PANE_HEIGHT = 736;
+export const WORKSPACE_PANE_GAP = 12;
 
 const MAX_WORKSPACE_PANE_WIDTH = 1_400;
 const MAX_WORKSPACE_PANE_HEIGHT = 4_000;
@@ -21,6 +22,14 @@ export interface WorkspacePanePlacement {
 export interface WorkspacePaneColumn {
   readonly column: number;
   readonly panes: readonly PersistedWorkspaceDockedPane[];
+}
+
+export interface WorkspacePaneRect {
+  readonly pane: PersistedWorkspaceDockedPane;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 export function workspacePaneDefaultWidth(
@@ -181,28 +190,167 @@ export function workspacePanePlacements(
   return placements;
 }
 
-function withNormalizedWorkspacePaneColumns(
+function workspacePaneDefaultHeight(
+  pane: PersistedWorkspaceDockedPane,
+  paneHeight: number,
+  terminalRowHeight: number,
+): number {
+  return pane.type === "terminal" ? terminalRowHeight : paneHeight;
+}
+
+export function workspacePaneRects(
   panes: readonly PersistedWorkspaceDockedPane[],
-  columns: readonly (readonly string[])[],
+  hostWidth: number,
+  paneHeight: number = MIN_WORKSPACE_PANE_HEIGHT,
+  terminalRowHeight: number = 320,
+): readonly WorkspacePaneRect[] {
+  const positionedPanes = panes.filter(
+    (pane) => pane.dockX !== undefined && pane.dockY !== undefined,
+  );
+  if (positionedPanes.length > 0) {
+    let nextX = positionedPanes.reduce(
+      (right, pane) => Math.max(right, pane.dockX! + workspacePaneWidth(pane, hostWidth)),
+      0,
+    );
+    return panes.map((pane) => {
+      const width = workspacePaneWidth(pane, hostWidth);
+      const defaultHeight = workspacePaneDefaultHeight(pane, paneHeight, terminalRowHeight);
+      const rect = {
+        pane,
+        x: pane.dockX ?? nextX + (nextX > 0 ? WORKSPACE_PANE_GAP : 0),
+        y: pane.dockY ?? 0,
+        width,
+        height: workspacePaneHeight(pane, defaultHeight),
+      };
+      if (pane.dockX === undefined || pane.dockY === undefined) {
+        nextX = rect.x + width;
+      }
+      return rect;
+    });
+  }
+
+  let x = 0;
+  return workspacePaneColumns(panes).flatMap((column) => {
+    let y = 0;
+    const rects = column.panes.map((pane) => {
+      const width = workspacePaneWidth(pane, hostWidth);
+      const defaultHeight = workspacePaneDefaultHeight(pane, paneHeight, terminalRowHeight);
+      const height = workspacePaneHeight(pane, defaultHeight);
+      const rect = { pane, x, y, width, height };
+      y += height + WORKSPACE_PANE_GAP;
+      return rect;
+    });
+    x += Math.max(...rects.map((rect) => rect.width), 0) + WORKSPACE_PANE_GAP;
+    return rects;
+  });
+}
+
+function workspacePaneRectsIntersect(left: WorkspacePaneRect, right: WorkspacePaneRect): boolean {
+  return (
+    left.x < right.x + right.width + WORKSPACE_PANE_GAP &&
+    left.x + left.width + WORKSPACE_PANE_GAP > right.x &&
+    left.y < right.y + right.height + WORKSPACE_PANE_GAP &&
+    left.y + left.height + WORKSPACE_PANE_GAP > right.y
+  );
+}
+
+function pushWorkspacePaneRects(
+  rects: readonly WorkspacePaneRect[],
+  anchorPaneId: string,
+  axis: "horizontal" | "vertical",
+  direction: -1 | 1,
+): WorkspacePaneRect[] {
+  const nextRects = rects.map((rect) => ({ ...rect }));
+  const queuedPaneIds = [anchorPaneId];
+  const fixedPaneIds = new Set([anchorPaneId]);
+
+  while (queuedPaneIds.length > 0) {
+    const currentPaneId = queuedPaneIds.shift()!;
+    const current = nextRects.find((rect) => rect.pane.paneId === currentPaneId);
+    if (!current) {
+      continue;
+    }
+    for (let index = 0; index < nextRects.length; index += 1) {
+      const other = nextRects[index]!;
+      if (fixedPaneIds.has(other.pane.paneId) || !workspacePaneRectsIntersect(current, other)) {
+        continue;
+      }
+      let moved =
+        axis === "horizontal"
+          ? {
+              ...other,
+              x:
+                direction > 0
+                  ? current.x + current.width + WORKSPACE_PANE_GAP
+                  : current.x - other.width - WORKSPACE_PANE_GAP,
+            }
+          : {
+              ...other,
+              y:
+                direction > 0
+                  ? current.y + current.height + WORKSPACE_PANE_GAP
+                  : current.y - other.height - WORKSPACE_PANE_GAP,
+            };
+      let blockingRect = nextRects.find(
+        (rect) =>
+          rect.pane.paneId !== moved.pane.paneId &&
+          fixedPaneIds.has(rect.pane.paneId) &&
+          workspacePaneRectsIntersect(moved, rect),
+      );
+      while (blockingRect) {
+        moved =
+          axis === "horizontal"
+            ? Object.assign({}, moved, {
+                x:
+                  direction > 0
+                    ? blockingRect.x + blockingRect.width + WORKSPACE_PANE_GAP
+                    : blockingRect.x - moved.width - WORKSPACE_PANE_GAP,
+              })
+            : Object.assign({}, moved, {
+                y:
+                  direction > 0
+                    ? blockingRect.y + blockingRect.height + WORKSPACE_PANE_GAP
+                    : blockingRect.y - moved.height - WORKSPACE_PANE_GAP,
+              });
+        blockingRect = nextRects.find(
+          (rect) =>
+            rect.pane.paneId !== moved.pane.paneId &&
+            fixedPaneIds.has(rect.pane.paneId) &&
+            workspacePaneRectsIntersect(moved, rect),
+        );
+      }
+      nextRects[index] = moved;
+      fixedPaneIds.add(moved.pane.paneId);
+      queuedPaneIds.push(moved.pane.paneId);
+    }
+  }
+
+  const minimumX = Math.min(...nextRects.map((rect) => rect.x), 0);
+  const minimumY = Math.min(...nextRects.map((rect) => rect.y), 0);
+  return nextRects.map((rect) =>
+    Object.assign({}, rect, {
+      x: rect.x - minimumX,
+      y: rect.y - minimumY,
+    }),
+  );
+}
+
+function withWorkspacePaneRects(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  rects: readonly WorkspacePaneRect[],
 ): PersistedWorkspaceDockedPane[] {
-  const paneById = new Map(panes.map((pane) => [pane.paneId, pane]));
-  return columns
-    .flatMap((paneIds, column) =>
-      paneIds.flatMap((paneId, row) => {
-        const pane = paneById.get(paneId);
-        return pane
-          ? [
-              Object.assign({}, pane, {
-                order: column + row,
-                dockSlot: "grid" as const,
-                dockColumn: column,
-                dockRow: row,
-              }),
-            ]
-          : [];
-      }),
-    )
-    .map((pane, order) => Object.assign({}, pane, { order }));
+  const rectByPaneId = new Map(rects.map((rect) => [rect.pane.paneId, rect]));
+  return panes.map((pane, order) => {
+    const rect = rectByPaneId.get(pane.paneId);
+    return rect
+      ? Object.assign({}, pane, {
+          order,
+          dockSlot: "grid" as const,
+          dockX: Math.round(rect.x),
+          dockY: Math.round(rect.y),
+        })
+      : Object.assign({}, pane, { order });
+  });
 }
 
 export function placeWorkspacePane(
@@ -210,42 +358,90 @@ export function placeWorkspacePane(
   activePaneId: string,
   overPaneId: string,
   direction: WorkspacePaneDropDirection,
+  hostWidth: number = 1_280,
+  paneHeight: number = MIN_WORKSPACE_PANE_HEIGHT,
+  terminalRowHeight: number = 320,
 ): PersistedWorkspaceDockedPane[] {
   if (activePaneId === overPaneId) {
     return [...panes];
   }
-  const columns = workspacePaneColumns(panes).map((column) =>
-    column.panes.map((pane) => pane.paneId),
-  );
-  const activeColumnIndex = columns.findIndex((paneIds) => paneIds.includes(activePaneId));
-  const overColumnIndex = columns.findIndex((paneIds) => paneIds.includes(overPaneId));
-  if (activeColumnIndex < 0 || overColumnIndex < 0) {
+  const rects = workspacePaneRects(panes, hostWidth, paneHeight, terminalRowHeight);
+  const active = rects.find((rect) => rect.pane.paneId === activePaneId);
+  const over = rects.find((rect) => rect.pane.paneId === overPaneId);
+  if (!active || !over) {
     return [...panes];
   }
-  const activeRowIndex = columns[activeColumnIndex]!.indexOf(activePaneId);
-  const overRowIndex = columns[overColumnIndex]!.indexOf(overPaneId);
   if (direction === "swap") {
-    columns[activeColumnIndex]![activeRowIndex] = overPaneId;
-    columns[overColumnIndex]![overRowIndex] = activePaneId;
-    return withNormalizedWorkspacePaneColumns(panes, columns);
+    return withWorkspacePaneRects(
+      panes,
+      rects.map((rect) => {
+        if (rect.pane.paneId === activePaneId) {
+          return { ...rect, x: over.x, y: over.y };
+        }
+        if (rect.pane.paneId === overPaneId) {
+          return { ...rect, x: active.x, y: active.y };
+        }
+        return rect;
+      }),
+    );
   }
 
-  columns[activeColumnIndex]!.splice(activeRowIndex, 1);
-  if (columns[activeColumnIndex]!.length === 0) {
-    columns.splice(activeColumnIndex, 1);
-  }
-  const targetColumnIndex = columns.findIndex((paneIds) => paneIds.includes(overPaneId));
-  if (targetColumnIndex < 0) {
+  const placedActive =
+    direction === "before"
+      ? { ...active, x: over.x - active.width - WORKSPACE_PANE_GAP, y: over.y }
+      : direction === "after"
+        ? { ...active, x: over.x + over.width + WORKSPACE_PANE_GAP, y: over.y }
+        : direction === "above"
+          ? { ...active, x: over.x, y: over.y - active.height - WORKSPACE_PANE_GAP }
+          : { ...active, x: over.x, y: over.y + over.height + WORKSPACE_PANE_GAP };
+  const placedRects = rects.map((rect) =>
+    rect.pane.paneId === activePaneId ? placedActive : rect,
+  );
+  const pushedRects = pushWorkspacePaneRects(
+    placedRects,
+    activePaneId,
+    direction === "before" || direction === "after" ? "horizontal" : "vertical",
+    direction === "before" || direction === "above" ? -1 : 1,
+  );
+  return withWorkspacePaneRects(panes, pushedRects);
+}
+
+export function pushWorkspacePaneCollisions(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  paneId: string,
+  axis: "horizontal" | "vertical",
+  hostWidth: number,
+  paneHeight: number,
+  terminalRowHeight: number,
+): PersistedWorkspaceDockedPane[] {
+  return withWorkspacePaneRects(
+    panes,
+    pushWorkspacePaneRects(
+      workspacePaneRects(panes, hostWidth, paneHeight, terminalRowHeight),
+      paneId,
+      axis,
+      1,
+    ),
+  );
+}
+
+export function resizeWorkspacePaneWidth(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  paneId: string,
+  width: number,
+  hostWidth: number,
+): PersistedWorkspaceDockedPane[] {
+  if (!Number.isFinite(width)) {
     return [...panes];
   }
-  if (direction === "above" || direction === "below") {
-    const targetColumn = columns[targetColumnIndex]!;
-    const targetRow = targetColumn.indexOf(overPaneId);
-    targetColumn.splice(targetRow + (direction === "below" ? 1 : 0), 0, activePaneId);
-  } else {
-    columns.splice(targetColumnIndex + (direction === "after" ? 1 : 0), 0, [activePaneId]);
-  }
-  return withNormalizedWorkspacePaneColumns(panes, columns);
+  return panes.map((pane) => {
+    if (pane.paneId !== paneId) {
+      return pane;
+    }
+    const minimumWidth = workspacePaneDefaultWidth(pane, hostWidth);
+    const nextWidth = Math.min(MAX_WORKSPACE_PANE_WIDTH, Math.max(minimumWidth, width));
+    return Object.assign({}, pane, { size: nextWidth / minimumWidth });
+  });
 }
 
 export function resizeWorkspacePaneHeight(
@@ -278,49 +474,5 @@ export function mergeVisibleWorkspacePaneUpdates(
     }
     const visiblePane = visiblePanes[visibleIndex++];
     return Object.assign({}, visiblePane ?? pane, { order: index });
-  });
-}
-
-export function resizeAdjacentWorkspacePanes(
-  panes: readonly PersistedWorkspaceDockedPane[],
-  leadingPaneId: string,
-  delta: number,
-  hostWidth: number,
-): PersistedWorkspaceDockedPane[] {
-  const leadingIndex = panes.findIndex((pane) => pane.paneId === leadingPaneId);
-  const trailingIndex = leadingIndex + 1;
-  const leadingPane = panes[leadingIndex];
-  const trailingPane = panes[trailingIndex];
-  if (!leadingPane || !trailingPane || !Number.isFinite(delta)) {
-    return [...panes];
-  }
-
-  const leadingWidth = workspacePaneWidth(leadingPane, hostWidth);
-  const trailingWidth = workspacePaneWidth(trailingPane, hostWidth);
-  const leadingMinimumWidth = workspacePaneDefaultWidth(leadingPane, hostWidth);
-  const trailingMinimumWidth = workspacePaneDefaultWidth(trailingPane, hostWidth);
-  const leadingDelta = Math.min(
-    Math.max(delta, leadingMinimumWidth - leadingWidth),
-    MAX_WORKSPACE_PANE_WIDTH - leadingWidth,
-  );
-  if (leadingDelta === 0) {
-    return [...panes];
-  }
-
-  const trailingDelta =
-    leadingDelta > 0
-      ? -Math.min(leadingDelta, trailingWidth - trailingMinimumWidth)
-      : Math.min(-leadingDelta, MAX_WORKSPACE_PANE_WIDTH - trailingWidth);
-  const nextLeadingSize = (leadingWidth + leadingDelta) / leadingMinimumWidth;
-  const nextTrailingSize = (trailingWidth + trailingDelta) / trailingMinimumWidth;
-
-  return panes.map((pane, index) => {
-    if (index === leadingIndex) {
-      return Object.assign({}, pane, { size: nextLeadingSize });
-    }
-    if (index === trailingIndex) {
-      return Object.assign({}, pane, { size: nextTrailingSize });
-    }
-    return pane;
   });
 }

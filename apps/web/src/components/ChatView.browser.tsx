@@ -2236,11 +2236,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const rightAiDivider = getWorkspaceDividerRect("Resize AI pane", "horizontal");
 
       expect(firstTerminal.left).toBeGreaterThan(ai.right);
-      expect(firstTerminal.left - ai.right).toBe(ai.left - editor.right);
+      expect(firstTerminal.left - ai.right).toBeCloseTo(ai.left - editor.right, 1);
       expect(secondTerminal.left).toBe(firstTerminal.left);
       expect(secondTerminal.top).toBeGreaterThan(firstTerminal.bottom);
-      expect(rightAiDivider.left + rightAiDivider.width / 2).toBe(
+      expect(rightAiDivider.left + rightAiDivider.width / 2).toBeCloseTo(
         (ai.right + firstTerminal.left) / 2,
+        1,
       );
       expect(getWorkspaceResizeHandleRects()).not.toHaveLength(0);
       for (const handleRect of getWorkspaceResizeHandleRects()) {

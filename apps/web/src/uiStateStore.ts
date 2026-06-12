@@ -42,6 +42,8 @@ export interface PersistedWorkspaceDockedPaneBase {
   dockSlot?: WorkspaceDockedPaneSlot;
   dockColumn?: number;
   dockRow?: number;
+  dockX?: number;
+  dockY?: number;
 }
 
 export interface PersistedWorkspaceAiPane extends PersistedWorkspaceDockedPaneBase {
@@ -398,6 +400,8 @@ function sanitizeWorkspaceDockedPane(
   const dockSlot = sanitizeWorkspacePaneSlot(pane.dockSlot);
   const dockColumn = sanitizeWorkspacePaneCoordinate(pane.dockColumn);
   const dockRow = sanitizeWorkspacePaneCoordinate(pane.dockRow);
+  const dockX = sanitizeWorkspacePaneCoordinate(pane.dockX);
+  const dockY = sanitizeWorkspacePaneCoordinate(pane.dockY);
   const height = sanitizeWorkspacePaneHeight(pane.height);
   const base = {
     paneId,
@@ -411,6 +415,8 @@ function sanitizeWorkspaceDockedPane(
     ...(dockSlot ? { dockSlot } : {}),
     ...(dockColumn !== undefined ? { dockColumn } : {}),
     ...(dockRow !== undefined ? { dockRow } : {}),
+    ...(dockX !== undefined ? { dockX } : {}),
+    ...(dockY !== undefined ? { dockY } : {}),
   };
   const metadata = sanitizeWorkspacePaneMetadata(type, pane.metadata);
   return { ...base, metadata } as PersistedWorkspaceDockedPane;
@@ -1071,6 +1077,8 @@ function workspaceDockedPaneEqual(
     left.dockSlot === right.dockSlot &&
     left.dockColumn === right.dockColumn &&
     left.dockRow === right.dockRow &&
+    left.dockX === right.dockX &&
+    left.dockY === right.dockY &&
     JSON.stringify(left.metadata) === JSON.stringify(right.metadata)
   );
 }

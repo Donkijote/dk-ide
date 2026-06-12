@@ -1014,6 +1014,8 @@ describe("uiStateStore pure functions", () => {
         order: 3,
         size: 0.5,
         height: 900,
+        dockX: 640,
+        dockY: 748,
         metadata: {
           threadId: "thread-2",
         },
@@ -1059,6 +1061,8 @@ describe("uiStateStore pure functions", () => {
           order: 3,
           size: 0.5,
           height: 900,
+          dockX: 640,
+          dockY: 748,
           metadata: {
             threadId: "thread-2",
           },

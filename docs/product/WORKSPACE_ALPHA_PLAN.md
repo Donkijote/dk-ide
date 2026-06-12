@@ -78,13 +78,16 @@ The docked host should support:
 - close pane
 - rename pane
 - reorder panes by drag and drop
-- resize adjacent panes with proportional sibling updates
+- resize panes from their tile edges, pushing colliding panes instead of shrinking
+  them below their default footprint
 - restore persisted pane sessions
 
 Use the existing frontend dependencies and local patterns:
 
 - use `@dnd-kit` for drag reorder
 - use pointer-resize behavior similar to existing sidebar and terminal resizing
+- persist two-dimensional dock coordinates so separate rows can use different
+  pane widths and column counts without becoming a freeform canvas
 - avoid adding another layout dependency unless implementation proves the local
   approach too fragile
 
