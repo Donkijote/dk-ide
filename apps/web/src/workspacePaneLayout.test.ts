@@ -282,6 +282,53 @@ describe("workspace pane layout", () => {
     expect(terminal.y).toBeGreaterThanOrEqual(editor.y + editor.height + WORKSPACE_PANE_GAP);
   });
 
+  it("repairs a stale gap between the default editor and AI panes", () => {
+    const hostWidth = 1_600;
+    const editorWidth = workspacePaneWidth(panes[0]!, hostWidth);
+    const positionedPanes = [
+      { ...panes[0]!, dockX: 0, dockY: 0 },
+      {
+        ...panes[1]!,
+        dockX: Math.round(editorWidth + 120),
+        dockY: 0,
+      },
+      { ...panes[2]!, dockX: 0, dockY: MIN_WORKSPACE_PANE_HEIGHT + WORKSPACE_PANE_GAP },
+    ];
+
+    const normalized = normalizeWorkspacePaneLayout(positionedPanes, hostWidth);
+    const rects = workspacePaneRects(normalized, hostWidth);
+    const editor = rects.find((rect) => rect.pane.paneId === "editor")!;
+    const ai = rects.find((rect) => rect.pane.paneId === "ai")!;
+
+    expect(ai.x).toBeCloseTo(editor.x + editor.width + WORKSPACE_PANE_GAP, 0);
+  });
+
+  it("preserves a pane intentionally placed between the editor and AI panes", () => {
+    const hostWidth = 1_600;
+    const editorWidth = workspacePaneWidth(panes[0]!, hostWidth);
+    const terminalWidth = workspacePaneWidth(panes[2]!, hostWidth);
+    const positionedPanes = [
+      { ...panes[0]!, dockX: 0, dockY: 0 },
+      {
+        ...panes[2]!,
+        dockX: Math.round(editorWidth + WORKSPACE_PANE_GAP),
+        dockY: 0,
+      },
+      {
+        ...panes[1]!,
+        dockX: Math.round(editorWidth + terminalWidth + WORKSPACE_PANE_GAP * 2),
+        dockY: 0,
+      },
+    ];
+
+    const normalized = normalizeWorkspacePaneLayout(positionedPanes, hostWidth);
+    const rects = workspacePaneRects(normalized, hostWidth);
+    const terminal = rects.find((rect) => rect.pane.paneId === "terminal")!;
+    const ai = rects.find((rect) => rect.pane.paneId === "ai")!;
+
+    expect(ai.x).toBeGreaterThanOrEqual(terminal.x + terminal.width + WORKSPACE_PANE_GAP);
+  });
+
   it("clamps persisted pane sizes below one to the default footprint", () => {
     const hostWidth = 1_200;
     const undersizedPane = Object.assign({}, panes[1]!, { size: 0.25 });

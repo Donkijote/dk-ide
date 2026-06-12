@@ -60,6 +60,7 @@ import { selectBootstrapCompleteForActiveEnvironment, useStore } from "../store"
 import { terminalSessionManager } from "../terminalSessionState";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useUiStateStore } from "../uiStateStore";
+import { WORKSPACE_PANE_GAP } from "../workspacePaneLayout";
 import { createAuthenticatedSessionHandlers } from "../../test/authHttpHandlers";
 import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test/wsRpcHarness";
 import { workspacePaneLayoutKey } from "./ChatView.logic";
@@ -2163,6 +2164,75 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(editor.left - hostRect.left).toBeCloseTo(16, 1);
         expect(ai.left).toBeGreaterThanOrEqual(editor.right + 11);
         expect(terminal.top).toBeGreaterThanOrEqual(editor.bottom + 11);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("repairs a stale gap between persisted editor and AI panes", async () => {
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [THREAD_KEY]: {
+          panes: [
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Editor",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              dockX: 0,
+              dockY: 0,
+              metadata: {},
+            },
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "AI",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 1,
+              size: 1,
+              dockX: 1_000,
+              dockY: 0,
+              metadata: { threadId: THREAD_ID },
+            },
+            {
+              paneId: "terminal",
+              type: "terminal",
+              title: "Terminal",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 2,
+              size: 1,
+              dockX: 0,
+              dockY: 748,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: DEFAULT_TERMINAL_ID,
+                terminalGroupId: "default",
+              },
+            },
+          ],
+        },
+      },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-repair-workspace-gutter" as MessageId,
+        targetText: "repair workspace gutter",
+      }),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        const editor = getWorkspacePane("editor").getBoundingClientRect();
+        const ai = getWorkspacePane("ai").getBoundingClientRect();
+
+        expect(ai.left - editor.right).toBeCloseTo(WORKSPACE_PANE_GAP, 1);
       });
     } finally {
       await mounted.cleanup();

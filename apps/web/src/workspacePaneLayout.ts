@@ -295,6 +295,38 @@ function repairWorkspacePaneRectCollisions(
   return rebaseWorkspacePaneRects(repaired);
 }
 
+function repairDefaultWorkspacePaneGutter(
+  rects: readonly WorkspacePaneRect[],
+): WorkspacePaneRect[] {
+  const editor = rects.find((rect) => rect.pane.paneId === "editor");
+  const ai = rects.find((rect) => rect.pane.paneId === "ai");
+  if (!editor || !ai || ai.x <= editor.x) {
+    return rects.map((rect) => ({ ...rect }));
+  }
+
+  const sharesRow = editor.y < ai.y + ai.height && editor.y + editor.height > ai.y;
+  const hasPaneBetween = rects.some(
+    (rect) =>
+      rect.pane.paneId !== editor.pane.paneId &&
+      rect.pane.paneId !== ai.pane.paneId &&
+      rect.y < ai.y + ai.height &&
+      rect.y + rect.height > ai.y &&
+      rect.x >= editor.x + editor.width &&
+      rect.x + rect.width <= ai.x,
+  );
+  if (!sharesRow || hasPaneBetween) {
+    return rects.map((rect) => ({ ...rect }));
+  }
+
+  const expectedAiX = editor.x + editor.width + WORKSPACE_PANE_GAP;
+  if (ai.x <= expectedAiX) {
+    return rects.map((rect) => ({ ...rect }));
+  }
+  return rects.map((rect) =>
+    rect.pane.paneId === ai.pane.paneId ? { ...rect, x: expectedAiX } : { ...rect },
+  );
+}
+
 function pushWorkspacePaneRects(
   rects: readonly WorkspacePaneRect[],
   anchorPaneId: string,
@@ -393,11 +425,12 @@ export function normalizeWorkspacePaneLayout(
   paneHeight: number = MIN_WORKSPACE_PANE_HEIGHT,
   terminalRowHeight: number = 320,
 ): PersistedWorkspaceDockedPane[] {
+  const repairedRects = repairWorkspacePaneRectCollisions(
+    workspacePaneRects(panes, hostWidth, paneHeight, terminalRowHeight),
+  );
   return withWorkspacePaneRects(
     panes,
-    repairWorkspacePaneRectCollisions(
-      workspacePaneRects(panes, hostWidth, paneHeight, terminalRowHeight),
-    ),
+    repairWorkspacePaneRectCollisions(repairDefaultWorkspacePaneGutter(repairedRects)),
   );
 }
 
