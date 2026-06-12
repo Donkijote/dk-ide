@@ -4931,6 +4931,15 @@ export default function ChatView(props: ChatViewProps) {
   ];
   const renderedWorkspaceDockedPanes =
     workspaceDockedPanes.length > 0 ? workspaceDockedPanes : fallbackWorkspaceDockedPanes;
+  const handleWorkspacePanesChange = useCallback(
+    (panes: readonly PersistedWorkspaceDockedPane[]) => {
+      storeSetWorkspaceThreadDockedPanes(
+        workspaceLayoutKey,
+        mergeVisibleWorkspacePaneUpdates(renderedWorkspaceDockedPanes, panes),
+      );
+    },
+    [renderedWorkspaceDockedPanes, storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
+  );
   const terminalPaneDeckHeight = workspaceTerminalRowHeight(terminalState.terminalHeight);
   const terminalLabelById = Object.fromEntries(
     terminalState.terminalIds.map((terminalId, index) => [terminalId, `Terminal ${index + 1}`]),
@@ -5388,12 +5397,7 @@ export default function ChatView(props: ChatViewProps) {
         panes={renderedWorkspaceDockedPanes}
         renderPane={renderWorkspacePane}
         terminalRowHeight={terminalPaneDeckHeight}
-        onPanesChange={(panes) =>
-          storeSetWorkspaceThreadDockedPanes(
-            workspaceLayoutKey,
-            mergeVisibleWorkspacePaneUpdates(renderedWorkspaceDockedPanes, panes),
-          )
-        }
+        onPanesChange={handleWorkspacePanesChange}
       />
 
       {hiddenMountedTerminalThreadRefs.map(

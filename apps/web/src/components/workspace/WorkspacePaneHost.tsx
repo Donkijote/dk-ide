@@ -4,6 +4,7 @@ import {
   PointerSensor,
   closestCenter,
   pointerWithin,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
   useSensor,
@@ -46,6 +47,10 @@ const WORKSPACE_PANE_MEASURING = {
   },
 } as const;
 const WORKSPACE_PANE_RESIZE_OBSERVER = { disabled: true } as const;
+const WORKSPACE_PANE_COLLISION_DETECTION: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
+};
 
 function disableWorkspacePaneLayoutAnimation(): false {
   return false;
@@ -419,10 +424,7 @@ export function WorkspacePaneHost({
       data-testid="workspace-pane-host"
     >
       <DndContext
-        collisionDetection={(args) => {
-          const pointerCollisions = pointerWithin(args);
-          return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
-        }}
+        collisionDetection={WORKSPACE_PANE_COLLISION_DETECTION}
         measuring={WORKSPACE_PANE_MEASURING}
         sensors={sensors}
         onDragCancel={() => {
