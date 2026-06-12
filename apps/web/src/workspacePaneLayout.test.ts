@@ -4,7 +4,9 @@ import type { PersistedWorkspaceDockedPane } from "./uiStateStore";
 import {
   MIN_WORKSPACE_PANE_HEIGHT,
   MIN_WORKSPACE_TERMINAL_ROW_HEIGHT,
+  WORKSPACE_PANE_GAP,
   mergeVisibleWorkspacePaneUpdates,
+  normalizeWorkspacePaneLayout,
   placeWorkspacePane,
   pushWorkspacePaneCollisions,
   reorderWorkspacePanes,
@@ -245,6 +247,39 @@ describe("workspace pane layout", () => {
     const secondTerminal = rects.find((rect) => rect.pane.paneId === "terminal:2")!;
 
     expect(secondTerminal.x).toBeGreaterThan(firstTerminal.x + firstTerminal.width);
+  });
+
+  it("rebases persisted pane coordinates to remove empty leading workspace space", () => {
+    const positionedPanes = panes.map((pane, index) => ({
+      ...pane,
+      dockX: 480 + index * 700,
+      dockY: 60,
+    }));
+
+    const normalized = normalizeWorkspacePaneLayout(positionedPanes, 1_280);
+    const rects = workspacePaneRects(normalized, 1_280);
+
+    expect(Math.min(...rects.map((rect) => rect.x))).toBe(0);
+    expect(Math.min(...rects.map((rect) => rect.y))).toBe(0);
+  });
+
+  it("repairs overlapping persisted panes without changing their row direction", () => {
+    const positionedPanes = [
+      { ...panes[0]!, dockX: 420, dockY: 40 },
+      { ...panes[1]!, dockX: 900, dockY: 40 },
+      { ...panes[2]!, dockX: 420, dockY: 600 },
+    ];
+
+    const normalized = normalizeWorkspacePaneLayout(positionedPanes, 1_600);
+    const rects = workspacePaneRects(normalized, 1_600);
+    const editor = rects.find((rect) => rect.pane.paneId === "editor")!;
+    const ai = rects.find((rect) => rect.pane.paneId === "ai")!;
+    const terminal = rects.find((rect) => rect.pane.paneId === "terminal")!;
+
+    expect(editor.x).toBe(0);
+    expect(editor.y).toBe(0);
+    expect(ai.x).toBeGreaterThanOrEqual(editor.x + editor.width + WORKSPACE_PANE_GAP);
+    expect(terminal.y).toBeGreaterThanOrEqual(editor.y + editor.height + WORKSPACE_PANE_GAP);
   });
 
   it("clamps persisted pane sizes below one to the default footprint", () => {

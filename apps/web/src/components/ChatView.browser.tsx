@@ -2095,6 +2095,80 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("repairs offset and overlapping persisted workspace panes", async () => {
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [THREAD_KEY]: {
+          panes: [
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Editor",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              dockX: 480,
+              dockY: 60,
+              metadata: {},
+            },
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "AI",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 1,
+              size: 1,
+              dockX: 900,
+              dockY: 60,
+              metadata: { threadId: THREAD_ID },
+            },
+            {
+              paneId: "terminal",
+              type: "terminal",
+              title: "Terminal",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 2,
+              size: 1,
+              dockX: 480,
+              dockY: 600,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: DEFAULT_TERMINAL_ID,
+                terminalGroupId: "default",
+              },
+            },
+          ],
+        },
+      },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-repair-workspace-layout" as MessageId,
+        targetText: "repair workspace layout",
+      }),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        const host = document.querySelector<HTMLElement>('[data-testid="workspace-pane-host"]')!;
+        const hostRect = host.getBoundingClientRect();
+        const editor = getWorkspacePane("editor").getBoundingClientRect();
+        const ai = getWorkspacePane("ai").getBoundingClientRect();
+        const terminal = getWorkspacePane("terminal").getBoundingClientRect();
+
+        expect(editor.left - hostRect.left).toBeCloseTo(16, 1);
+        expect(ai.left).toBeGreaterThanOrEqual(editor.right + 11);
+        expect(terminal.top).toBeGreaterThanOrEqual(editor.bottom + 11);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps AI full height above terminals with bottom workspace spacing", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,

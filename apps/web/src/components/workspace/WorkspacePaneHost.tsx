@@ -25,6 +25,7 @@ import {
 import type { PersistedWorkspaceDockedPane } from "~/uiStateStore";
 import {
   MIN_WORKSPACE_PANE_HEIGHT,
+  normalizeWorkspacePaneLayout,
   placeWorkspacePane,
   pushWorkspacePaneCollisions,
   resizeWorkspacePaneHeight,
@@ -166,10 +167,26 @@ export function WorkspacePaneHost({
   );
   const renderedPanes = previewPanes ?? panes;
   const renderedTerminalRowHeight = workspaceTerminalRowHeight(terminalRowHeight);
-  const paneIds = useStableWorkspacePaneIds(renderedPanes);
-  const paneRects = useMemo(
-    () => workspacePaneRects(renderedPanes, layoutWidth, layoutHeight, renderedTerminalRowHeight),
+  const normalizedRenderedPanes = useMemo(
+    () =>
+      normalizeWorkspacePaneLayout(
+        renderedPanes,
+        layoutWidth,
+        layoutHeight,
+        renderedTerminalRowHeight,
+      ),
     [layoutHeight, layoutWidth, renderedPanes, renderedTerminalRowHeight],
+  );
+  const paneIds = useStableWorkspacePaneIds(normalizedRenderedPanes);
+  const paneRects = useMemo(
+    () =>
+      workspacePaneRects(
+        normalizedRenderedPanes,
+        layoutWidth,
+        layoutHeight,
+        renderedTerminalRowHeight,
+      ),
+    [layoutHeight, layoutWidth, normalizedRenderedPanes, renderedTerminalRowHeight],
   );
   const contentWidth = Math.max(...paneRects.map((rect) => rect.x + rect.width), 0);
   const contentHeight = Math.max(...paneRects.map((rect) => rect.y + rect.height), 0);
@@ -189,6 +206,24 @@ export function WorkspacePaneHost({
     }
     setLayoutHeight(Math.max(MIN_WORKSPACE_PANE_HEIGHT, host.clientHeight - 32));
   }, []);
+
+  useEffect(() => {
+    if (previewPanes !== null) {
+      return;
+    }
+    const needsRepair = panes.some((pane, index) => {
+      const normalizedPane = normalizedRenderedPanes[index];
+      return (
+        !normalizedPane ||
+        pane.paneId !== normalizedPane.paneId ||
+        pane.dockX !== normalizedPane.dockX ||
+        pane.dockY !== normalizedPane.dockY
+      );
+    });
+    if (needsRepair) {
+      onPanesChange(normalizedRenderedPanes);
+    }
+  }, [normalizedRenderedPanes, onPanesChange, panes, previewPanes]);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {

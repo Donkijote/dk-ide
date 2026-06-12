@@ -212,37 +212,41 @@ export function workspacePaneRects(
       (right, pane) => Math.max(right, pane.dockX! + workspacePaneWidth(pane, hostWidth)),
       0,
     );
-    return panes.map((pane) => {
-      const width = workspacePaneWidth(pane, hostWidth);
-      const defaultHeight = workspacePaneDefaultHeight(pane, paneHeight, terminalRowHeight);
-      const rect = {
-        pane,
-        x: pane.dockX ?? nextX + (nextX > 0 ? WORKSPACE_PANE_GAP : 0),
-        y: pane.dockY ?? 0,
-        width,
-        height: workspacePaneHeight(pane, defaultHeight),
-      };
-      if (pane.dockX === undefined || pane.dockY === undefined) {
-        nextX = rect.x + width;
-      }
-      return rect;
-    });
+    return repairWorkspacePaneRectCollisions(
+      panes.map((pane) => {
+        const width = workspacePaneWidth(pane, hostWidth);
+        const defaultHeight = workspacePaneDefaultHeight(pane, paneHeight, terminalRowHeight);
+        const rect = {
+          pane,
+          x: pane.dockX ?? nextX + (nextX > 0 ? WORKSPACE_PANE_GAP : 0),
+          y: pane.dockY ?? 0,
+          width,
+          height: workspacePaneHeight(pane, defaultHeight),
+        };
+        if (pane.dockX === undefined || pane.dockY === undefined) {
+          nextX = rect.x + width;
+        }
+        return rect;
+      }),
+    );
   }
 
   let x = 0;
-  return workspacePaneColumns(panes).flatMap((column) => {
-    let y = 0;
-    const rects = column.panes.map((pane) => {
-      const width = workspacePaneWidth(pane, hostWidth);
-      const defaultHeight = workspacePaneDefaultHeight(pane, paneHeight, terminalRowHeight);
-      const height = workspacePaneHeight(pane, defaultHeight);
-      const rect = { pane, x, y, width, height };
-      y += height + WORKSPACE_PANE_GAP;
-      return rect;
-    });
-    x += Math.max(...rects.map((rect) => rect.width), 0) + WORKSPACE_PANE_GAP;
-    return rects;
-  });
+  return repairWorkspacePaneRectCollisions(
+    workspacePaneColumns(panes).flatMap((column) => {
+      let y = 0;
+      const rects = column.panes.map((pane) => {
+        const width = workspacePaneWidth(pane, hostWidth);
+        const defaultHeight = workspacePaneDefaultHeight(pane, paneHeight, terminalRowHeight);
+        const height = workspacePaneHeight(pane, defaultHeight);
+        const rect = { pane, x, y, width, height };
+        y += height + WORKSPACE_PANE_GAP;
+        return rect;
+      });
+      x += Math.max(...rects.map((rect) => rect.width), 0) + WORKSPACE_PANE_GAP;
+      return rects;
+    }),
+  );
 }
 
 function workspacePaneRectsIntersect(left: WorkspacePaneRect, right: WorkspacePaneRect): boolean {
@@ -252,6 +256,43 @@ function workspacePaneRectsIntersect(left: WorkspacePaneRect, right: WorkspacePa
     left.y < right.y + right.height + WORKSPACE_PANE_GAP &&
     left.y + left.height + WORKSPACE_PANE_GAP > right.y
   );
+}
+
+function rebaseWorkspacePaneRects(rects: readonly WorkspacePaneRect[]): WorkspacePaneRect[] {
+  if (rects.length === 0) {
+    return [];
+  }
+  const minimumX = Math.min(...rects.map((rect) => rect.x));
+  const minimumY = Math.min(...rects.map((rect) => rect.y));
+  if (minimumX === 0 && minimumY === 0) {
+    return rects.map((rect) => ({ ...rect }));
+  }
+  return rects.map((rect) => ({
+    ...rect,
+    x: rect.x - minimumX,
+    y: rect.y - minimumY,
+  }));
+}
+
+function repairWorkspacePaneRectCollisions(
+  rects: readonly WorkspacePaneRect[],
+): WorkspacePaneRect[] {
+  const repaired: WorkspacePaneRect[] = [];
+  for (const sourceRect of rebaseWorkspacePaneRects(rects)) {
+    let rect = { ...sourceRect };
+    let blocker = repaired.find((candidate) => workspacePaneRectsIntersect(candidate, rect));
+    while (blocker) {
+      const horizontalOffset = Math.abs(sourceRect.x - blocker.x);
+      const verticalOffset = Math.abs(sourceRect.y - blocker.y);
+      rect =
+        horizontalOffset >= verticalOffset
+          ? { ...rect, x: blocker.x + blocker.width + WORKSPACE_PANE_GAP }
+          : { ...rect, y: blocker.y + blocker.height + WORKSPACE_PANE_GAP };
+      blocker = repaired.find((candidate) => workspacePaneRectsIntersect(candidate, rect));
+    }
+    repaired.push(rect);
+  }
+  return rebaseWorkspacePaneRects(repaired);
 }
 
 function pushWorkspacePaneRects(
@@ -325,14 +366,7 @@ function pushWorkspacePaneRects(
     }
   }
 
-  const minimumX = Math.min(...nextRects.map((rect) => rect.x), 0);
-  const minimumY = Math.min(...nextRects.map((rect) => rect.y), 0);
-  return nextRects.map((rect) =>
-    Object.assign({}, rect, {
-      x: rect.x - minimumX,
-      y: rect.y - minimumY,
-    }),
-  );
+  return rebaseWorkspacePaneRects(nextRects);
 }
 
 function withWorkspacePaneRects(
@@ -351,6 +385,20 @@ function withWorkspacePaneRects(
         })
       : Object.assign({}, pane, { order });
   });
+}
+
+export function normalizeWorkspacePaneLayout(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  hostWidth: number,
+  paneHeight: number = MIN_WORKSPACE_PANE_HEIGHT,
+  terminalRowHeight: number = 320,
+): PersistedWorkspaceDockedPane[] {
+  return withWorkspacePaneRects(
+    panes,
+    repairWorkspacePaneRectCollisions(
+      workspacePaneRects(panes, hostWidth, paneHeight, terminalRowHeight),
+    ),
+  );
 }
 
 export function placeWorkspacePane(
