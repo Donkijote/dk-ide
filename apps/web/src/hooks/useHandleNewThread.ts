@@ -10,6 +10,7 @@ import {
 } from "../composerDraftStore";
 import { newDraftId, newThreadId } from "../lib/utils";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
+import { workspacePaneLayoutKey } from "../components/ChatView.logic";
 import {
   deriveLogicalProjectKeyFromSettings,
   getProjectOrderKey,
@@ -56,6 +57,39 @@ function useNewThreadState() {
       const logicalProjectKey = project
         ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
         : scopedProjectKey(projectRef);
+      const bindDraftToWorkspaceAiPane = (input: {
+        threadId: DraftThreadState["threadId"];
+        worktreePath: string | null;
+      }) => {
+        if (!project) {
+          return;
+        }
+        const workspaceLayoutKey = workspacePaneLayoutKey({
+          environmentId: projectRef.environmentId,
+          projectId: projectRef.projectId,
+          workspaceRoot: input.worktreePath ?? project.cwd,
+        });
+        const uiState = useUiStateStore.getState();
+        const panes = uiState.workspaceThreadLayoutById[workspaceLayoutKey]?.panes;
+        if (!panes) {
+          return;
+        }
+        uiState.setWorkspaceThreadDockedPanes(
+          workspaceLayoutKey,
+          panes.map((pane) =>
+            pane.paneId === "ai" && pane.type === "ai"
+              ? Object.assign({}, pane, {
+                  title: "New thread",
+                  environmentId: projectRef.environmentId,
+                  metadata: Object.assign({}, pane.metadata, {
+                    threadId: input.threadId,
+                  }),
+                })
+              : pane,
+          ),
+          "ai",
+        );
+      };
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
@@ -83,6 +117,7 @@ function useNewThreadState() {
           ) {
             return;
           }
+          bindDraftToWorkspaceAiPane(storedDraftThread);
           await router.navigate({
             to: "/draft/$draftId",
             params: { draftId: storedDraftThread.draftId },
@@ -128,6 +163,10 @@ function useNewThreadState() {
           runtimeMode: DEFAULT_RUNTIME_MODE,
         });
         applyStickyState(draftId);
+        bindDraftToWorkspaceAiPane({
+          threadId,
+          worktreePath: options?.worktreePath ?? null,
+        });
 
         await router.navigate({
           to: "/draft/$draftId",

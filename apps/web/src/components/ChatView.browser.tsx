@@ -4689,6 +4689,48 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("creates an AI-pane draft on the first click without moving workspace panes", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-ai-pane-new-thread-first-click" as MessageId,
+        targetText: "AI pane new thread first click",
+      }),
+    });
+
+    try {
+      const panePositionsBefore = Object.fromEntries(
+        ["editor", "ai", "terminal"].map((paneId) => {
+          const rect = getWorkspacePane(paneId).getBoundingClientRect();
+          return [paneId, { left: rect.left, top: rect.top }];
+        }),
+      );
+      const aiPaneNewThreadButton = page.getByTestId("ai-pane-new-thread-button");
+      await expect.element(aiPaneNewThreadButton).toBeInTheDocument();
+
+      const aiPaneNewThreadButtonElement = document.querySelector<HTMLButtonElement>(
+        '[data-testid="ai-pane-new-thread-button"]',
+      );
+      expect(aiPaneNewThreadButtonElement).not.toBeNull();
+      aiPaneNewThreadButtonElement!.click();
+
+      await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "The first AI-pane new-thread click should open a draft.",
+      );
+      await expect
+        .element(page.getByTestId("cancel-clean-draft-thread-button"))
+        .toBeInTheDocument();
+      for (const [paneId, positionBefore] of Object.entries(panePositionsBefore)) {
+        const rect = getWorkspacePane(paneId).getBoundingClientRect();
+        expect({ left: rect.left, top: rect.top }).toEqual(positionBefore);
+      }
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("hides the clean draft cancel action after the draft has composer content", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,

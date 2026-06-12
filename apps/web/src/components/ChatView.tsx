@@ -2027,18 +2027,43 @@ export default function ChatView(props: ChatViewProps) {
       workspaceLayoutKey,
     ],
   );
+  const setWorkspaceAiPaneThreadBinding = useCallback(
+    (paneId: string, threadRef: ScopedThreadRef, title: string) => {
+      const layout = useUiStateStore.getState().workspaceThreadLayoutById[workspaceLayoutKey];
+      if (!layout?.panes) {
+        return;
+      }
+      storeSetWorkspaceThreadDockedPanes(
+        workspaceLayoutKey,
+        layout.panes.map((pane) =>
+          pane.paneId === paneId && pane.type === "ai"
+            ? Object.assign({}, pane, {
+                title,
+                environmentId: threadRef.environmentId,
+                metadata: Object.assign({}, pane.metadata, {
+                  threadId: threadRef.threadId,
+                }),
+              })
+            : pane,
+        ),
+        paneId,
+      );
+    },
+    [storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
+  );
   const bindScopedAiPaneThread = useCallback(
     async (input: { draftId: DraftId; threadRef: ScopedThreadRef; title: string }) => {
       if (onWorkspaceAiPaneThreadChange) {
         onWorkspaceAiPaneThreadChange(scopedThreadKey(input.threadRef), { title: input.title });
         return;
       }
+      setWorkspaceAiPaneThreadBinding("ai", input.threadRef, input.title);
       await navigate({
         to: "/draft/$draftId",
         params: buildDraftThreadRouteParams(input.draftId),
       });
     },
-    [navigate, onWorkspaceAiPaneThreadChange],
+    [navigate, onWorkspaceAiPaneThreadChange, setWorkspaceAiPaneThreadBinding],
   );
   const createScopedAiPaneThread = useCallback(
     async (mode: "contextual" | "default") => {
@@ -2290,6 +2315,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
       if (draftOrigin.route.kind === "draft") {
+        setWorkspaceAiPaneThreadBinding("ai", draftOrigin.threadRef, draftOrigin.title);
         await navigate({
           to: "/draft/$draftId",
           params: buildDraftThreadRouteParams(draftOrigin.route.draftId),
@@ -2298,6 +2324,7 @@ export default function ChatView(props: ChatViewProps) {
         discardDraft();
         return;
       }
+      setWorkspaceAiPaneThreadBinding("ai", draftOrigin.threadRef, draftOrigin.title);
       await navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(draftOrigin.threadRef),
@@ -2318,6 +2345,7 @@ export default function ChatView(props: ChatViewProps) {
         discardDraft();
         return;
       }
+      setWorkspaceAiPaneThreadBinding("ai", fallbackThreadRef, fallbackWorkspaceThread.title);
       await navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(fallbackThreadRef),
@@ -2342,6 +2370,7 @@ export default function ChatView(props: ChatViewProps) {
     navigate,
     onWorkspaceAiPaneThreadChange,
     props.draftId,
+    setWorkspaceAiPaneThreadBinding,
   ]);
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
@@ -2726,31 +2755,24 @@ export default function ChatView(props: ChatViewProps) {
         (thread) =>
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === nextThreadKey,
       );
-      const layout = useUiStateStore.getState().workspaceThreadLayoutById[workspaceLayoutKey];
-      const panes = layout?.panes;
-      if (!panes) {
+      const currentPane = useUiStateStore
+        .getState()
+        .workspaceThreadLayoutById[workspaceLayoutKey]?.panes?.find(
+          (pane) => pane.paneId === paneId && pane.type === "ai",
+        );
+      if (!currentPane) {
         return;
       }
-      storeSetWorkspaceThreadDockedPanes(
-        workspaceLayoutKey,
-        panes.map((pane) =>
-          pane.paneId === paneId && pane.type === "ai"
-            ? Object.assign({}, pane, {
-                title: options?.title ?? nextThread?.title ?? pane.title,
-                environmentId: nextThreadRef.environmentId,
-                metadata: Object.assign({}, pane.metadata, {
-                  threadId: nextThreadRef.threadId,
-                }),
-              })
-            : pane,
-        ),
+      setWorkspaceAiPaneThreadBinding(
         paneId,
+        nextThreadRef,
+        options?.title ?? nextThread?.title ?? currentPane.title,
       );
     },
     [
       activeWorkspaceThreadOptions,
+      setWorkspaceAiPaneThreadBinding,
       storeRemoveWorkspaceThreadDockedPane,
-      storeSetWorkspaceThreadDockedPanes,
       workspaceLayoutKey,
     ],
   );
