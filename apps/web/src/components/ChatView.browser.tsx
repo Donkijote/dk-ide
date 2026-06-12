@@ -62,6 +62,7 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { useUiStateStore } from "../uiStateStore";
 import { createAuthenticatedSessionHandlers } from "../../test/authHttpHandlers";
 import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test/wsRpcHarness";
+import { workspacePaneLayoutKey } from "./ChatView.logic";
 
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 
@@ -1159,6 +1160,10 @@ function getWorkspacePane(paneId: string): HTMLElement {
   return pane!;
 }
 
+function countWorkspaceTerminalPanes(): number {
+  return document.querySelectorAll('[data-workspace-pane-id^="terminal"]').length;
+}
+
 function getWorkspaceResizeHandleRects(): DOMRect[] {
   return Array.from(
     document.querySelectorAll<HTMLElement>("[data-workspace-resize-handle]"),
@@ -1789,6 +1794,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       projectExpandedById: {},
       projectOrder: [],
       threadLastVisitedAtById: {},
+      workspaceThreadLayoutById: {},
     });
     useTerminalUiStateStore.persist.clearStorage();
     useTerminalUiStateStore.setState({
@@ -2406,9 +2412,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           expect(
-            useUiStateStore
-              .getState()
-              .workspaceThreadLayoutById[THREAD_KEY]?.panes?.find((pane) => pane.paneId === "ai"),
+            useUiStateStore.getState().workspaceThreadLayoutById[
+              workspacePaneLayoutKey({
+                environmentId: LOCAL_ENVIRONMENT_ID,
+                projectId: PROJECT_ID,
+                workspaceRoot: "/repo/project",
+              })
+            ]?.panes?.find((pane) => pane.paneId === "ai"),
           ).toMatchObject({
             environmentId: LOCAL_ENVIRONMENT_ID,
             metadata: {
@@ -2437,6 +2447,114 @@ describe("ChatView timeline estimator parity (full app)", () => {
           .filter((request) => request._tag === WS_METHODS.terminalAttach)
           .map((request) => request.threadId),
       ).not.toContain(secondaryThreadId);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps pane layouts isolated when switching workspaces", async () => {
+    const secondaryThreadId = "thread-secondary-project" as ThreadId;
+    const primaryWorkspaceKey = workspacePaneLayoutKey({
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      projectId: PROJECT_ID,
+      workspaceRoot: "/repo/project",
+    });
+    const secondaryWorkspaceKey = workspacePaneLayoutKey({
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      projectId: SECOND_PROJECT_ID,
+      workspaceRoot: "/repo/clients/docs-portal",
+    });
+    const uiState = useUiStateStore.getState();
+    uiState.ensureWorkspaceThreadDockedPaneLayout(primaryWorkspaceKey, {
+      threadId: THREAD_ID,
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      cwd: "/repo/project",
+      aiTitle: THREAD_TITLE,
+      editorTitle: "Project Editor",
+      terminalTitle: "project",
+      terminalId: "primary-terminal",
+      terminalGroupId: "primary-group",
+    });
+    uiState.ensureWorkspaceThreadDockedPaneLayout(secondaryWorkspaceKey, {
+      threadId: secondaryThreadId,
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      cwd: "/repo/clients/docs-portal",
+      aiTitle: "Release checklist",
+      editorTitle: "Docs Portal Editor",
+      terminalTitle: "docs-portal",
+      terminalId: "secondary-terminal-1",
+      terminalGroupId: "secondary-group-1",
+    });
+    for (const terminalIndex of [2, 3]) {
+      uiState.addWorkspaceThreadDockedPane(secondaryWorkspaceKey, {
+        paneId: `terminal:secondary-${terminalIndex}`,
+        type: "terminal",
+        title: `Docs terminal ${terminalIndex}`,
+        environmentId: LOCAL_ENVIRONMENT_ID,
+        cwd: "/repo/clients/docs-portal",
+        threadId: secondaryThreadId,
+        terminalId: `secondary-terminal-${terminalIndex}`,
+        terminalGroupId: `secondary-group-${terminalIndex}`,
+      });
+    }
+    useTerminalUiStateStore.setState({
+      terminalUiStateByThreadKey: {
+        [THREAD_KEY]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: ["primary-terminal"],
+          activeTerminalId: "primary-terminal",
+          terminalGroups: [{ id: "primary-group", terminalIds: ["primary-terminal"] }],
+          activeTerminalGroupId: "primary-group",
+        },
+        [threadKeyFor(secondaryThreadId)]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: ["secondary-terminal-1", "secondary-terminal-2", "secondary-terminal-3"],
+          activeTerminalId: "secondary-terminal-1",
+          terminalGroups: [
+            { id: "secondary-group-1", terminalIds: ["secondary-terminal-1"] },
+            { id: "secondary-group-2", terminalIds: ["secondary-terminal-2"] },
+            { id: "secondary-group-3", terminalIds: ["secondary-terminal-3"] },
+          ],
+          activeTerminalGroupId: "secondary-group-1",
+        },
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithSecondaryProject({ includeArchivedSecondaryThread: false }),
+    });
+    try {
+      await vi.waitFor(() => {
+        expect(countWorkspaceTerminalPanes()).toBe(1);
+        expect(getWorkspacePane("ai").textContent).toContain(THREAD_TITLE);
+      });
+
+      await mounted.router.navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: LOCAL_ENVIRONMENT_ID,
+          threadId: secondaryThreadId,
+        },
+      });
+      await vi.waitFor(() => {
+        expect(countWorkspaceTerminalPanes()).toBe(3);
+        expect(getWorkspacePane("ai").textContent).toContain("Release checklist");
+      });
+
+      await mounted.router.navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: LOCAL_ENVIRONMENT_ID,
+          threadId: THREAD_ID,
+        },
+      });
+      await vi.waitFor(() => {
+        expect(countWorkspaceTerminalPanes()).toBe(1);
+        expect(getWorkspacePane("ai").textContent).toContain(THREAD_TITLE);
+      });
     } finally {
       await mounted.cleanup();
     }

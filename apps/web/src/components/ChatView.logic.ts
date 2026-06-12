@@ -24,6 +24,17 @@ export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
+export function workspacePaneLayoutKey(input: {
+  environmentId: EnvironmentId;
+  projectId: ProjectId;
+  workspaceRoot: string | null | undefined;
+}): string {
+  const normalizedWorkspaceRoot = input.workspaceRoot
+    ? input.workspaceRoot.replace(/\\/g, "/").replace(/\/+$/g, "") || "/"
+    : "";
+  return `workspace:${encodeURIComponent(input.environmentId)}:${encodeURIComponent(input.projectId)}:${encodeURIComponent(normalizedWorkspaceRoot)}`;
+}
+
 export function basenameOfPanePath(path: string | null | undefined): string | null {
   if (!path) {
     return null;

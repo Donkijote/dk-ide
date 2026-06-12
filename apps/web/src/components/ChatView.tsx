@@ -218,6 +218,7 @@ import {
   shouldRemoveTerminalPaneAfterClose,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
+  workspacePaneLayoutKey,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
@@ -274,6 +275,7 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PANE_TITLE_OVERRIDES: Record<string, string> = {};
+const EMPTY_WORKSPACE_DOCKED_PANES: PersistedWorkspaceDockedPane[] = [];
 const EMPTY_TERMINAL_RUNTIME_ENV: Record<string, string> = {};
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
@@ -1201,16 +1203,8 @@ export default function ChatView(props: ChatViewProps) {
   const activeThreadLastVisitedAt = useUiStateStore((store) =>
     routeKind === "server" ? store.threadLastVisitedAtById[routeThreadKey] : undefined,
   );
-  const planSidebarOpen = useUiStateStore(
-    (store) => store.workspaceThreadLayoutById[routeThreadKey]?.planSidebarOpen ?? false,
-  );
-  const paneTitleOverrideById = useUiStateStore(
-    (store) =>
-      store.workspaceThreadLayoutById[routeThreadKey]?.paneTitleOverrideById ??
-      EMPTY_PANE_TITLE_OVERRIDES,
-  );
-  const workspaceDockedPanes = useUiStateStore(
-    (store) => store.workspaceThreadLayoutById[routeThreadKey]?.panes ?? [],
+  const storeMigrateWorkspaceThreadLayout = useUiStateStore(
+    (store) => store.migrateWorkspaceThreadLayout,
   );
   const storeSetWorkspaceThreadPlanSidebarOpen = useUiStateStore(
     (store) => store.setWorkspaceThreadPlanSidebarOpen,
@@ -1235,22 +1229,6 @@ export default function ChatView(props: ChatViewProps) {
   );
   const storeRestoreWorkspaceThreadDefaultDockedPane = useUiStateStore(
     (store) => store.restoreWorkspaceThreadDefaultDockedPane,
-  );
-  const renameWorkspacePane = useCallback(
-    (paneId: string, title: string | null) => {
-      storeSetWorkspaceThreadPaneTitleOverride(routeThreadKey, paneId, title);
-    },
-    [routeThreadKey, storeSetWorkspaceThreadPaneTitleOverride],
-  );
-  const setPlanSidebarOpen = useCallback(
-    (value: boolean | ((open: boolean) => boolean)) => {
-      const currentOpen =
-        useUiStateStore.getState().workspaceThreadLayoutById[routeThreadKey]?.planSidebarOpen ??
-        false;
-      const nextOpen = typeof value === "function" ? value(currentOpen) : value;
-      storeSetWorkspaceThreadPlanSidebarOpen(routeThreadKey, nextOpen);
-    },
-    [routeThreadKey, storeSetWorkspaceThreadPlanSidebarOpen],
   );
   const settings = useSettings();
   const setStickyComposerModelSelection = useComposerDraftStore(
@@ -1952,6 +1930,59 @@ export default function ChatView(props: ChatViewProps) {
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
+  const workspaceLayoutKey = useMemo(
+    () =>
+      workspaceMode === "full" && activeThread
+        ? workspacePaneLayoutKey({
+            environmentId: activeThread.environmentId,
+            projectId: activeThread.projectId,
+            workspaceRoot: activeWorkspaceRoot,
+          })
+        : routeThreadKey,
+    [activeThread, activeWorkspaceRoot, routeThreadKey, workspaceMode],
+  );
+  const planSidebarOpen = useUiStateStore(
+    (store) =>
+      (
+        store.workspaceThreadLayoutById[workspaceLayoutKey] ??
+        store.workspaceThreadLayoutById[routeThreadKey]
+      )?.planSidebarOpen ?? false,
+  );
+  const paneTitleOverrideById = useUiStateStore(
+    (store) =>
+      (
+        store.workspaceThreadLayoutById[workspaceLayoutKey] ??
+        store.workspaceThreadLayoutById[routeThreadKey]
+      )?.paneTitleOverrideById ?? EMPTY_PANE_TITLE_OVERRIDES,
+  );
+  const workspaceDockedPanes = useUiStateStore(
+    (store) =>
+      (
+        store.workspaceThreadLayoutById[workspaceLayoutKey] ??
+        store.workspaceThreadLayoutById[routeThreadKey]
+      )?.panes ?? EMPTY_WORKSPACE_DOCKED_PANES,
+  );
+  const renameWorkspacePane = useCallback(
+    (paneId: string, title: string | null) => {
+      storeSetWorkspaceThreadPaneTitleOverride(workspaceLayoutKey, paneId, title);
+    },
+    [storeSetWorkspaceThreadPaneTitleOverride, workspaceLayoutKey],
+  );
+  const setPlanSidebarOpen = useCallback(
+    (value: boolean | ((open: boolean) => boolean)) => {
+      const currentOpen =
+        useUiStateStore.getState().workspaceThreadLayoutById[workspaceLayoutKey]?.planSidebarOpen ??
+        false;
+      const nextOpen = typeof value === "function" ? value(currentOpen) : value;
+      storeSetWorkspaceThreadPlanSidebarOpen(workspaceLayoutKey, nextOpen);
+    },
+    [storeSetWorkspaceThreadPlanSidebarOpen, workspaceLayoutKey],
+  );
+  useEffect(() => {
+    if (workspaceLayoutKey !== routeThreadKey) {
+      storeMigrateWorkspaceThreadLayout(routeThreadKey, workspaceLayoutKey);
+    }
+  }, [routeThreadKey, storeMigrateWorkspaceThreadLayout, workspaceLayoutKey]);
   const addWorkspacePane = useCallback(
     (input: {
       type: WorkspaceDockedPaneType;
@@ -1969,7 +2000,7 @@ export default function ChatView(props: ChatViewProps) {
         storeNewTerminal(activeThreadRef, terminalId);
         storeSetTerminalOpen(activeThreadRef, true);
       }
-      storeAddWorkspaceThreadDockedPane(activeThreadKey, {
+      storeAddWorkspaceThreadDockedPane(workspaceLayoutKey, {
         paneId,
         type: input.type,
         title: input.title,
@@ -1980,9 +2011,9 @@ export default function ChatView(props: ChatViewProps) {
         terminalGroupId,
       });
       if (input.type === "terminal") {
-        storeSetWorkspaceThreadLastActivePane(activeThreadKey, "terminal");
+        storeSetWorkspaceThreadLastActivePane(workspaceLayoutKey, "terminal");
       } else {
-        storeSetWorkspaceThreadLastActivePane(activeThreadKey, input.type);
+        storeSetWorkspaceThreadLastActivePane(workspaceLayoutKey, input.type);
       }
     },
     [
@@ -1993,6 +2024,7 @@ export default function ChatView(props: ChatViewProps) {
       storeNewTerminal,
       storeSetTerminalOpen,
       storeSetWorkspaceThreadLastActivePane,
+      workspaceLayoutKey,
     ],
   );
   const bindScopedAiPaneThread = useCallback(
@@ -2683,7 +2715,7 @@ export default function ChatView(props: ChatViewProps) {
   const handleWorkspaceAiPaneThreadChange = useCallback(
     (paneId: string, nextThreadKey: string | null, options?: { title?: string }) => {
       if (nextThreadKey === null) {
-        storeRemoveWorkspaceThreadDockedPane(routeThreadKey, paneId);
+        storeRemoveWorkspaceThreadDockedPane(workspaceLayoutKey, paneId);
         return;
       }
       const nextThreadRef = parseScopedThreadKey(nextThreadKey);
@@ -2694,13 +2726,13 @@ export default function ChatView(props: ChatViewProps) {
         (thread) =>
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === nextThreadKey,
       );
-      const layout = useUiStateStore.getState().workspaceThreadLayoutById[routeThreadKey];
+      const layout = useUiStateStore.getState().workspaceThreadLayoutById[workspaceLayoutKey];
       const panes = layout?.panes;
       if (!panes) {
         return;
       }
       storeSetWorkspaceThreadDockedPanes(
-        routeThreadKey,
+        workspaceLayoutKey,
         panes.map((pane) =>
           pane.paneId === paneId && pane.type === "ai"
             ? Object.assign({}, pane, {
@@ -2717,9 +2749,9 @@ export default function ChatView(props: ChatViewProps) {
     },
     [
       activeWorkspaceThreadOptions,
-      routeThreadKey,
       storeRemoveWorkspaceThreadDockedPane,
       storeSetWorkspaceThreadDockedPanes,
+      workspaceLayoutKey,
     ],
   );
   const handleAiPaneThreadChange = useCallback(
@@ -2767,13 +2799,13 @@ export default function ChatView(props: ChatViewProps) {
     ) ??
     null;
   useEffect(() => {
-    if (!activeThread || !activeThreadKey) {
+    if (!activeThread) {
       return;
     }
     const terminalTitle = activeTerminalGroup
       ? (basenameOfPanePath(activeWorkspaceRoot) ?? "Terminal")
       : "Terminal";
-    storeEnsureWorkspaceThreadDockedPaneLayout(activeThreadKey, {
+    storeEnsureWorkspaceThreadDockedPaneLayout(workspaceLayoutKey, {
       threadId: activeThread.id,
       environmentId: activeThread.environmentId,
       cwd: activeWorkspaceRoot,
@@ -2787,11 +2819,11 @@ export default function ChatView(props: ChatViewProps) {
   }, [
     activeTerminalGroup,
     activeThread,
-    activeThreadKey,
     activeWorkspaceRoot,
     storeEnsureWorkspaceThreadDockedPaneLayout,
     terminalState.activeTerminalId,
     workspaceEditorActivePath,
+    workspaceLayoutKey,
     workspaceName,
   ]);
   const hasReachedSplitLimit =
@@ -2838,32 +2870,31 @@ export default function ChatView(props: ChatViewProps) {
     (open: boolean) => {
       if (!activeThreadRef) return;
       if (open) {
-        storeRestoreWorkspaceThreadDefaultDockedPane(scopedThreadKey(activeThreadRef), "terminal");
+        storeRestoreWorkspaceThreadDefaultDockedPane(workspaceLayoutKey, "terminal");
       }
       storeSetTerminalOpen(activeThreadRef, open);
-      storeSetWorkspaceThreadLastActivePane(
-        scopedThreadKey(activeThreadRef),
-        open ? "terminal" : "ai",
-      );
+      storeSetWorkspaceThreadLastActivePane(workspaceLayoutKey, open ? "terminal" : "ai");
     },
     [
       activeThreadRef,
       storeRestoreWorkspaceThreadDefaultDockedPane,
       storeSetTerminalOpen,
       storeSetWorkspaceThreadLastActivePane,
+      workspaceLayoutKey,
     ],
   );
   const splitTerminal = useCallback(() => {
     if (!activeThreadRef || hasReachedSplitLimit) return;
     const terminalId = `terminal-${randomUUID()}`;
     storeSplitTerminal(activeThreadRef, terminalId);
-    storeSetWorkspaceThreadLastActivePane(scopedThreadKey(activeThreadRef), "terminal");
+    storeSetWorkspaceThreadLastActivePane(workspaceLayoutKey, "terminal");
     setTerminalFocusRequestId((value) => value + 1);
   }, [
     activeThreadRef,
     hasReachedSplitLimit,
     storeSetWorkspaceThreadLastActivePane,
     storeSplitTerminal,
+    workspaceLayoutKey,
   ]);
   const splitWorkspaceTerminalPane = useCallback(
     (terminalGroupId: string, anchorTerminalId: string) => {
@@ -2873,10 +2904,15 @@ export default function ChatView(props: ChatViewProps) {
         groupId: terminalGroupId,
         anchorTerminalId,
       });
-      storeSetWorkspaceThreadLastActivePane(scopedThreadKey(activeThreadRef), "terminal");
+      storeSetWorkspaceThreadLastActivePane(workspaceLayoutKey, "terminal");
       setTerminalFocusRequestId((value) => value + 1);
     },
-    [activeThreadRef, storeSetWorkspaceThreadLastActivePane, storeSplitTerminal],
+    [
+      activeThreadRef,
+      storeSetWorkspaceThreadLastActivePane,
+      storeSplitTerminal,
+      workspaceLayoutKey,
+    ],
   );
   const activeWorkspaceTerminalPane = workspaceDockedPanes.find(
     (pane): pane is Extract<PersistedWorkspaceDockedPane, { type: "terminal" }> =>
@@ -2895,7 +2931,7 @@ export default function ChatView(props: ChatViewProps) {
 
       storeNewTerminal(activeThreadRef, terminalId);
       storeSetTerminalOpen(activeThreadRef, true);
-      storeAddWorkspaceThreadDockedPane(activeThreadKey, {
+      storeAddWorkspaceThreadDockedPane(workspaceLayoutKey, {
         paneId: `terminal:${randomUUID()}`,
         type: "terminal",
         title: resolvePaneDefaultTitle("terminal", cwd, workspaceName),
@@ -2905,7 +2941,7 @@ export default function ChatView(props: ChatViewProps) {
         terminalId,
         terminalGroupId,
       });
-      storeSetWorkspaceThreadLastActivePane(activeThreadKey, "terminal");
+      storeSetWorkspaceThreadLastActivePane(workspaceLayoutKey, "terminal");
       setTerminalFocusRequestId((value) => value + 1);
     },
     [
@@ -2918,6 +2954,7 @@ export default function ChatView(props: ChatViewProps) {
       storeNewTerminal,
       storeSetTerminalOpen,
       storeSetWorkspaceThreadLastActivePane,
+      workspaceLayoutKey,
       workspaceName,
     ],
   );
@@ -2926,8 +2963,8 @@ export default function ChatView(props: ChatViewProps) {
   }, [activeWorkspaceTerminalPane, createNewWorkspaceTerminalPane]);
   const markEditorActive = useCallback(() => {
     if (!activeThreadRef) return;
-    storeSetWorkspaceThreadLastActivePane(scopedThreadKey(activeThreadRef), "editor");
-  }, [activeThreadRef, storeSetWorkspaceThreadLastActivePane]);
+    storeSetWorkspaceThreadLastActivePane(workspaceLayoutKey, "editor");
+  }, [activeThreadRef, storeSetWorkspaceThreadLastActivePane, workspaceLayoutKey]);
   const onOpenChangedFileInEditor = useCallback(
     (filePath: string) => {
       markEditorActive();
@@ -2983,14 +3020,11 @@ export default function ChatView(props: ChatViewProps) {
       terminalId: string,
     ) => {
       closeTerminal(terminalId);
-      if (
-        activeThreadKey &&
-        shouldRemoveTerminalPaneAfterClose(terminalGroup.terminalIds, terminalId)
-      ) {
-        storeRemoveWorkspaceThreadDockedPane(activeThreadKey, pane.paneId);
+      if (shouldRemoveTerminalPaneAfterClose(terminalGroup.terminalIds, terminalId)) {
+        storeRemoveWorkspaceThreadDockedPane(workspaceLayoutKey, pane.paneId);
       }
     },
-    [activeThreadKey, closeTerminal, storeRemoveWorkspaceThreadDockedPane],
+    [closeTerminal, storeRemoveWorkspaceThreadDockedPane, workspaceLayoutKey],
   );
   const closeActiveWorkspaceTerminal = useCallback(() => {
     if (!activeTerminalGroup || !activeWorkspaceTerminalPane) {
@@ -3011,12 +3045,9 @@ export default function ChatView(props: ChatViewProps) {
   ]);
   const removeWorkspacePane = useCallback(
     (paneId: string) => {
-      if (!activeThreadKey) {
-        return;
-      }
-      storeRemoveWorkspaceThreadDockedPane(activeThreadKey, paneId);
+      storeRemoveWorkspaceThreadDockedPane(workspaceLayoutKey, paneId);
     },
-    [activeThreadKey, storeRemoveWorkspaceThreadDockedPane],
+    [storeRemoveWorkspaceThreadDockedPane, workspaceLayoutKey],
   );
   const deleteActiveAiPaneThread = useCallback(async () => {
     if (!isServerThread || !activeThreadRef) {
@@ -5038,7 +5069,7 @@ export default function ChatView(props: ChatViewProps) {
               keybindings={keybindings}
               onActiveTerminalChange={(terminalId) => {
                 storeSetActiveTerminal(activeThreadRef, terminalId);
-                storeSetWorkspaceThreadLastActivePane(routeThreadKey, "terminal");
+                storeSetWorkspaceThreadLastActivePane(workspaceLayoutKey, "terminal");
               }}
               onCloseTerminal={(terminalId) =>
                 closeWorkspaceTerminalPane(pane, terminalGroup, terminalId)
@@ -5331,12 +5362,13 @@ export default function ChatView(props: ChatViewProps) {
         onOpenChange={setAddPaneDialogOpen}
       />
       <WorkspacePaneHost
+        key={workspaceLayoutKey}
         panes={renderedWorkspaceDockedPanes}
         renderPane={renderWorkspacePane}
         terminalRowHeight={terminalPaneDeckHeight}
         onPanesChange={(panes) =>
           storeSetWorkspaceThreadDockedPanes(
-            routeThreadKey,
+            workspaceLayoutKey,
             mergeVisibleWorkspacePaneUpdates(renderedWorkspaceDockedPanes, panes),
           )
         }

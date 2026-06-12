@@ -66,6 +66,11 @@ Persisted layout should restore:
 - pane title
 - type-specific attachment such as AI thread ref or terminal id
 
+Layout ownership follows the physical workspace context: environment, project,
+and active workspace root or worktree. Switching AI threads inside a workspace
+must not replace its panes, and switching workspaces must not reuse another
+workspace's AI or terminal pane set.
+
 Invalid persisted panes should be sanitized instead of breaking app startup.
 
 ## Docked Pane Host
@@ -204,6 +209,7 @@ The alpha is successful when:
 5. Pane rename, resize, reorder, add, close, and restore behavior is stable.
 6. Editor Git actions support selected-file commit and selected-file rollback.
 7. The sidebar reads as workspace/project navigation, not thread navigation.
+8. Switching workspaces restores each workspace's own AI and terminal panes.
 
 ## Required Checks
 

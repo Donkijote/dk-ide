@@ -86,7 +86,8 @@ composition, which are likely to continue evolving upstream.
   explicit "New Terminal Pane" actions
 - `feature/ghi#41`: docked two-dimensional pane host with persisted tile
   coordinates, edge placement and center swapping, collision-pushing resize,
-  and two-axis workspace scrolling
+  two-axis workspace scrolling, and pane layouts scoped by environment, project,
+  and workspace root instead of the active route thread
 
 ## Sync Notes
 
@@ -135,6 +136,8 @@ composition, which are likely to continue evolving upstream.
   ids without introducing a server-side workspace domain yet
 - keep terminal server sessions thread-scoped while assigning each terminal pane
   a unique terminal id, terminal group, environment, and cwd in local pane state
+- keep pane layout and AI-pane selection workspace-scoped so route changes
+  cannot mix AI or terminal panes between projects or worktrees
 - keep terminal splits scoped to their owning pane group, preserve the pane when
   one split closes, and reserve "New Terminal Pane" for creating a separate
   docked terminal surface

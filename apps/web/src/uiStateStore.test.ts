@@ -8,6 +8,7 @@ import {
   hydratePersistedProjectState,
   markThreadVisited,
   markThreadUnread,
+  migrateWorkspaceThreadLayout,
   PERSISTED_STATE_KEY,
   type PersistedWorkspaceDockedPane,
   type PersistedUiState,
@@ -445,6 +446,37 @@ describe("uiStateStore pure functions", () => {
     expect(next.workspaceThreadLayoutById).toEqual({
       [thread1]: { planSidebarOpen: true, lastActivePane: "plan" },
     });
+  });
+
+  it("syncThreads retains workspace-scoped pane layouts", () => {
+    const workspaceKey = "workspace:environment-local:project-1:%2Frepo";
+    const initialState = makeUiState({
+      workspaceThreadLayoutById: {
+        [workspaceKey]: { planSidebarOpen: true, lastActivePane: "terminal" },
+      },
+    });
+
+    const next = syncThreads(initialState, []);
+
+    expect(next.workspaceThreadLayoutById).toEqual(initialState.workspaceThreadLayoutById);
+  });
+
+  it("migrates a legacy thread layout into its workspace scope once", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const workspaceKey = "workspace:environment-local:project-1:%2Frepo";
+    const initialState = makeUiState({
+      workspaceThreadLayoutById: {
+        [thread1]: { planSidebarOpen: true, lastActivePane: "terminal" },
+      },
+    });
+
+    const migrated = migrateWorkspaceThreadLayout(initialState, thread1, workspaceKey);
+    const unchanged = migrateWorkspaceThreadLayout(migrated, thread1, workspaceKey);
+
+    expect(migrated.workspaceThreadLayoutById[workspaceKey]).toEqual(
+      initialState.workspaceThreadLayoutById[thread1],
+    );
+    expect(unchanged).toBe(migrated);
   });
 
   it("clearThreadUi removes workspace pane layout state for deleted threads", () => {

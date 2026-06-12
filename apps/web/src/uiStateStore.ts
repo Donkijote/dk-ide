@@ -761,8 +761,8 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
     ),
   );
   const nextWorkspaceThreadLayoutById = Object.fromEntries(
-    Object.entries(state.workspaceThreadLayoutById).filter(([threadId]) =>
-      retainedThreadIds.has(threadId),
+    Object.entries(state.workspaceThreadLayoutById).filter(
+      ([threadId]) => threadId.startsWith("workspace:") || retainedThreadIds.has(threadId),
     ),
   );
   if (
@@ -780,6 +780,30 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
     threadLastVisitedAtById: nextThreadLastVisitedAtById,
     threadChangedFilesExpandedById: nextThreadChangedFilesExpandedById,
     workspaceThreadLayoutById: nextWorkspaceThreadLayoutById,
+  };
+}
+
+export function migrateWorkspaceThreadLayout(
+  state: UiState,
+  sourceLayoutId: string,
+  targetLayoutId: string,
+): UiState {
+  if (
+    sourceLayoutId === targetLayoutId ||
+    state.workspaceThreadLayoutById[targetLayoutId] !== undefined
+  ) {
+    return state;
+  }
+  const sourceLayout = state.workspaceThreadLayoutById[sourceLayoutId];
+  if (!sourceLayout) {
+    return state;
+  }
+  return {
+    ...state,
+    workspaceThreadLayoutById: {
+      ...state.workspaceThreadLayoutById,
+      [targetLayoutId]: sourceLayout,
+    },
   };
 }
 
@@ -1532,6 +1556,7 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setWorkspaceShellSidebarOpen: (open: boolean) => void;
+  migrateWorkspaceThreadLayout: (sourceLayoutId: string, targetLayoutId: string) => void;
   setWorkspaceThreadPlanSidebarOpen: (threadId: string, open: boolean) => void;
   setWorkspaceThreadLastActivePane: (threadId: string, pane: WorkspacePaneId) => void;
   setWorkspaceThreadPaneTitleOverride: (
@@ -1577,6 +1602,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setDefaultAdvertisedEndpointKey: (key) =>
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setWorkspaceShellSidebarOpen: (open) => set((state) => setWorkspaceShellSidebarOpen(state, open)),
+  migrateWorkspaceThreadLayout: (sourceLayoutId, targetLayoutId) =>
+    set((state) => migrateWorkspaceThreadLayout(state, sourceLayoutId, targetLayoutId)),
   setWorkspaceThreadPlanSidebarOpen: (threadId, open) =>
     set((state) => setWorkspaceThreadPlanSidebarOpen(state, threadId, open)),
   setWorkspaceThreadLastActivePane: (threadId, pane) =>
