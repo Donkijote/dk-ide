@@ -3,7 +3,9 @@ import {
   MeasuringStrategy,
   PointerSensor,
   closestCenter,
+  pointerWithin,
   type DragEndEvent,
+  type DragStartEvent,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -30,13 +32,13 @@ import {
   pushWorkspacePaneCollisions,
   resizeWorkspacePaneHeight,
   resizeWorkspacePaneWidth,
-  type WorkspacePaneDropDirection,
   workspacePaneHeight,
   workspacePaneRects,
   workspacePaneWidth,
   workspaceTerminalRowHeight,
 } from "~/workspacePaneLayout";
 import { cn } from "~/lib/utils";
+import { workspacePaneDropDirection } from "./WorkspacePaneHost.logic";
 
 const WORKSPACE_PANE_MEASURING = {
   droppable: {
@@ -108,29 +110,6 @@ function SortableWorkspacePane({ children, pane }: WorkspacePaneContainerProps) 
   );
 }
 
-function workspacePaneDropDirection({
-  active,
-  over,
-}: Pick<DragEndEvent, "active" | "over">): WorkspacePaneDropDirection {
-  const activeRect = active.rect.current.translated;
-  if (!activeRect || !over) {
-    return "after";
-  }
-  const horizontalOffset =
-    (activeRect.left + activeRect.width / 2 - (over.rect.left + over.rect.width / 2)) /
-    Math.max(over.rect.width, 1);
-  const verticalOffset =
-    (activeRect.top + activeRect.height / 2 - (over.rect.top + over.rect.height / 2)) /
-    Math.max(over.rect.height, 1);
-  if (Math.abs(horizontalOffset) <= 0.25 && Math.abs(verticalOffset) <= 0.25) {
-    return "swap";
-  }
-  if (Math.abs(verticalOffset) > Math.abs(horizontalOffset)) {
-    return verticalOffset < 0 ? "above" : "below";
-  }
-  return horizontalOffset < 0 ? "before" : "after";
-}
-
 interface WorkspacePaneHostProps {
   readonly panes: readonly PersistedWorkspaceDockedPane[];
   readonly renderPane: (pane: PersistedWorkspaceDockedPane) => ReactNode;
@@ -160,6 +139,7 @@ export function WorkspacePaneHost({
     startY: number;
     panes: readonly PersistedWorkspaceDockedPane[];
   } | null>(null);
+  const dragStartPointerRef = useRef<{ x: number; y: number } | null>(null);
   const [layoutWidth, setLayoutWidth] = useState(1_280);
   const [layoutHeight, setLayoutHeight] = useState(MIN_WORKSPACE_PANE_HEIGHT);
   const [previewPanes, setPreviewPanes] = useState<readonly PersistedWorkspaceDockedPane[] | null>(
@@ -228,6 +208,8 @@ export function WorkspacePaneHost({
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
+      const startPointer = dragStartPointerRef.current;
+      dragStartPointerRef.current = null;
       if (!over || active.id === over.id) {
         return;
       }
@@ -236,7 +218,16 @@ export function WorkspacePaneHost({
           panes,
           String(active.id),
           String(over.id),
-          workspacePaneDropDirection(event),
+          workspacePaneDropDirection({
+            activeRect: active.rect.current.translated,
+            overRect: over.rect,
+            pointer: startPointer
+              ? {
+                  x: startPointer.x + event.delta.x,
+                  y: startPointer.y + event.delta.y,
+                }
+              : null,
+          }),
           layoutWidth,
           layoutHeight,
           renderedTerminalRowHeight,
@@ -245,6 +236,16 @@ export function WorkspacePaneHost({
     },
     [layoutHeight, layoutWidth, onPanesChange, panes, renderedTerminalRowHeight],
   );
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const activatorEvent = event.activatorEvent;
+    dragStartPointerRef.current =
+      "clientX" in activatorEvent &&
+      "clientY" in activatorEvent &&
+      typeof activatorEvent.clientX === "number" &&
+      typeof activatorEvent.clientY === "number"
+        ? { x: activatorEvent.clientX, y: activatorEvent.clientY }
+        : null;
+  }, []);
 
   const resizePaneWidth = useCallback(
     (
@@ -418,10 +419,17 @@ export function WorkspacePaneHost({
       data-testid="workspace-pane-host"
     >
       <DndContext
-        collisionDetection={closestCenter}
+        collisionDetection={(args) => {
+          const pointerCollisions = pointerWithin(args);
+          return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
+        }}
         measuring={WORKSPACE_PANE_MEASURING}
         sensors={sensors}
+        onDragCancel={() => {
+          dragStartPointerRef.current = null;
+        }}
         onDragEnd={handleDragEnd}
+        onDragStart={handleDragStart}
       >
         <SortableContext items={paneIds} strategy={rectSortingStrategy}>
           <div className="w-max p-3 sm:p-4">
