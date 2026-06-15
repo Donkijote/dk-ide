@@ -2596,6 +2596,165 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("keeps promoted AI-pane draft messages after switching the pane away and back", async () => {
+    const secondaryThreadId = "thread-ai-pane-draft-origin" as ThreadId;
+    const snapshot = addThreadToSnapshot(
+      createSnapshotForTargetUser({
+        targetMessageId: "msg-user-ai-pane-promoted-draft" as MessageId,
+        targetText: "AI pane promoted draft",
+      }),
+      secondaryThreadId,
+    );
+    const workspaceKey = workspacePaneLayoutKey({
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      projectId: PROJECT_ID,
+      workspaceRoot: "/repo/project",
+    });
+
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [workspaceKey]: {
+          panes: [
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Editor",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              metadata: {},
+            },
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "Secondary AI thread",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 1,
+              size: 1,
+              metadata: { threadId: secondaryThreadId },
+            },
+            {
+              paneId: "terminal",
+              type: "terminal",
+              title: "Terminal",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 2,
+              size: 1,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: DEFAULT_TERMINAL_ID,
+                terminalGroupId: "default",
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
+
+    try {
+      const newThreadButton = page.getByTestId("ai-pane-new-thread-button");
+      await expect.element(newThreadButton).toBeInTheDocument();
+      await newThreadButton.click();
+
+      let promotedThreadId: ThreadId | null = null;
+      await vi.waitFor(() => {
+        const pane = useUiStateStore
+          .getState()
+          .workspaceThreadLayoutById[workspaceKey]?.panes?.find(
+            (candidate) => candidate.paneId === "ai",
+          );
+        if (!pane || pane.type !== "ai") {
+          throw new Error("Expected an AI pane");
+        }
+        expect(pane.metadata.threadId).toBeTruthy();
+        expect(pane.metadata.threadId).not.toBe(secondaryThreadId);
+        promotedThreadId = pane.metadata.threadId as ThreadId;
+      });
+      expect(promotedThreadId).not.toBeNull();
+
+      fixture.snapshot = addThreadToSnapshot(fixture.snapshot, promotedThreadId!);
+      fixture.snapshot = {
+        ...fixture.snapshot,
+        threads: fixture.snapshot.threads.map((thread) =>
+          thread.id === promotedThreadId
+            ? {
+                ...thread,
+                messages: [
+                  createUserMessage({
+                    id: "msg-user-promoted-ai-pane" as MessageId,
+                    text: "Persisted user message",
+                    offsetSeconds: 100,
+                  }),
+                  createAssistantMessage({
+                    id: "msg-assistant-promoted-ai-pane" as MessageId,
+                    text: "Persisted assistant reply",
+                    offsetSeconds: 101,
+                  }),
+                ],
+                session: {
+                  threadId: promotedThreadId,
+                  status: "running",
+                  providerName: "codex",
+                  runtimeMode: "full-access",
+                  activeTurnId: `turn-${promotedThreadId}` as TurnId,
+                  lastError: null,
+                  updatedAt: NOW_ISO,
+                },
+              }
+            : thread,
+        ),
+      };
+      sendShellThreadUpsert(promotedThreadId!);
+
+      await vi.waitFor(() => {
+        expect(
+          wsRequests.filter(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.subscribeThread &&
+              request.threadId === promotedThreadId,
+          ).length,
+        ).toBeGreaterThanOrEqual(2);
+      });
+      await expect.element(page.getByText("Persisted user message")).toBeInTheDocument();
+      await expect.element(page.getByText("Persisted assistant reply")).toBeInTheDocument();
+
+      const setAiPaneThread = (threadId: ThreadId, title: string) => {
+        const layout = useUiStateStore.getState().workspaceThreadLayoutById[workspaceKey];
+        expect(layout?.panes).toBeDefined();
+        useUiStateStore.getState().setWorkspaceThreadDockedPanes(
+          workspaceKey,
+          layout!.panes!.map((pane) =>
+            pane.paneId === "ai" && pane.type === "ai"
+              ? Object.assign({}, pane, {
+                  title,
+                  metadata: Object.assign({}, pane.metadata, { threadId }),
+                })
+              : pane,
+          ),
+          "ai",
+        );
+      };
+
+      setAiPaneThread(secondaryThreadId, "Secondary AI thread");
+      await expect.element(page.getByText("Persisted assistant reply")).not.toBeInTheDocument();
+      setAiPaneThread(promotedThreadId!, "New thread");
+
+      await expect.element(page.getByText("Persisted user message")).toBeInTheDocument();
+      await expect.element(page.getByText("Persisted assistant reply")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+      useUiStateStore.setState({ workspaceThreadLayoutById: {} });
+    }
+  });
+
   it("keeps pane layouts isolated when switching workspaces", async () => {
     const secondaryThreadId = "thread-secondary-project" as ThreadId;
     const primaryWorkspaceKey = workspacePaneLayoutKey({
