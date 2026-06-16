@@ -249,6 +249,89 @@ describe("workspace pane layout", () => {
     expect(secondTerminal.x).toBeGreaterThan(firstTerminal.x + firstTerminal.width);
   });
 
+  it("pulls horizontal neighbors back when a resized pane shrinks", () => {
+    const hostWidth = 1_400;
+    const terminalWidth = workspacePaneWidth(panes[2]!, hostWidth);
+    const terminal2: PersistedWorkspaceDockedPane = {
+      ...panes[2]!,
+      paneId: "terminal:2",
+      title: "Terminal 2",
+      order: 3,
+      dockX: terminalWidth + WORKSPACE_PANE_GAP,
+      dockY: 0,
+    };
+    const positionedPanes = [{ ...panes[2]!, dockX: 0, dockY: 0 }, terminal2];
+    const expanded = pushWorkspacePaneCollisions(
+      resizeWorkspacePaneWidth(positionedPanes, "terminal", terminalWidth + 360, hostWidth),
+      "terminal",
+      "horizontal",
+      hostWidth,
+      MIN_WORKSPACE_PANE_HEIGHT,
+      320,
+    );
+    const expandedRects = workspacePaneRects(expanded, hostWidth);
+    const expandedFirst = expandedRects.find((rect) => rect.pane.paneId === "terminal")!;
+    const expandedSecond = expandedRects.find((rect) => rect.pane.paneId === "terminal:2")!;
+    expect(expandedSecond.x).toBeCloseTo(
+      expandedFirst.x + expandedFirst.width + WORKSPACE_PANE_GAP,
+    );
+
+    const shrunk = pushWorkspacePaneCollisions(
+      resizeWorkspacePaneWidth(expanded, "terminal", terminalWidth, hostWidth),
+      "terminal",
+      "horizontal",
+      hostWidth,
+      MIN_WORKSPACE_PANE_HEIGHT,
+      320,
+    );
+    const shrunkRects = workspacePaneRects(shrunk, hostWidth);
+    const shrunkFirst = shrunkRects.find((rect) => rect.pane.paneId === "terminal")!;
+    const shrunkSecond = shrunkRects.find((rect) => rect.pane.paneId === "terminal:2")!;
+
+    expect(shrunkSecond.x).toBeCloseTo(shrunkFirst.x + shrunkFirst.width + WORKSPACE_PANE_GAP);
+  });
+
+  it("pulls vertical neighbors back when a resized pane shrinks", () => {
+    const hostWidth = 1_400;
+    const positionedPanes = [
+      { ...panes[0]!, dockX: 0, dockY: 0 },
+      { ...panes[2]!, dockX: 0, dockY: MIN_WORKSPACE_PANE_HEIGHT + WORKSPACE_PANE_GAP },
+    ];
+    const expanded = pushWorkspacePaneCollisions(
+      resizeWorkspacePaneHeight(positionedPanes, "editor", 960, MIN_WORKSPACE_PANE_HEIGHT),
+      "editor",
+      "vertical",
+      hostWidth,
+      MIN_WORKSPACE_PANE_HEIGHT,
+      320,
+    );
+    const expandedRects = workspacePaneRects(expanded, hostWidth);
+    const expandedEditor = expandedRects.find((rect) => rect.pane.paneId === "editor")!;
+    const expandedTerminal = expandedRects.find((rect) => rect.pane.paneId === "terminal")!;
+    expect(expandedTerminal.y).toBeCloseTo(
+      expandedEditor.y + expandedEditor.height + WORKSPACE_PANE_GAP,
+    );
+
+    const shrunk = pushWorkspacePaneCollisions(
+      resizeWorkspacePaneHeight(
+        expanded,
+        "editor",
+        MIN_WORKSPACE_PANE_HEIGHT,
+        MIN_WORKSPACE_PANE_HEIGHT,
+      ),
+      "editor",
+      "vertical",
+      hostWidth,
+      MIN_WORKSPACE_PANE_HEIGHT,
+      320,
+    );
+    const shrunkRects = workspacePaneRects(shrunk, hostWidth);
+    const shrunkEditor = shrunkRects.find((rect) => rect.pane.paneId === "editor")!;
+    const shrunkTerminal = shrunkRects.find((rect) => rect.pane.paneId === "terminal")!;
+
+    expect(shrunkTerminal.y).toBeCloseTo(shrunkEditor.y + shrunkEditor.height + WORKSPACE_PANE_GAP);
+  });
+
   it("rebases persisted pane coordinates to remove empty leading workspace space", () => {
     const positionedPanes = panes.map((pane, index) => ({
       ...pane,

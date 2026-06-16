@@ -450,6 +450,98 @@ function pushWorkspacePaneRects(
   return rebaseWorkspacePaneRects(nextRects);
 }
 
+function workspacePaneRectsOverlapOnPerpendicularAxis(
+  left: WorkspacePaneRect,
+  right: WorkspacePaneRect,
+  axis: "horizontal" | "vertical",
+): boolean {
+  return axis === "horizontal"
+    ? left.y < right.y + right.height && left.y + left.height > right.y
+    : left.x < right.x + right.width && left.x + left.width > right.x;
+}
+
+function compactWorkspacePaneRects(
+  rects: readonly WorkspacePaneRect[],
+  anchorPaneId: string,
+  axis: "horizontal" | "vertical",
+): WorkspacePaneRect[] {
+  const nextRects = rebaseWorkspacePaneRects(rects).map((rect) => Object.assign({}, rect));
+  const queuedPaneIds = [anchorPaneId];
+  const fixedPaneIds = new Set([anchorPaneId]);
+
+  while (queuedPaneIds.length > 0) {
+    const currentPaneId = queuedPaneIds.shift()!;
+    const current = nextRects.find((rect) => rect.pane.paneId === currentPaneId);
+    if (!current) {
+      continue;
+    }
+
+    const candidates = nextRects
+      .filter(
+        (candidate) =>
+          !fixedPaneIds.has(candidate.pane.paneId) &&
+          workspacePaneRectsOverlapOnPerpendicularAxis(current, candidate, axis) &&
+          (axis === "horizontal"
+            ? candidate.x >= current.x + current.width + WORKSPACE_PANE_GAP
+            : candidate.y >= current.y + current.height + WORKSPACE_PANE_GAP),
+      )
+      .toSorted((left, right) => (axis === "horizontal" ? left.x - right.x : left.y - right.y));
+
+    for (const candidate of candidates) {
+      if (fixedPaneIds.has(candidate.pane.paneId)) {
+        continue;
+      }
+
+      const target =
+        axis === "horizontal"
+          ? current.x + current.width + WORKSPACE_PANE_GAP
+          : current.y + current.height + WORKSPACE_PANE_GAP;
+      const currentCoordinate = axis === "horizontal" ? candidate.x : candidate.y;
+      if (currentCoordinate <= target) {
+        fixedPaneIds.add(candidate.pane.paneId);
+        queuedPaneIds.push(candidate.pane.paneId);
+        continue;
+      }
+
+      let moved =
+        axis === "horizontal"
+          ? Object.assign({}, candidate, { x: target })
+          : Object.assign({}, candidate, { y: target });
+      let blockingRect = nextRects.find(
+        (rect) =>
+          rect.pane.paneId !== moved.pane.paneId &&
+          fixedPaneIds.has(rect.pane.paneId) &&
+          workspacePaneRectsIntersect(moved, rect),
+      );
+      while (blockingRect) {
+        moved =
+          axis === "horizontal"
+            ? Object.assign({}, moved, {
+                x: blockingRect.x + blockingRect.width + WORKSPACE_PANE_GAP,
+              })
+            : Object.assign({}, moved, {
+                y: blockingRect.y + blockingRect.height + WORKSPACE_PANE_GAP,
+              });
+        blockingRect = nextRects.find(
+          (rect) =>
+            rect.pane.paneId !== moved.pane.paneId &&
+            fixedPaneIds.has(rect.pane.paneId) &&
+            workspacePaneRectsIntersect(moved, rect),
+        );
+      }
+
+      const movedIndex = nextRects.findIndex((rect) => rect.pane.paneId === moved.pane.paneId);
+      if (movedIndex >= 0) {
+        nextRects[movedIndex] = moved;
+      }
+      fixedPaneIds.add(moved.pane.paneId);
+      queuedPaneIds.push(moved.pane.paneId);
+    }
+  }
+
+  return rebaseWorkspacePaneRects(nextRects);
+}
+
 function withWorkspacePaneRects(
   panes: readonly PersistedWorkspaceDockedPane[],
   rects: readonly WorkspacePaneRect[],
@@ -545,15 +637,13 @@ export function pushWorkspacePaneCollisions(
   paneHeight: number,
   terminalRowHeight: number,
 ): PersistedWorkspaceDockedPane[] {
-  return withWorkspacePaneRects(
-    panes,
-    pushWorkspacePaneRects(
-      workspacePaneRects(panes, hostWidth, paneHeight, terminalRowHeight),
-      paneId,
-      axis,
-      1,
-    ),
+  const pushedRects = pushWorkspacePaneRects(
+    workspacePaneRects(panes, hostWidth, paneHeight, terminalRowHeight),
+    paneId,
+    axis,
+    1,
   );
+  return withWorkspacePaneRects(panes, compactWorkspacePaneRects(pushedRects, paneId, axis));
 }
 
 export function resizeWorkspacePaneWidth(
