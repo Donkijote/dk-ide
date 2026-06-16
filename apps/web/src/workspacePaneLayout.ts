@@ -327,6 +327,55 @@ function repairDefaultWorkspacePaneGutter(
   );
 }
 
+function repairDefaultWorkspacePaneTopRow(
+  rects: readonly WorkspacePaneRect[],
+): WorkspacePaneRect[] {
+  const editor = rects.find((rect) => rect.pane.paneId === "editor");
+  const ai = rects.find((rect) => rect.pane.paneId === "ai");
+  if (!editor || !ai || editor.y === ai.y) {
+    return rects.map((rect) => ({ ...rect }));
+  }
+
+  const targetY = Math.min(editor.y, ai.y);
+  const loweredDefaults = [editor, ai]
+    .filter((rect) => rect.y > targetY)
+    .map((rect) => ({ delta: rect.y - targetY, y: rect.y }));
+  const defaultRects = [editor, ai].map((rect) => Object.assign({}, rect, { y: targetY }));
+  if (workspacePaneRectsIntersect(defaultRects[0]!, defaultRects[1]!)) {
+    return rects.map((rect) => ({ ...rect }));
+  }
+
+  const repaired: WorkspacePaneRect[] = [];
+  for (const rect of rects) {
+    if (rect.pane.paneId === editor.pane.paneId) {
+      repaired.push(defaultRects[0]!);
+      continue;
+    }
+    if (rect.pane.paneId === ai.pane.paneId) {
+      repaired.push(defaultRects[1]!);
+      continue;
+    }
+
+    const liftDelta = Math.max(
+      0,
+      ...loweredDefaults.filter((lowered) => rect.y >= lowered.y).map((lowered) => lowered.delta),
+    );
+    if (liftDelta > 0) {
+      const lifted = { ...rect, y: rect.y - liftDelta };
+      if (!defaultRects.some((defaultRect) => workspacePaneRectsIntersect(defaultRect, lifted))) {
+        repaired.push(lifted);
+        continue;
+      }
+    }
+
+    if (defaultRects.some((defaultRect) => workspacePaneRectsIntersect(defaultRect, rect))) {
+      return rects.map((sourceRect) => ({ ...sourceRect }));
+    }
+    repaired.push({ ...rect });
+  }
+  return repaired;
+}
+
 function pushWorkspacePaneRects(
   rects: readonly WorkspacePaneRect[],
   anchorPaneId: string,
@@ -428,9 +477,10 @@ export function normalizeWorkspacePaneLayout(
   const repairedRects = repairWorkspacePaneRectCollisions(
     workspacePaneRects(panes, hostWidth, paneHeight, terminalRowHeight),
   );
+  const repairedTopRow = repairDefaultWorkspacePaneTopRow(repairedRects);
   return withWorkspacePaneRects(
     panes,
-    repairWorkspacePaneRectCollisions(repairDefaultWorkspacePaneGutter(repairedRects)),
+    repairWorkspacePaneRectCollisions(repairDefaultWorkspacePaneGutter(repairedTopRow)),
   );
 }
 

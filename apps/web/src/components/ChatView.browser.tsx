@@ -2239,6 +2239,124 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("repairs a stale editor pane pushed below the AI pane", async () => {
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [THREAD_KEY]: {
+          panes: [
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Editor",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              dockX: 0,
+              dockY: 600,
+              metadata: {},
+            },
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "AI",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 1,
+              size: 1,
+              dockX: 1_000,
+              dockY: 0,
+              metadata: { threadId: THREAD_ID },
+            },
+            {
+              paneId: "terminal",
+              type: "terminal",
+              title: "Terminal",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 2,
+              size: 1,
+              dockX: 0,
+              dockY: 1_348,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: DEFAULT_TERMINAL_ID,
+                terminalGroupId: "default",
+              },
+            },
+            {
+              paneId: "terminal:2",
+              type: "terminal",
+              title: "Terminal 2",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 3,
+              size: 1,
+              dockX: 760,
+              dockY: 1_348,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: "terminal-2",
+                terminalGroupId: "default",
+              },
+            },
+            {
+              paneId: "terminal:3",
+              type: "terminal",
+              title: "Terminal 3",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 4,
+              size: 1,
+              dockX: 1_520,
+              dockY: 1_348,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: "terminal-3",
+                terminalGroupId: "default",
+              },
+            },
+          ],
+        },
+      },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-repair-pushed-editor" as MessageId,
+        targetText: "repair pushed editor",
+      }),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        const host = document.querySelector<HTMLElement>('[data-testid="workspace-pane-host"]')!;
+        const hostRect = host.getBoundingClientRect();
+        const editor = getWorkspacePane("editor").getBoundingClientRect();
+        const ai = getWorkspacePane("ai").getBoundingClientRect();
+        const terminal = getWorkspacePane("terminal").getBoundingClientRect();
+
+        expect(editor.top - hostRect.top).toBeCloseTo(16, 1);
+        expect(ai.top).toBeCloseTo(editor.top, 1);
+        expect(terminal.top).toBeGreaterThanOrEqual(editor.bottom + 11);
+      });
+
+      const host = document.querySelector<HTMLElement>('[data-testid="workspace-pane-host"]')!;
+      host.scrollTop = host.scrollHeight;
+      await waitForLayout();
+
+      const leftSpacing =
+        getWorkspacePane("editor").getBoundingClientRect().left - host.getBoundingClientRect().left;
+      const bottomSpacing =
+        host.getBoundingClientRect().bottom -
+        getWorkspacePane("terminal").getBoundingClientRect().bottom;
+      expect(bottomSpacing).toBe(leftSpacing);
+    } finally {
+      await mounted.cleanup();
+      useUiStateStore.setState({ workspaceThreadLayoutById: {} });
+    }
+  });
+
   it("keeps AI full height above terminals with bottom workspace spacing", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,

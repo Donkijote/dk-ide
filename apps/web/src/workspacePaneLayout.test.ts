@@ -303,6 +303,69 @@ describe("workspace pane layout", () => {
     expect(ai.x).toBeCloseTo(editor.x + editor.width + WORKSPACE_PANE_GAP, 0);
   });
 
+  it("repairs a default editor pane that was pushed below the AI pane", () => {
+    const hostWidth = 1_700;
+    const editorWidth = workspacePaneWidth(panes[0]!, hostWidth);
+    const terminalWidth = workspacePaneWidth(panes[2]!, hostWidth);
+    const terminal2: PersistedWorkspaceDockedPane = {
+      ...panes[2]!,
+      paneId: "terminal:2",
+      title: "Terminal 2",
+      order: 3,
+    };
+    const terminal3: PersistedWorkspaceDockedPane = {
+      ...panes[2]!,
+      paneId: "terminal:3",
+      title: "Terminal 3",
+      order: 4,
+    };
+    const staleEditorY = 600;
+    const staleTerminalY = staleEditorY + MIN_WORKSPACE_PANE_HEIGHT + WORKSPACE_PANE_GAP;
+    const positionedPanes = [
+      {
+        ...panes[0]!,
+        dockX: 0,
+        dockY: staleEditorY,
+      },
+      {
+        ...panes[1]!,
+        dockX: Math.round(editorWidth + WORKSPACE_PANE_GAP),
+        dockY: 0,
+      },
+      {
+        ...panes[2]!,
+        dockX: 0,
+        dockY: staleTerminalY,
+      },
+      {
+        ...terminal2,
+        dockX: Math.round(terminalWidth + WORKSPACE_PANE_GAP),
+        dockY: staleTerminalY,
+      },
+      {
+        ...terminal3,
+        dockX: Math.round((terminalWidth + WORKSPACE_PANE_GAP) * 2),
+        dockY: staleTerminalY,
+      },
+    ];
+
+    const normalized = normalizeWorkspacePaneLayout(positionedPanes, hostWidth);
+    const rects = workspacePaneRects(normalized, hostWidth);
+    const editor = rects.find((rect) => rect.pane.paneId === "editor")!;
+    const ai = rects.find((rect) => rect.pane.paneId === "ai")!;
+    const terminals = ["terminal", "terminal:2", "terminal:3"].map(
+      (paneId) => rects.find((rect) => rect.pane.paneId === paneId)!,
+    );
+
+    expect(editor.y).toBe(0);
+    expect(ai.y).toBe(0);
+    expect(terminals.map((terminal) => terminal.y)).toEqual([
+      MIN_WORKSPACE_PANE_HEIGHT + WORKSPACE_PANE_GAP,
+      MIN_WORKSPACE_PANE_HEIGHT + WORKSPACE_PANE_GAP,
+      MIN_WORKSPACE_PANE_HEIGHT + WORKSPACE_PANE_GAP,
+    ]);
+  });
+
   it("preserves a pane intentionally placed between the editor and AI panes", () => {
     const hostWidth = 1_600;
     const editorWidth = workspacePaneWidth(panes[0]!, hostWidth);
