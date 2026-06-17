@@ -126,6 +126,7 @@ import {
   FolderIcon,
   PlusIcon,
   SquarePenIcon,
+  TerminalIcon,
   TerminalSquareIcon,
   Trash2Icon,
   TriangleAlertIcon,
@@ -591,14 +592,121 @@ interface WorkspaceHeaderPaneActionsProps {
   diffOpen: boolean;
   diffToggleShortcutLabel: string | null;
   isGitRepo: boolean;
+  runningTerminalThreadRefs: readonly WorkspaceRunningTerminalThreadRef[];
   onAddPane: () => void;
   onToggleDiff: () => void;
 }
+
+interface WorkspaceRunningTerminalThreadRef {
+  readonly key: string;
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+}
+
+interface WorkspaceTerminalRunningProbeProps {
+  readonly threadRef: WorkspaceRunningTerminalThreadRef;
+  readonly onRunningCountChange: (threadKey: string, count: number) => void;
+}
+
+const WorkspaceTerminalRunningProbe = memo(function WorkspaceTerminalRunningProbe({
+  threadRef,
+  onRunningCountChange,
+}: WorkspaceTerminalRunningProbeProps) {
+  const runningTerminalIds = useThreadRunningTerminalIds({
+    environmentId: threadRef.environmentId,
+    threadId: threadRef.threadId,
+  });
+
+  useEffect(() => {
+    onRunningCountChange(threadRef.key, runningTerminalIds.length);
+  }, [onRunningCountChange, runningTerminalIds.length, threadRef.key]);
+
+  return null;
+});
+
+const WorkspaceRunningTerminalIndicator = memo(function WorkspaceRunningTerminalIndicator({
+  threadRefs,
+}: {
+  readonly threadRefs: readonly WorkspaceRunningTerminalThreadRef[];
+}) {
+  const [runningCountByThreadKey, setRunningCountByThreadKey] = useState<Record<string, number>>(
+    {},
+  );
+  const handleRunningCountChange = useCallback((threadKey: string, count: number) => {
+    setRunningCountByThreadKey((previous) => {
+      if (previous[threadKey] === count) {
+        return previous;
+      }
+      const next = { ...previous };
+      if (count > 0) {
+        next[threadKey] = count;
+      } else {
+        delete next[threadKey];
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const activeThreadKeys = new Set(threadRefs.map((threadRef) => threadRef.key));
+    setRunningCountByThreadKey((previous) => {
+      const next = { ...previous };
+      let changed = false;
+      for (const threadKey of Object.keys(next)) {
+        if (!activeThreadKeys.has(threadKey)) {
+          delete next[threadKey];
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  }, [threadRefs]);
+
+  const runningTerminalCount = Object.values(runningCountByThreadKey).reduce(
+    (total, count) => total + count,
+    0,
+  );
+
+  return (
+    <>
+      {threadRefs.map((threadRef) => (
+        <WorkspaceTerminalRunningProbe
+          key={threadRef.key}
+          threadRef={threadRef}
+          onRunningCountChange={handleRunningCountChange}
+        />
+      ))}
+      {runningTerminalCount > 0 ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                role="img"
+                aria-label="Terminal process running"
+                title="Terminal process running"
+                data-testid="workspace-terminal-running-indicator"
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-teal-600 dark:text-teal-300/90"
+              >
+                <TerminalIcon className="size-3.5 animate-pulse" />
+              </span>
+            }
+          />
+          <TooltipPopup side="bottom">
+            {runningTerminalCount === 1
+              ? "Terminal process running"
+              : `${runningTerminalCount} terminal processes running`}
+          </TooltipPopup>
+        </Tooltip>
+      ) : null}
+    </>
+  );
+});
 
 const WorkspaceHeaderPaneActions = memo(function WorkspaceHeaderPaneActions({
   diffOpen,
   diffToggleShortcutLabel,
   isGitRepo,
+  runningTerminalThreadRefs,
   onAddPane,
   onToggleDiff,
 }: WorkspaceHeaderPaneActionsProps) {
@@ -645,6 +753,7 @@ const WorkspaceHeaderPaneActions = memo(function WorkspaceHeaderPaneActions({
               : "Toggle diff panel"}
         </TooltipPopup>
       </Tooltip>
+      <WorkspaceRunningTerminalIndicator threadRefs={runningTerminalThreadRefs} />
     </div>
   );
 });
@@ -4974,6 +5083,25 @@ export default function ChatView(props: ChatViewProps) {
   ];
   const renderedWorkspaceDockedPanes =
     workspaceDockedPanes.length > 0 ? workspaceDockedPanes : fallbackWorkspaceDockedPanes;
+  const workspaceRunningTerminalThreadRefs = useMemo(() => {
+    const threadRefByKey = new Map<string, WorkspaceRunningTerminalThreadRef>();
+    for (const pane of renderedWorkspaceDockedPanes) {
+      if (pane.type !== "terminal") {
+        continue;
+      }
+      const threadRef = scopeThreadRef(
+        pane.environmentId as EnvironmentId,
+        ThreadId.make(pane.metadata.threadId ?? activeThread.id),
+      );
+      const threadKey = scopedThreadKey(threadRef);
+      threadRefByKey.set(threadKey, {
+        key: threadKey,
+        environmentId: threadRef.environmentId,
+        threadId: threadRef.threadId,
+      });
+    }
+    return Array.from(threadRefByKey.values());
+  }, [activeThread.id, renderedWorkspaceDockedPanes]);
   const handleWorkspacePanesChange = useCallback(
     (panes: readonly PersistedWorkspaceDockedPane[]) => {
       storeSetWorkspaceThreadDockedPanes(
@@ -5435,6 +5563,7 @@ export default function ChatView(props: ChatViewProps) {
               diffOpen={diffOpen}
               diffToggleShortcutLabel={diffPanelShortcutLabel}
               isGitRepo={isGitRepo}
+              runningTerminalThreadRefs={workspaceRunningTerminalThreadRefs}
               onAddPane={() => setAddPaneDialogOpen(true)}
               onToggleDiff={onToggleDiff}
             />

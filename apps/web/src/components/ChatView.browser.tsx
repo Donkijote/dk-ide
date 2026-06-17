@@ -4888,6 +4888,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+
+      await expect
+        .element(page.getByTestId("workspace-terminal-running-indicator"))
+        .toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }
