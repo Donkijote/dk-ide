@@ -1197,7 +1197,7 @@ function workspaceDockedPaneWithRuntimeContext(
       environmentId: defaultPane.environmentId,
       cwd: defaultPane.cwd,
       metadata: {
-        threadId: defaultPane.metadata.threadId,
+        threadId: pane.metadata.threadId ?? defaultPane.metadata.threadId ?? null,
         terminalId: pane.metadata.terminalId ?? defaultPane.metadata.terminalId ?? null,
         terminalGroupId:
           pane.metadata.terminalGroupId ?? defaultPane.metadata.terminalGroupId ?? null,
@@ -1210,8 +1210,8 @@ function workspaceDockedPaneWithRuntimeContext(
       environmentId: defaultPane.environmentId,
       cwd: defaultPane.cwd,
       metadata: {
-        ...pane.metadata,
-        ...defaultPane.metadata,
+        activePath: pane.metadata.activePath ?? null,
+        ...(pane.metadata.openPaths ? { openPaths: pane.metadata.openPaths } : {}),
       },
     };
   }

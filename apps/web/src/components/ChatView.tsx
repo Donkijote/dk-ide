@@ -12,7 +12,7 @@ import {
   type ServerProvider,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
-  type ThreadId,
+  ThreadId,
   type TurnId,
   type KeybindingCommand,
   OrchestrationThreadActivity,
@@ -1355,6 +1355,9 @@ export default function ChatView(props: ChatViewProps) {
 
   const terminalState = useTerminalUiStateStore((state) =>
     selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef),
+  );
+  const terminalUiStateByThreadKey = useTerminalUiStateStore(
+    (state) => state.terminalUiStateByThreadKey,
   );
   const openTerminalThreadKeys = useTerminalUiStateStore(
     useShallow((state) =>
@@ -2919,22 +2922,21 @@ export default function ChatView(props: ChatViewProps) {
     workspaceLayoutKey,
   ]);
   const splitWorkspaceTerminalPane = useCallback(
-    (terminalGroupId: string, anchorTerminalId: string) => {
-      if (!activeThreadRef) return;
+    (
+      targetThreadRef: ScopedThreadRef | null,
+      terminalGroupId: string,
+      anchorTerminalId: string,
+    ) => {
+      if (!targetThreadRef) return;
       const terminalId = `terminal-${randomUUID()}`;
-      storeSplitTerminal(activeThreadRef, terminalId, {
+      storeSplitTerminal(targetThreadRef, terminalId, {
         groupId: terminalGroupId,
         anchorTerminalId,
       });
       storeSetWorkspaceThreadLastActivePane(workspaceLayoutKey, "terminal");
       setTerminalFocusRequestId((value) => value + 1);
     },
-    [
-      activeThreadRef,
-      storeSetWorkspaceThreadLastActivePane,
-      storeSplitTerminal,
-      workspaceLayoutKey,
-    ],
+    [storeSetWorkspaceThreadLastActivePane, storeSplitTerminal, workspaceLayoutKey],
   );
   const activeWorkspaceTerminalPane = workspaceDockedPanes.find(
     (pane): pane is Extract<PersistedWorkspaceDockedPane, { type: "terminal" }> =>
@@ -2947,19 +2949,26 @@ export default function ChatView(props: ChatViewProps) {
       if (!activeThread || !activeThreadKey || !activeThreadRef) {
         return;
       }
+      const targetThreadRef =
+        pane?.metadata.threadId && pane.environmentId
+          ? scopeThreadRef(
+              pane.environmentId as EnvironmentId,
+              ThreadId.make(pane.metadata.threadId),
+            )
+          : activeThreadRef;
       const terminalId = `terminal-${randomUUID()}`;
       const terminalGroupId = `group-${terminalId}`;
       const cwd = pane?.cwd ?? activeWorkspaceRoot ?? activeProjectCwd ?? "";
 
-      storeNewTerminal(activeThreadRef, terminalId);
-      storeSetTerminalOpen(activeThreadRef, true);
+      storeNewTerminal(targetThreadRef, terminalId);
+      storeSetTerminalOpen(targetThreadRef, true);
       storeAddWorkspaceThreadDockedPane(workspaceLayoutKey, {
         paneId: `terminal:${randomUUID()}`,
         type: "terminal",
         title: resolvePaneDefaultTitle("terminal", cwd, workspaceName),
-        environmentId: activeThread.environmentId,
+        environmentId: targetThreadRef.environmentId,
         cwd,
-        threadId: activeThread.id,
+        threadId: targetThreadRef.threadId,
         terminalId,
         terminalGroupId,
       });
@@ -2997,24 +3006,53 @@ export default function ChatView(props: ChatViewProps) {
     },
     [markEditorActive],
   );
+  const persistWorkspaceEditorPaneState = useCallback(
+    (state: { activePath: string | null; openPaths: readonly string[] }) => {
+      setWorkspaceEditorActivePath(state.activePath);
+      const layout = useUiStateStore.getState().workspaceThreadLayoutById[workspaceLayoutKey];
+      if (!layout?.panes) {
+        return;
+      }
+      const openPaths = Array.from(new Set(state.openPaths));
+      storeSetWorkspaceThreadDockedPanes(
+        workspaceLayoutKey,
+        layout.panes.map((pane) =>
+          pane.paneId === "editor" && pane.type === "editor"
+            ? Object.assign({}, pane, {
+                metadata: {
+                  activePath: state.activePath,
+                  ...(openPaths.length > 0 ? { openPaths } : {}),
+                },
+              })
+            : pane,
+        ),
+      );
+    },
+    [storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
+  );
   const closeTerminal = useCallback(
-    (terminalId: string) => {
-      const api = readEnvironmentApi(environmentId);
-      if (!activeThreadId || !api) return;
-      const isFinalTerminal = terminalState.terminalIds.length <= 1;
+    (
+      terminalId: string,
+      targetThreadRef: ScopedThreadRef | null = activeThreadRef,
+      terminalCount = terminalState.terminalIds.length,
+    ) => {
+      if (!targetThreadRef) return;
+      const api = readEnvironmentApi(targetThreadRef.environmentId);
+      if (!api) return;
+      const isFinalTerminal = terminalCount <= 1;
       const fallbackExitWrite = () =>
         api.terminal
-          .write({ threadId: activeThreadId, terminalId, data: "exit\n" })
+          .write({ threadId: targetThreadRef.threadId, terminalId, data: "exit\n" })
           .catch(() => undefined);
       if ("close" in api.terminal && typeof api.terminal.close === "function") {
         void (async () => {
           if (isFinalTerminal) {
             await api.terminal
-              .clear({ threadId: activeThreadId, terminalId })
+              .clear({ threadId: targetThreadRef.threadId, terminalId })
               .catch(() => undefined);
           }
           await api.terminal.close({
-            threadId: activeThreadId,
+            threadId: targetThreadRef.threadId,
             terminalId,
             deleteHistory: true,
           });
@@ -3022,18 +3060,10 @@ export default function ChatView(props: ChatViewProps) {
       } else {
         void fallbackExitWrite();
       }
-      if (activeThreadRef) {
-        storeCloseTerminal(activeThreadRef, terminalId);
-      }
+      storeCloseTerminal(targetThreadRef, terminalId);
       setTerminalFocusRequestId((value) => value + 1);
     },
-    [
-      activeThreadId,
-      activeThreadRef,
-      environmentId,
-      storeCloseTerminal,
-      terminalState.terminalIds.length,
-    ],
+    [activeThreadRef, storeCloseTerminal, terminalState.terminalIds.length],
   );
   const closeWorkspaceTerminalPane = useCallback(
     (
@@ -3041,12 +3071,25 @@ export default function ChatView(props: ChatViewProps) {
       terminalGroup: ThreadTerminalGroup,
       terminalId: string,
     ) => {
-      closeTerminal(terminalId);
+      const targetThreadRef =
+        pane.metadata.threadId && pane.environmentId
+          ? scopeThreadRef(
+              pane.environmentId as EnvironmentId,
+              ThreadId.make(pane.metadata.threadId),
+            )
+          : activeThreadRef;
+      const targetTerminalState = targetThreadRef
+        ? selectThreadTerminalUiState(
+            useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+            targetThreadRef,
+          )
+        : null;
+      closeTerminal(terminalId, targetThreadRef, targetTerminalState?.terminalIds.length ?? 1);
       if (shouldRemoveTerminalPaneAfterClose(terminalGroup.terminalIds, terminalId)) {
         storeRemoveWorkspaceThreadDockedPane(workspaceLayoutKey, pane.paneId);
       }
     },
-    [closeTerminal, storeRemoveWorkspaceThreadDockedPane, workspaceLayoutKey],
+    [activeThreadRef, closeTerminal, storeRemoveWorkspaceThreadDockedPane, workspaceLayoutKey],
   );
   const closeActiveWorkspaceTerminal = useCallback(() => {
     if (!activeTerminalGroup || !activeWorkspaceTerminalPane) {
@@ -4941,9 +4984,6 @@ export default function ChatView(props: ChatViewProps) {
     [renderedWorkspaceDockedPanes, storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
   );
   const terminalPaneDeckHeight = workspaceTerminalRowHeight(terminalState.terminalHeight);
-  const terminalLabelById = Object.fromEntries(
-    terminalState.terminalIds.map((terminalId, index) => [terminalId, `Terminal ${index + 1}`]),
-  );
   const terminalRuntimeEnv = useMemo(
     () =>
       activeProjectCwd
@@ -4994,6 +5034,8 @@ export default function ChatView(props: ChatViewProps) {
         >
           <WorkspaceEditorPane
             environmentId={pane.environmentId as EnvironmentId}
+            initialActivePath={pane.metadata.activePath ?? null}
+            initialOpenPaths={pane.metadata.openPaths ?? []}
             openFileRequest={isDefaultEditorPane ? editorOpenFileRequest : null}
             workspaceRoot={pane.cwd ?? undefined}
             resolvedTheme={resolvedTheme}
@@ -5001,6 +5043,7 @@ export default function ChatView(props: ChatViewProps) {
               ? {
                   onActive: markEditorActive,
                   onActivePathChange: setWorkspaceEditorActivePath,
+                  onWorkspaceStateChange: persistWorkspaceEditorPaneState,
                 }
               : {})}
           />
@@ -5034,29 +5077,52 @@ export default function ChatView(props: ChatViewProps) {
     }
 
     if (pane.type === "terminal") {
+      const paneThreadId = ThreadId.make(pane.metadata.threadId ?? activeThread.id);
+      const paneThreadRef = scopeThreadRef(pane.environmentId as EnvironmentId, paneThreadId);
+      const paneThreadKey = scopedThreadKey(paneThreadRef);
+      const paneTerminalState = selectThreadTerminalUiState(
+        terminalUiStateByThreadKey,
+        paneThreadRef,
+      );
       const terminalId =
         pane.metadata.terminalId ||
-        terminalState.activeTerminalId ||
-        terminalState.terminalIds[0] ||
+        paneTerminalState.activeTerminalId ||
+        paneTerminalState.terminalIds[0] ||
         DEFAULT_THREAD_TERMINAL_ID;
-      const terminalGroup = terminalState.terminalGroups.find(
+      const terminalGroup = paneTerminalState.terminalGroups.find(
         (group) => group.id === pane.metadata.terminalGroupId,
       ) ??
-        terminalState.terminalGroups.find((group) => group.terminalIds.includes(terminalId)) ?? {
+        paneTerminalState.terminalGroups.find((group) =>
+          group.terminalIds.includes(terminalId),
+        ) ?? {
           id: pane.metadata.terminalGroupId ?? `group-${terminalId}`,
           terminalIds: [terminalId],
         };
-      const activeTerminalId = terminalGroup.terminalIds.includes(terminalState.activeTerminalId)
-        ? terminalState.activeTerminalId
+      const activeTerminalId = terminalGroup.terminalIds.includes(
+        paneTerminalState.activeTerminalId,
+      )
+        ? paneTerminalState.activeTerminalId
         : (terminalGroup.terminalIds[0] ?? terminalId);
       const cwd =
-        pane.paneId === "terminal" && activeTerminalLaunchContext
+        pane.paneId === "terminal" &&
+        paneThreadKey === activeThreadKey &&
+        activeTerminalLaunchContext
           ? activeTerminalLaunchContext.cwd
           : (pane.cwd ?? activeWorkspaceRoot);
       const worktreePath =
-        pane.paneId === "terminal" && activeTerminalLaunchContext
+        pane.paneId === "terminal" &&
+        paneThreadKey === activeThreadKey &&
+        activeTerminalLaunchContext
           ? activeTerminalLaunchContext.worktreePath
-          : activeThreadWorktreePath;
+          : paneThreadKey === activeThreadKey
+            ? activeThreadWorktreePath
+            : null;
+      const paneTerminalLabelById = Object.fromEntries(
+        paneTerminalState.terminalIds.map((nextTerminalId, index) => [
+          nextTerminalId,
+          `Terminal ${index + 1}`,
+        ]),
+      );
 
       return (
         <WorkspacePane
@@ -5069,7 +5135,9 @@ export default function ChatView(props: ChatViewProps) {
               splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
               newShortcutLabel={newTerminalShortcutLabel ?? undefined}
               closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
-              onSplitTerminal={() => splitWorkspaceTerminalPane(terminalGroup.id, activeTerminalId)}
+              onSplitTerminal={() =>
+                splitWorkspaceTerminalPane(paneThreadRef, terminalGroup.id, activeTerminalId)
+              }
               onNewTerminalPane={() => createNewWorkspaceTerminalPane(pane)}
               onCloseTerminal={() =>
                 closeWorkspaceTerminalPane(pane, terminalGroup, activeTerminalId)
@@ -5080,36 +5148,34 @@ export default function ChatView(props: ChatViewProps) {
           className="min-h-0 flex-1"
           bodyClassName="min-h-0"
         >
-          {cwd && activeThreadRef ? (
+          {cwd ? (
             <ThreadTerminalDrawer
-              threadRef={activeThreadRef}
-              threadId={activeThread.id}
+              threadRef={paneThreadRef}
+              threadId={paneThreadId as ThreadId}
               cwd={cwd}
               worktreePath={worktreePath}
               runtimeEnv={terminalRuntimeEnv}
               layout="pane"
               visible
-              height={terminalState.terminalHeight}
+              height={paneTerminalState.terminalHeight}
               terminalIds={terminalGroup.terminalIds}
               activeTerminalId={activeTerminalId}
               terminalGroups={[terminalGroup]}
               activeTerminalGroupId={terminalGroup.id}
-              terminalLabelById={terminalLabelById}
+              terminalLabelById={paneTerminalLabelById}
               focusRequestId={terminalFocusRequestId}
               closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
               keybindings={keybindings}
               onActiveTerminalChange={(terminalId) => {
-                storeSetActiveTerminal(activeThreadRef, terminalId);
+                storeSetActiveTerminal(paneThreadRef, terminalId);
                 storeSetWorkspaceThreadLastActivePane(workspaceLayoutKey, "terminal");
               }}
               onCloseTerminal={(terminalId) =>
                 closeWorkspaceTerminalPane(pane, terminalGroup, terminalId)
               }
               onHeightChange={(height) => {
-                if (activeThreadRef) {
-                  storeSetTerminalOpen(activeThreadRef, true);
-                  useTerminalUiStateStore.getState().setTerminalHeight(activeThreadRef, height);
-                }
+                storeSetTerminalOpen(paneThreadRef, true);
+                useTerminalUiStateStore.getState().setTerminalHeight(paneThreadRef, height);
               }}
               onAddTerminalContext={addTerminalContextToDraft}
             />
