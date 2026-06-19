@@ -563,6 +563,20 @@ function sendShellThreadUpsert(
   });
 }
 
+function sendThreadSnapshot(threadId: ThreadId): void {
+  const thread = fixture.snapshot.threads.find((entry) => entry.id === threadId);
+  if (!thread) {
+    throw new Error(`Expected thread ${threadId} in snapshot.`);
+  }
+  rpcHarness.emitStreamValue(ORCHESTRATION_WS_METHODS.subscribeThread, {
+    kind: "snapshot",
+    snapshot: {
+      snapshotSequence: fixture.snapshot.snapshotSequence,
+      thread,
+    },
+  });
+}
+
 async function waitForWsClient(): Promise<void> {
   await vi.waitFor(
     () => {
@@ -2092,6 +2106,64 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       expect(getWorkspacePaneWidths()).toEqual(initialWidths);
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the AI pane mounted and stationary across streamed thread updates", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-stream-stable-ai-pane" as MessageId,
+        targetText: "stream without moving the AI pane",
+      }),
+    });
+
+    try {
+      const aiPane = getWorkspacePane("ai");
+      const initialRect = aiPane.getBoundingClientRect();
+      const assistantMessageId = "msg-assistant-stream-stable-ai-pane" as MessageId;
+
+      for (let update = 1; update <= 5; update += 1) {
+        fixture.snapshot = {
+          ...fixture.snapshot,
+          snapshotSequence: fixture.snapshot.snapshotSequence + 1,
+          threads: fixture.snapshot.threads.map((thread) =>
+            thread.id === THREAD_ID
+              ? {
+                  ...thread,
+                  messages: [
+                    ...thread.messages.filter((message) => message.id !== assistantMessageId),
+                    {
+                      ...createAssistantMessage({
+                        id: assistantMessageId,
+                        text: `streamed assistant update ${update}`,
+                        offsetSeconds: 1_000,
+                      }),
+                      streaming: true,
+                    },
+                  ],
+                  updatedAt: isoAt(1_000 + update),
+                }
+              : thread,
+          ),
+        };
+        sendThreadSnapshot(THREAD_ID);
+
+        await expect
+          .element(page.getByText(`streamed assistant update ${update}`, { exact: true }))
+          .toBeInTheDocument();
+        expect(getWorkspacePane("ai")).toBe(aiPane);
+        expect(aiPane.getBoundingClientRect()).toEqual(initialRect);
+      }
+      expect(
+        consoleError.mock.calls.some(([message]) =>
+          String(message).includes("Maximum update depth exceeded"),
+        ),
+      ).toBe(false);
+    } finally {
+      consoleError.mockRestore();
       await mounted.cleanup();
     }
   });

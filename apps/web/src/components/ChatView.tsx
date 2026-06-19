@@ -277,6 +277,7 @@ const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PANE_TITLE_OVERRIDES: Record<string, string> = {};
 const EMPTY_WORKSPACE_DOCKED_PANES: PersistedWorkspaceDockedPane[] = [];
+const EMPTY_WORKSPACE_EDITOR_OPEN_PATHS: readonly string[] = [];
 const EMPTY_TERMINAL_RUNTIME_ENV: Record<string, string> = {};
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
@@ -1543,13 +1544,19 @@ export default function ChatView(props: ChatViewProps) {
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const diffOpen = rawSearch.diff === "1";
   const activeThreadId = activeThread?.id ?? null;
+  const activeThreadEnvironmentId = activeThread?.environmentId ?? null;
+  const activeThreadProjectId = activeThread?.projectId ?? null;
+  const activeThreadTitle = activeThread?.title ?? null;
   const runningTerminalIds = useThreadRunningTerminalIds({
-    environmentId: activeThread?.environmentId ?? null,
+    environmentId: activeThreadEnvironmentId,
     threadId: activeThreadId,
   });
   const activeThreadRef = useMemo(
-    () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
-    [activeThread],
+    () =>
+      activeThreadEnvironmentId && activeThreadId
+        ? scopeThreadRef(activeThreadEnvironmentId, activeThreadId)
+        : null,
+    [activeThreadEnvironmentId, activeThreadId],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const existingOpenTerminalThreadKeys = useMemo(() => {
@@ -2047,14 +2054,20 @@ export default function ChatView(props: ChatViewProps) {
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
   const workspaceLayoutKey = useMemo(
     () =>
-      workspaceMode === "full" && activeThread
+      workspaceMode === "full" && activeThreadEnvironmentId && activeThreadProjectId
         ? workspacePaneLayoutKey({
-            environmentId: activeThread.environmentId,
-            projectId: activeThread.projectId,
+            environmentId: activeThreadEnvironmentId,
+            projectId: activeThreadProjectId,
             workspaceRoot: activeWorkspaceRoot,
           })
         : routeThreadKey,
-    [activeThread, activeWorkspaceRoot, routeThreadKey, workspaceMode],
+    [
+      activeThreadEnvironmentId,
+      activeThreadProjectId,
+      activeWorkspaceRoot,
+      routeThreadKey,
+      workspaceMode,
+    ],
   );
   const planSidebarOpen = useUiStateStore(
     (store) =>
@@ -2936,17 +2949,17 @@ export default function ChatView(props: ChatViewProps) {
     ) ??
     null;
   useEffect(() => {
-    if (!activeThread) {
+    if (!activeThreadEnvironmentId || !activeThreadId || !activeThreadTitle) {
       return;
     }
     const terminalTitle = activeTerminalGroup
       ? (basenameOfPanePath(activeWorkspaceRoot) ?? "Terminal")
       : "Terminal";
     storeEnsureWorkspaceThreadDockedPaneLayout(workspaceLayoutKey, {
-      threadId: activeThread.id,
-      environmentId: activeThread.environmentId,
+      threadId: activeThreadId,
+      environmentId: activeThreadEnvironmentId,
       cwd: activeWorkspaceRoot,
-      aiTitle: activeThread.title,
+      aiTitle: activeThreadTitle,
       editorTitle: resolveEditorPaneDefaultTitle(workspaceName, activeWorkspaceRoot),
       terminalTitle,
       editorActivePath: workspaceEditorActivePath,
@@ -2955,7 +2968,9 @@ export default function ChatView(props: ChatViewProps) {
     });
   }, [
     activeTerminalGroup,
-    activeThread,
+    activeThreadEnvironmentId,
+    activeThreadId,
+    activeThreadTitle,
     activeWorkspaceRoot,
     storeEnsureWorkspaceThreadDockedPaneLayout,
     terminalState.activeTerminalId,
@@ -5166,7 +5181,7 @@ export default function ChatView(props: ChatViewProps) {
           <WorkspaceEditorPane
             environmentId={pane.environmentId as EnvironmentId}
             initialActivePath={pane.metadata.activePath ?? null}
-            initialOpenPaths={pane.metadata.openPaths ?? []}
+            initialOpenPaths={pane.metadata.openPaths ?? EMPTY_WORKSPACE_EDITOR_OPEN_PATHS}
             openFileRequest={isDefaultEditorPane ? editorOpenFileRequest : null}
             workspaceRoot={pane.cwd ?? undefined}
             resolvedTheme={resolvedTheme}
