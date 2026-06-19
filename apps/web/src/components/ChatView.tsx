@@ -235,7 +235,7 @@ import {
   mergeVisibleWorkspacePaneUpdates,
   workspaceTerminalRowHeight,
 } from "../workspacePaneLayout";
-import { Button } from "./ui/button";
+import { Button, buttonVariants } from "./ui/button";
 import {
   Dialog,
   DialogDescription,
@@ -685,7 +685,10 @@ const WorkspaceRunningTerminalIndicator = memo(function WorkspaceRunningTerminal
                 aria-label="Terminal process running"
                 title="Terminal process running"
                 data-testid="workspace-terminal-running-indicator"
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-teal-600 dark:text-teal-300/90"
+                className={cn(
+                  buttonVariants({ variant: "outline", size: "icon-xs" }),
+                  "cursor-default text-teal-600 dark:text-teal-300/90",
+                )}
               >
                 <TerminalIcon className="size-3.5 animate-pulse" />
               </span>
