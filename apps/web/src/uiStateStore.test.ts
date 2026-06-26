@@ -8,6 +8,7 @@ import {
   hydratePersistedProjectState,
   markThreadVisited,
   markThreadUnread,
+  migrateWorkspaceThreadLayout,
   PERSISTED_STATE_KEY,
   type PersistedWorkspaceDockedPane,
   type PersistedUiState,
@@ -447,6 +448,37 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
+  it("syncThreads retains workspace-scoped pane layouts", () => {
+    const workspaceKey = "workspace:environment-local:project-1:%2Frepo";
+    const initialState = makeUiState({
+      workspaceThreadLayoutById: {
+        [workspaceKey]: { planSidebarOpen: true, lastActivePane: "terminal" },
+      },
+    });
+
+    const next = syncThreads(initialState, []);
+
+    expect(next.workspaceThreadLayoutById).toEqual(initialState.workspaceThreadLayoutById);
+  });
+
+  it("migrates a legacy thread layout into its workspace scope once", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const workspaceKey = "workspace:environment-local:project-1:%2Frepo";
+    const initialState = makeUiState({
+      workspaceThreadLayoutById: {
+        [thread1]: { planSidebarOpen: true, lastActivePane: "terminal" },
+      },
+    });
+
+    const migrated = migrateWorkspaceThreadLayout(initialState, thread1, workspaceKey);
+    const unchanged = migrateWorkspaceThreadLayout(migrated, thread1, workspaceKey);
+
+    expect(migrated.workspaceThreadLayoutById[workspaceKey]).toEqual(
+      initialState.workspaceThreadLayoutById[thread1],
+    );
+    expect(unchanged).toBe(migrated);
+  });
+
   it("clearThreadUi removes workspace pane layout state for deleted threads", () => {
     const thread1 = ThreadId.make("thread-1");
     const initialState = makeUiState({
@@ -540,7 +572,7 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
-  it("preserves custom docked panes while refreshing runtime attachment context", () => {
+  it("preserves a docked AI pane thread binding while refreshing workspace context", () => {
     const thread1 = ThreadId.make("thread-1");
     const initialPane: PersistedWorkspaceDockedPane = {
       paneId: "ai",
@@ -577,12 +609,12 @@ describe("uiStateStore pure functions", () => {
     ).toMatchObject({
       paneId: "ai",
       title: "Custom AI",
-      environmentId: "env-1",
-      cwd: "/repo",
+      environmentId: "old-env",
+      cwd: "/old",
       order: 4,
       size: 2,
       metadata: {
-        threadId: thread1,
+        threadId: "old-thread",
       },
     });
     expect(next.workspaceThreadLayoutById[thread1]?.panes?.map((pane) => pane.paneId)).toEqual([
@@ -590,6 +622,52 @@ describe("uiStateStore pure functions", () => {
       "terminal",
       "ai",
     ]);
+  });
+
+  it("preserves editor open files while refreshing workspace context", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const initialState = ensureWorkspaceThreadDockedPaneLayout(makeUiState(), thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+      editorActivePath: "apps/web/src/main.tsx",
+    });
+    const withOpenFiles = setWorkspaceThreadDockedPanes(
+      initialState,
+      thread1,
+      initialState.workspaceThreadLayoutById[thread1]!.panes!.map((pane) =>
+        pane.paneId === "editor" && pane.type === "editor"
+          ? Object.assign({}, pane, {
+              metadata: {
+                activePath: "apps/web/src/ChatView.tsx",
+                openPaths: ["apps/web/src/main.tsx", "apps/web/src/ChatView.tsx"],
+              },
+            })
+          : pane,
+      ),
+    );
+
+    const next = ensureWorkspaceThreadDockedPaneLayout(withOpenFiles, thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+      editorActivePath: null,
+    });
+
+    expect(
+      next.workspaceThreadLayoutById[thread1]?.panes?.find((pane) => pane.paneId === "editor"),
+    ).toMatchObject({
+      metadata: {
+        activePath: "apps/web/src/ChatView.tsx",
+        openPaths: ["apps/web/src/main.tsx", "apps/web/src/ChatView.tsx"],
+      },
+    });
   });
 
   it("tracks active docked pane independently from plan sidebar state", () => {
@@ -689,6 +767,43 @@ describe("uiStateStore pure functions", () => {
         threadId: thread1,
         terminalId: "terminal-1",
         terminalGroupId: "group-terminal-1",
+      },
+    });
+  });
+
+  it("preserves an existing terminal pane thread when workspace context changes", () => {
+    const workspaceLayoutId = "workspace:env-1:project-1:/repo";
+    const initialState = ensureWorkspaceThreadDockedPaneLayout(makeUiState(), workspaceLayoutId, {
+      threadId: "thread-workspace-a",
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+      terminalId: "terminal-workspace-a",
+      terminalGroupId: "group-workspace-a",
+    });
+
+    const next = ensureWorkspaceThreadDockedPaneLayout(initialState, workspaceLayoutId, {
+      threadId: "thread-workspace-b",
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+      terminalId: "terminal-workspace-b",
+      terminalGroupId: "group-workspace-b",
+    });
+
+    expect(
+      next.workspaceThreadLayoutById[workspaceLayoutId]?.panes?.find(
+        (pane) => pane.paneId === "terminal",
+      ),
+    ).toMatchObject({
+      metadata: {
+        threadId: "thread-workspace-a",
+        terminalId: "terminal-workspace-a",
+        terminalGroupId: "group-workspace-a",
       },
     });
   });
@@ -806,7 +921,7 @@ describe("uiStateStore pure functions", () => {
     ).toBeUndefined();
   });
 
-  it("places added panes next to existing panes of the same type and copies their size", () => {
+  it("places added panes in the terminal row and copies the default terminal size", () => {
     const thread1 = ThreadId.make("thread-1");
     const initialState = setWorkspaceThreadDockedPanes(
       makeUiState(),
@@ -851,7 +966,7 @@ describe("uiStateStore pure functions", () => {
           environmentId: "env-1",
           cwd: "/repo",
           order: 2,
-          size: 1,
+          size: 0.65,
           metadata: {
             threadId: thread1,
           },
@@ -871,16 +986,52 @@ describe("uiStateStore pure functions", () => {
 
     expect(next.workspaceThreadLayoutById[thread1]?.panes?.map((pane) => pane.paneId)).toEqual([
       "editor",
-      "editor:docs",
       "editor:notes",
       "ai",
       "terminal",
+      "editor:docs",
     ]);
-    expect(next.workspaceThreadLayoutById[thread1]?.panes?.[1]).toMatchObject({
+    expect(next.workspaceThreadLayoutById[thread1]?.panes?.[4]).toMatchObject({
       paneId: "editor:docs",
-      order: 0.25,
-      size: 1.75,
+      order: 3,
+      size: 0.65,
     });
+  });
+
+  it("appends new terminal panes beside the existing terminal panes", () => {
+    const thread1 = ThreadId.make("thread-1");
+    let state = ensureWorkspaceThreadDockedPaneLayout(makeUiState(), thread1, {
+      threadId: thread1,
+      environmentId: "env-1",
+      cwd: "/repo",
+      aiTitle: "AI",
+      editorTitle: "Editor",
+      terminalTitle: "Terminal",
+    });
+    state = addWorkspaceThreadDockedPane(state, thread1, {
+      paneId: "terminal:first",
+      type: "terminal",
+      title: "First Terminal",
+      environmentId: "env-1",
+      cwd: "/repo",
+      threadId: thread1,
+    });
+    state = addWorkspaceThreadDockedPane(state, thread1, {
+      paneId: "terminal:second",
+      type: "terminal",
+      title: "Second Terminal",
+      environmentId: "env-1",
+      cwd: "/repo",
+      threadId: thread1,
+    });
+
+    expect(state.workspaceThreadLayoutById[thread1]?.panes?.map((pane) => pane.paneId)).toEqual([
+      "editor",
+      "ai",
+      "terminal",
+      "terminal:first",
+      "terminal:second",
+    ]);
   });
 
   it("sanitizes invalid persisted docked panes without dropping valid panes", () => {
@@ -977,6 +1128,9 @@ describe("uiStateStore pure functions", () => {
         cwd: "/repo",
         order: 3,
         size: 0.5,
+        height: 900,
+        dockX: 640,
+        dockY: 748,
         metadata: {
           threadId: "thread-2",
         },
@@ -1021,6 +1175,9 @@ describe("uiStateStore pure functions", () => {
           cwd: "/repo",
           order: 3,
           size: 0.5,
+          height: 900,
+          dockX: 640,
+          dockY: 748,
           metadata: {
             threadId: "thread-2",
           },

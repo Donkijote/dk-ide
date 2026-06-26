@@ -28,6 +28,7 @@ export interface PersistedUiState {
 export type WorkspacePaneId = "ai" | "editor" | "plan" | "terminal";
 export type WorkspaceDockedPaneType = "ai" | "editor" | "terminal";
 export type WorkspaceDockedPaneId = string;
+export type WorkspaceDockedPaneSlot = "primary" | "upper" | "grid";
 
 export interface PersistedWorkspaceDockedPaneBase {
   paneId: WorkspaceDockedPaneId;
@@ -37,6 +38,12 @@ export interface PersistedWorkspaceDockedPaneBase {
   cwd: string | null;
   order: number;
   size: number;
+  height?: number;
+  dockSlot?: WorkspaceDockedPaneSlot;
+  dockColumn?: number;
+  dockRow?: number;
+  dockX?: number;
+  dockY?: number;
 }
 
 export interface PersistedWorkspaceAiPane extends PersistedWorkspaceDockedPaneBase {
@@ -306,8 +313,22 @@ function sanitizeWorkspacePaneSize(value: unknown): number {
     : DEFAULT_WORKSPACE_PANE_SIZE;
 }
 
+function sanitizeWorkspacePaneHeight(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.min(value, 10_000)
+    : undefined;
+}
+
 function sanitizeWorkspacePaneOrder(value: unknown, fallbackOrder: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallbackOrder;
+}
+
+function sanitizeWorkspacePaneSlot(value: unknown): WorkspaceDockedPaneSlot | undefined {
+  return value === "primary" || value === "upper" || value === "grid" ? value : undefined;
+}
+
+function sanitizeWorkspacePaneCoordinate(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
 function sanitizeOptionalString(value: unknown): string | null {
@@ -376,6 +397,12 @@ function sanitizeWorkspaceDockedPane(
     return null;
   }
 
+  const dockSlot = sanitizeWorkspacePaneSlot(pane.dockSlot);
+  const dockColumn = sanitizeWorkspacePaneCoordinate(pane.dockColumn);
+  const dockRow = sanitizeWorkspacePaneCoordinate(pane.dockRow);
+  const dockX = sanitizeWorkspacePaneCoordinate(pane.dockX);
+  const dockY = sanitizeWorkspacePaneCoordinate(pane.dockY);
+  const height = sanitizeWorkspacePaneHeight(pane.height);
   const base = {
     paneId,
     type,
@@ -384,6 +411,12 @@ function sanitizeWorkspaceDockedPane(
     cwd: sanitizeOptionalString(pane.cwd),
     order: sanitizeWorkspacePaneOrder(pane.order, fallbackOrder),
     size: sanitizeWorkspacePaneSize(pane.size),
+    ...(height !== undefined ? { height } : {}),
+    ...(dockSlot ? { dockSlot } : {}),
+    ...(dockColumn !== undefined ? { dockColumn } : {}),
+    ...(dockRow !== undefined ? { dockRow } : {}),
+    ...(dockX !== undefined ? { dockX } : {}),
+    ...(dockY !== undefined ? { dockY } : {}),
   };
   const metadata = sanitizeWorkspacePaneMetadata(type, pane.metadata);
   return { ...base, metadata } as PersistedWorkspaceDockedPane;
@@ -728,8 +761,8 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
     ),
   );
   const nextWorkspaceThreadLayoutById = Object.fromEntries(
-    Object.entries(state.workspaceThreadLayoutById).filter(([threadId]) =>
-      retainedThreadIds.has(threadId),
+    Object.entries(state.workspaceThreadLayoutById).filter(
+      ([threadId]) => threadId.startsWith("workspace:") || retainedThreadIds.has(threadId),
     ),
   );
   if (
@@ -747,6 +780,30 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
     threadLastVisitedAtById: nextThreadLastVisitedAtById,
     threadChangedFilesExpandedById: nextThreadChangedFilesExpandedById,
     workspaceThreadLayoutById: nextWorkspaceThreadLayoutById,
+  };
+}
+
+export function migrateWorkspaceThreadLayout(
+  state: UiState,
+  sourceLayoutId: string,
+  targetLayoutId: string,
+): UiState {
+  if (
+    sourceLayoutId === targetLayoutId ||
+    state.workspaceThreadLayoutById[targetLayoutId] !== undefined
+  ) {
+    return state;
+  }
+  const sourceLayout = state.workspaceThreadLayoutById[sourceLayoutId];
+  if (!sourceLayout) {
+    return state;
+  }
+  return {
+    ...state,
+    workspaceThreadLayoutById: {
+      ...state.workspaceThreadLayoutById,
+      [targetLayoutId]: sourceLayout,
+    },
   };
 }
 
@@ -1040,6 +1097,12 @@ function workspaceDockedPaneEqual(
     left.cwd === right.cwd &&
     left.order === right.order &&
     left.size === right.size &&
+    left.height === right.height &&
+    left.dockSlot === right.dockSlot &&
+    left.dockColumn === right.dockColumn &&
+    left.dockRow === right.dockRow &&
+    left.dockX === right.dockX &&
+    left.dockY === right.dockY &&
     JSON.stringify(left.metadata) === JSON.stringify(right.metadata)
   );
 }
@@ -1126,15 +1189,7 @@ function workspaceDockedPaneWithRuntimeContext(
     return pane;
   }
   if (pane.type === "ai" && defaultPane.type === "ai") {
-    return {
-      ...pane,
-      environmentId: defaultPane.environmentId,
-      cwd: defaultPane.cwd,
-      metadata: {
-        ...pane.metadata,
-        ...defaultPane.metadata,
-      },
-    };
+    return pane;
   }
   if (pane.type === "terminal" && defaultPane.type === "terminal") {
     return {
@@ -1142,7 +1197,7 @@ function workspaceDockedPaneWithRuntimeContext(
       environmentId: defaultPane.environmentId,
       cwd: defaultPane.cwd,
       metadata: {
-        threadId: defaultPane.metadata.threadId,
+        threadId: pane.metadata.threadId ?? defaultPane.metadata.threadId ?? null,
         terminalId: pane.metadata.terminalId ?? defaultPane.metadata.terminalId ?? null,
         terminalGroupId:
           pane.metadata.terminalGroupId ?? defaultPane.metadata.terminalGroupId ?? null,
@@ -1155,8 +1210,8 @@ function workspaceDockedPaneWithRuntimeContext(
       environmentId: defaultPane.environmentId,
       cwd: defaultPane.cwd,
       metadata: {
-        ...pane.metadata,
-        ...defaultPane.metadata,
+        activePath: pane.metadata.activePath ?? null,
+        ...(pane.metadata.openPaths ? { openPaths: pane.metadata.openPaths } : {}),
       },
     };
   }
@@ -1289,10 +1344,17 @@ export function addWorkspaceThreadDockedPane(
       };
     }
     const sortedPanes = sanitizeWorkspaceDockedPanes(existingPanes);
-    const sameTypeAnchor =
-      sortedPanes.find((existingPane) => existingPane.type === pane.type) ?? null;
-    const anchorIndex = sameTypeAnchor
-      ? sortedPanes.findIndex((existingPane) => existingPane.paneId === sameTypeAnchor.paneId)
+    const defaultTerminalPane =
+      sortedPanes.find(
+        (existingPane) => existingPane.paneId === WORKSPACE_DOCKED_PANE_IDS.terminal,
+      ) ?? null;
+    const placementAnchor =
+      pane.type === "terminal"
+        ? (sortedPanes.findLast((existingPane) => existingPane.type === "terminal") ??
+          defaultTerminalPane)
+        : (sortedPanes.at(-1) ?? defaultTerminalPane);
+    const anchorIndex = placementAnchor
+      ? sortedPanes.findIndex((existingPane) => existingPane.paneId === placementAnchor.paneId)
       : -1;
     const nextPane = anchorIndex >= 0 ? (sortedPanes[anchorIndex + 1] ?? null) : null;
     const maxOrder = sortedPanes.reduce(
@@ -1300,17 +1362,17 @@ export function addWorkspaceThreadDockedPane(
       -1,
     );
     const order =
-      sameTypeAnchor === null
+      placementAnchor === null
         ? maxOrder + 1
         : nextPane
-          ? sameTypeAnchor.order + (nextPane.order - sameTypeAnchor.order) / 2
-          : sameTypeAnchor.order + 1;
+          ? placementAnchor.order + (nextPane.order - placementAnchor.order) / 2
+          : placementAnchor.order + 1;
     const panes = sanitizeWorkspaceDockedPanes([
       ...existingPanes,
       {
         ...pane,
         order,
-        size: sameTypeAnchor?.size ?? pane.size,
+        size: defaultTerminalPane?.size ?? pane.size,
       },
     ]);
     return {
@@ -1494,6 +1556,7 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setWorkspaceShellSidebarOpen: (open: boolean) => void;
+  migrateWorkspaceThreadLayout: (sourceLayoutId: string, targetLayoutId: string) => void;
   setWorkspaceThreadPlanSidebarOpen: (threadId: string, open: boolean) => void;
   setWorkspaceThreadLastActivePane: (threadId: string, pane: WorkspacePaneId) => void;
   setWorkspaceThreadPaneTitleOverride: (
@@ -1539,6 +1602,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setDefaultAdvertisedEndpointKey: (key) =>
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setWorkspaceShellSidebarOpen: (open) => set((state) => setWorkspaceShellSidebarOpen(state, open)),
+  migrateWorkspaceThreadLayout: (sourceLayoutId, targetLayoutId) =>
+    set((state) => migrateWorkspaceThreadLayout(state, sourceLayoutId, targetLayoutId)),
   setWorkspaceThreadPlanSidebarOpen: (threadId, open) =>
     set((state) => setWorkspaceThreadPlanSidebarOpen(state, threadId, open)),
   setWorkspaceThreadLastActivePane: (threadId, pane) =>

@@ -66,6 +66,11 @@ Persisted layout should restore:
 - pane title
 - type-specific attachment such as AI thread ref or terminal id
 
+Layout ownership follows the physical workspace context: environment, project,
+and active workspace root or worktree. Switching AI threads inside a workspace
+must not replace its panes, and switching workspaces must not reuse another
+workspace's AI or terminal pane set.
+
 Invalid persisted panes should be sanitized instead of breaking app startup.
 
 ## Docked Pane Host
@@ -78,13 +83,16 @@ The docked host should support:
 - close pane
 - rename pane
 - reorder panes by drag and drop
-- resize adjacent panes with proportional sibling updates
+- resize panes from their tile edges, pushing colliding panes instead of shrinking
+  them below their default footprint
 - restore persisted pane sessions
 
 Use the existing frontend dependencies and local patterns:
 
 - use `@dnd-kit` for drag reorder
 - use pointer-resize behavior similar to existing sidebar and terminal resizing
+- persist two-dimensional dock coordinates so separate rows can use different
+  pane widths and column counts without becoming a freeform canvas
 - avoid adding another layout dependency unless implementation proves the local
   approach too fragile
 
@@ -183,7 +191,7 @@ Add a narrow `vcs.restoreFiles` style contract and server handler for
 - [ ] Add shared pane creation with workspace or directory target.
 - [x] Support multiple terminal panes with selected cwd.
 - [x] Preserve terminal tabs and splits inside terminal panes.
-- [ ] Add docked pane resize and drag reorder.
+- [x] Add docked pane resize and drag reorder.
 - [ ] Persist and restore workspace pane sessions.
 - [ ] Commit selected editor files.
 - [ ] Roll back selected editor file changes.
@@ -201,6 +209,7 @@ The alpha is successful when:
 5. Pane rename, resize, reorder, add, close, and restore behavior is stable.
 6. Editor Git actions support selected-file commit and selected-file rollback.
 7. The sidebar reads as workspace/project navigation, not thread navigation.
+8. Switching workspaces restores each workspace's own AI and terminal panes.
 
 ## Required Checks
 

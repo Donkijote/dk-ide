@@ -400,6 +400,20 @@ function attachThreadDetailSubscription(entry: ThreadDetailSubscriptionEntry): b
   return true;
 }
 
+function refreshThreadDetailSubscription(environmentId: EnvironmentId, threadId: ThreadId): void {
+  const entry = threadDetailSubscriptions.get(
+    getThreadDetailSubscriptionKey(environmentId, threadId),
+  );
+  if (!entry) {
+    return;
+  }
+  entry.unsubscribe();
+  entry.unsubscribe = NOOP;
+  if (!attachThreadDetailSubscription(entry)) {
+    watchThreadDetailSubscriptionConnection(entry);
+  }
+}
+
 function watchThreadDetailSubscriptionConnection(entry: ThreadDetailSubscriptionEntry): void {
   if (entry.unsubscribeConnectionListener !== null) {
     return;
@@ -1079,6 +1093,7 @@ function applyShellEvent(event: OrchestrationShellStreamEvent, environmentId: En
       syncThreadUiFromStore();
       if (!previousThread && threadRef) {
         markPromotedDraftThreadByRef(threadRef);
+        refreshThreadDetailSubscription(environmentId, event.thread.id);
       }
       if (previousThread?.archivedAt === null && event.thread.archivedAt !== null && threadRef) {
         useTerminalUiStateStore.getState().removeTerminalUiState(threadRef);

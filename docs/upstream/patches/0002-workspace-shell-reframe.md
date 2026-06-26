@@ -84,6 +84,10 @@ composition, which are likely to continue evolving upstream.
   thread-scoped terminal panes bound to persisted cwd values
 - `improvement/ghi#40`: pane-scoped terminal split and close behavior, with
   explicit "New Terminal Pane" actions
+- `feature/ghi#41`: docked two-dimensional pane host with persisted tile
+  coordinates, edge placement and center swapping, collision-pushing resize,
+  two-axis workspace scrolling, and pane layouts scoped by environment, project,
+  and workspace root instead of the active route thread
 
 ## Sync Notes
 
@@ -132,12 +136,25 @@ composition, which are likely to continue evolving upstream.
   ids without introducing a server-side workspace domain yet
 - keep terminal server sessions thread-scoped while assigning each terminal pane
   a unique terminal id, terminal group, environment, and cwd in local pane state
+- keep pane layout and AI-pane selection workspace-scoped so route changes
+  cannot mix AI or terminal panes between projects or worktrees
 - keep terminal splits scoped to their owning pane group, preserve the pane when
   one split closes, and reserve "New Terminal Pane" for creating a separate
   docked terminal surface
 - keep terminal lifecycle actions in shared pane chrome beside the pane title,
   and show only the terminal cwd basename until the full path is requested from
   its tooltip
+- preserve the current editor and supporting-pane proportions as the default
+  pane widths, then let the docked host overflow in both axes so additional or
+  enlarged panes remain navigable instead of collapsing the workspace
+- keep the default AI above the default terminal, size every added pane from
+  the default terminal footprint, and hide the workspace scrollbars without
+  disabling two-axis scrolling
+- persist pane `x` and `y` tile coordinates so each horizontal band can use an
+  independent partition, while edge drops remain docked and center drops swap
+  positions
+- resize panes from their right and bottom tile edges; when growth reaches
+  another pane, move that pane along the resize axis rather than shrinking it
 - split future implementation into smaller patch files when the shell reframe
   turns into concrete workstreams such as sidebar mapping, pane extraction, or
   layout persistence

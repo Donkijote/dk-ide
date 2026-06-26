@@ -148,11 +148,14 @@ function isFileSearchShortcut(event: KeyboardEvent): boolean {
 interface WorkspaceEditorPaneProps {
   readonly className?: string;
   readonly environmentId: EnvironmentId;
+  readonly initialActivePath?: string | null;
+  readonly initialOpenPaths?: readonly string[];
   readonly openFileRequest?: WorkspaceEditorOpenFileRequest | null;
   readonly resolvedTheme: "light" | "dark";
   readonly workspaceRoot: string | undefined;
   readonly onActive?: () => void;
   readonly onActivePathChange?: (path: string | null) => void;
+  readonly onWorkspaceStateChange?: (state: EditorWorkspaceState) => void;
 }
 
 export interface WorkspaceEditorOpenFileRequest {
@@ -173,11 +176,14 @@ const EMPTY_EDITOR_WORKSPACE_STATE: EditorWorkspaceState = {
 export function WorkspaceEditorPane({
   className,
   environmentId,
+  initialActivePath,
+  initialOpenPaths,
   openFileRequest,
   resolvedTheme,
   workspaceRoot,
   onActive,
   onActivePathChange,
+  onWorkspaceStateChange,
 }: WorkspaceEditorPaneProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const editorPaneSelectedRef = useRef(false);
@@ -195,10 +201,22 @@ export function WorkspaceEditorPane({
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
   const workspaceContextKey =
     workspaceRoot === undefined ? null : `${environmentId}\u0000${workspaceRoot}`;
+  const initialWorkspaceState = useMemo<EditorWorkspaceState>(() => {
+    const openPaths = Array.from(new Set(initialOpenPaths ?? []));
+    const activePath =
+      initialActivePath && initialActivePath.trim().length > 0 ? initialActivePath : null;
+    return {
+      activePath,
+      openPaths:
+        activePath !== null && !openPaths.includes(activePath)
+          ? [...openPaths, activePath]
+          : openPaths,
+    };
+  }, [initialActivePath, initialOpenPaths]);
   const workspaceEditorState =
     workspaceContextKey === null
       ? EMPTY_EDITOR_WORKSPACE_STATE
-      : (workspaceStateByKey[workspaceContextKey] ?? EMPTY_EDITOR_WORKSPACE_STATE);
+      : (workspaceStateByKey[workspaceContextKey] ?? initialWorkspaceState);
   const activePath = workspaceEditorState.activePath;
   const openPaths = workspaceEditorState.openPaths;
   const trimmedQuery = query.trim();
@@ -249,7 +267,8 @@ export function WorkspaceEditorPane({
 
   useEffect(() => {
     onActivePathChange?.(activePath);
-  }, [activePath, onActivePathChange]);
+    onWorkspaceStateChange?.(workspaceEditorState);
+  }, [activePath, onActivePathChange, onWorkspaceStateChange, workspaceEditorState]);
 
   const activeFileChangesQuery = useQuery(
     gitWorkingTreeFileChangesQueryOptions({

@@ -350,6 +350,43 @@ describe("retainThreadDetailSubscription", () => {
     await resetEnvironmentServiceForTests();
   });
 
+  it("refreshes a retained draft subscription when the server thread materializes", async () => {
+    const {
+      retainThreadDetailSubscription,
+      startEnvironmentConnectionService,
+      resetEnvironmentServiceForTests,
+    } = await import("./service");
+
+    const stop = startEnvironmentConnectionService(new QueryClient());
+    const environmentId = EnvironmentId.make("env-1");
+    const threadId = ThreadId.make("thread-promoted-draft");
+    const connectionInput = mockCreateEnvironmentConnection.mock.calls[0]?.[0];
+    expect(connectionInput).toBeDefined();
+
+    const release = retainThreadDetailSubscription(environmentId, threadId);
+    expect(mockSubscribeThread).toHaveBeenCalledTimes(1);
+
+    connectionInput.applyShellEvent(
+      {
+        kind: "thread-upserted",
+        sequence: 1,
+        thread: makeThreadShellSnapshot({
+          threadId,
+          sessionStatus: "running",
+        }).threads[0]!,
+      },
+      environmentId,
+    );
+
+    expect(mockThreadUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(mockSubscribeThread).toHaveBeenCalledTimes(2);
+    expect(mockSubscribeThread).toHaveBeenLastCalledWith({ threadId }, expect.any(Function));
+
+    release();
+    stop();
+    await resetEnvironmentServiceForTests();
+  });
+
   it("does not start the primary connection until the known environment has an id", async () => {
     mockGetPrimaryKnownEnvironment.mockReturnValue({
       id: "env-1",

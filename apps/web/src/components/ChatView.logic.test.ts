@@ -24,9 +24,36 @@ import {
   shouldRemoveTerminalPaneAfterClose,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
+  workspacePaneLayoutKey,
 } from "./ChatView.logic";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+
+describe("workspacePaneLayoutKey", () => {
+  it("keeps projects and worktrees in separate pane scopes", () => {
+    const projectLayoutKey = workspacePaneLayoutKey({
+      environmentId: localEnvironmentId,
+      projectId: ProjectId.make("project-1"),
+      workspaceRoot: "/repos/dk-ide/",
+    });
+
+    expect(projectLayoutKey).toBe("workspace:environment-local:project-1:%2Frepos%2Fdk-ide");
+    expect(
+      workspacePaneLayoutKey({
+        environmentId: localEnvironmentId,
+        projectId: ProjectId.make("project-1"),
+        workspaceRoot: "/repos/dk-ide-worktree",
+      }),
+    ).not.toBe(projectLayoutKey);
+    expect(
+      workspacePaneLayoutKey({
+        environmentId: localEnvironmentId,
+        projectId: ProjectId.make("project-2"),
+        workspaceRoot: "/repos/dk-ide",
+      }),
+    ).not.toBe(projectLayoutKey);
+  });
+});
 
 describe("resolveEditorPaneDefaultTitle", () => {
   it("uses stable workspace context instead of active file context", () => {

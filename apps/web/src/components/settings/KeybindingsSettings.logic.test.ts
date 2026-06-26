@@ -19,9 +19,9 @@ describe("KeybindingsSettings.logic", () => {
     const rows = buildKeybindingRows(
       [
         {
-          command: "terminal.toggle",
+          command: "terminal.new",
           shortcut: {
-            key: "j",
+            key: "n",
             modKey: true,
             metaKey: false,
             ctrlKey: false,
@@ -39,11 +39,11 @@ describe("KeybindingsSettings.logic", () => {
 
     expect(rows).toEqual([
       expect.objectContaining({
-        command: "terminal.toggle",
-        key: "mod+j",
+        command: "terminal.new",
+        key: "mod+n",
         when: "!terminalFocus",
-        defaultKey: "mod+j",
-        defaultWhen: "",
+        defaultKey: "mod+n",
+        defaultWhen: "terminalFocus",
         source: "Custom",
       }),
     ]);

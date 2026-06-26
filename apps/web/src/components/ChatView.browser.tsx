@@ -58,10 +58,12 @@ import { getRouter } from "../router";
 import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
 import { selectBootstrapCompleteForActiveEnvironment, useStore } from "../store";
 import { terminalSessionManager } from "../terminalSessionState";
-import { useTerminalUiStateStore } from "../terminalUiStateStore";
+import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useUiStateStore } from "../uiStateStore";
+import { WORKSPACE_PANE_GAP } from "../workspacePaneLayout";
 import { createAuthenticatedSessionHandlers } from "../../test/authHttpHandlers";
 import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test/wsRpcHarness";
+import { workspacePaneLayoutKey } from "./ChatView.logic";
 
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 
@@ -91,6 +93,7 @@ vi.mock("../lib/vcsStatusState", () => {
 
   return {
     getVcsStatusSnapshot: () => status,
+    watchVcsStatus: () => () => undefined,
     useVcsStatus: () => status,
     useVcsStatuses: () => new Map(),
     refreshVcsStatus: () => Promise.resolve(null),
@@ -557,6 +560,20 @@ function sendShellThreadUpsert(
     kind: "thread-upserted",
     sequence: fixture.snapshot.snapshotSequence,
     thread: shellThread,
+  });
+}
+
+function sendThreadSnapshot(threadId: ThreadId): void {
+  const thread = fixture.snapshot.threads.find((entry) => entry.id === threadId);
+  if (!thread) {
+    throw new Error(`Expected thread ${threadId} in snapshot.`);
+  }
+  rpcHarness.emitStreamValue(ORCHESTRATION_WS_METHODS.subscribeThread, {
+    kind: "snapshot",
+    snapshot: {
+      snapshotSequence: fixture.snapshot.snapshotSequence,
+      thread,
+    },
   });
 }
 
@@ -1142,6 +1159,39 @@ async function waitForLayout(): Promise<void> {
 async function setViewport(viewport: ViewportSpec): Promise<void> {
   await page.viewport(viewport.width, viewport.height);
   await waitForLayout();
+}
+
+function getWorkspacePaneWidths(): number[] {
+  return ["editor", "ai", "terminal"].map((paneId) => {
+    const pane = document.querySelector<HTMLElement>(`[data-workspace-pane-id="${paneId}"]`);
+    expect(pane).not.toBeNull();
+    return pane!.getBoundingClientRect().width;
+  });
+}
+
+function getWorkspacePane(paneId: string): HTMLElement {
+  const pane = document.querySelector<HTMLElement>(`[data-workspace-pane-id="${paneId}"]`);
+  expect(pane).not.toBeNull();
+  return pane!;
+}
+
+function countWorkspaceTerminalPanes(): number {
+  return document.querySelectorAll('[data-workspace-pane-id^="terminal"]').length;
+}
+
+function getWorkspaceResizeHandleRects(): DOMRect[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>("[data-workspace-resize-handle]"),
+    (handle) => handle.getBoundingClientRect(),
+  );
+}
+
+function getWorkspaceDividerRect(label: string, orientation: "horizontal" | "vertical"): DOMRect {
+  const divider = document.querySelector<HTMLElement>(
+    `[role="separator"][aria-label="${label}"][aria-orientation="${orientation === "horizontal" ? "vertical" : "horizontal"}"] [data-workspace-resize-divider="${orientation}"]`,
+  );
+  expect(divider).not.toBeNull();
+  return divider!.getBoundingClientRect();
 }
 
 async function waitForProductionStyles(): Promise<void> {
@@ -1759,6 +1809,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       projectExpandedById: {},
       projectOrder: [],
       threadLastVisitedAtById: {},
+      workspaceThreadLayoutById: {},
     });
     useTerminalUiStateStore.persist.clearStorage();
     useTerminalUiStateStore.setState({
@@ -2007,7 +2058,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("attaches the default terminal when opening an empty terminal drawer", async () => {
+  it("attaches the default terminal without a visibility toggle", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -2017,13 +2068,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const toggle = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>('button[aria-label="Toggle terminal drawer"]'),
-        "Unable to find terminal drawer toggle.",
-      );
-      toggle.click();
-
       await vi.waitFor(
         () => {
           const attachRequest = wsRequests.find(
@@ -2038,6 +2082,972 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+      expect(
+        document.querySelector('button[aria-label*="Toggle terminal"]'),
+      ).not.toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps workspace pane widths fixed when the app window grows", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-fixed-workspace-pane-widths" as MessageId,
+        targetText: "fixed workspace pane widths",
+      }),
+    });
+
+    try {
+      const initialWidths = getWorkspacePaneWidths();
+
+      await mounted.setViewport(WIDE_FOOTER_VIEWPORT);
+
+      expect(getWorkspacePaneWidths()).toEqual(initialWidths);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the AI pane mounted and stationary across streamed thread updates", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-stream-stable-ai-pane" as MessageId,
+        targetText: "stream without moving the AI pane",
+      }),
+    });
+
+    try {
+      const aiPane = getWorkspacePane("ai");
+      const initialRect = aiPane.getBoundingClientRect();
+      const assistantMessageId = "msg-assistant-stream-stable-ai-pane" as MessageId;
+
+      for (let update = 1; update <= 5; update += 1) {
+        fixture.snapshot = {
+          ...fixture.snapshot,
+          snapshotSequence: fixture.snapshot.snapshotSequence + 1,
+          threads: fixture.snapshot.threads.map((thread) =>
+            thread.id === THREAD_ID
+              ? {
+                  ...thread,
+                  messages: [
+                    ...thread.messages.filter((message) => message.id !== assistantMessageId),
+                    {
+                      ...createAssistantMessage({
+                        id: assistantMessageId,
+                        text: `streamed assistant update ${update}`,
+                        offsetSeconds: 1_000,
+                      }),
+                      streaming: true,
+                    },
+                  ],
+                  updatedAt: isoAt(1_000 + update),
+                }
+              : thread,
+          ),
+        };
+        sendThreadSnapshot(THREAD_ID);
+
+        await expect
+          .element(page.getByText(`streamed assistant update ${update}`, { exact: true }))
+          .toBeInTheDocument();
+        expect(getWorkspacePane("ai")).toBe(aiPane);
+        expect(aiPane.getBoundingClientRect()).toEqual(initialRect);
+      }
+      expect(
+        consoleError.mock.calls.some(([message]) =>
+          String(message).includes("Maximum update depth exceeded"),
+        ),
+      ).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+      await mounted.cleanup();
+    }
+  });
+
+  it("repairs offset and overlapping persisted workspace panes", async () => {
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [THREAD_KEY]: {
+          panes: [
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Editor",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              dockX: 480,
+              dockY: 60,
+              metadata: {},
+            },
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "AI",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 1,
+              size: 1,
+              dockX: 900,
+              dockY: 60,
+              metadata: { threadId: THREAD_ID },
+            },
+            {
+              paneId: "terminal",
+              type: "terminal",
+              title: "Terminal",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 2,
+              size: 1,
+              dockX: 480,
+              dockY: 600,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: DEFAULT_TERMINAL_ID,
+                terminalGroupId: "default",
+              },
+            },
+          ],
+        },
+      },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-repair-workspace-layout" as MessageId,
+        targetText: "repair workspace layout",
+      }),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        const host = document.querySelector<HTMLElement>('[data-testid="workspace-pane-host"]')!;
+        const hostRect = host.getBoundingClientRect();
+        const editor = getWorkspacePane("editor").getBoundingClientRect();
+        const ai = getWorkspacePane("ai").getBoundingClientRect();
+        const terminal = getWorkspacePane("terminal").getBoundingClientRect();
+
+        expect(editor.left - hostRect.left).toBeCloseTo(16, 1);
+        expect(ai.left).toBeGreaterThanOrEqual(editor.right + 11);
+        expect(terminal.top).toBeGreaterThanOrEqual(editor.bottom + 11);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("repairs a stale gap between persisted editor and AI panes", async () => {
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [THREAD_KEY]: {
+          panes: [
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Editor",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              dockX: 0,
+              dockY: 0,
+              metadata: {},
+            },
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "AI",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 1,
+              size: 1,
+              dockX: 1_000,
+              dockY: 0,
+              metadata: { threadId: THREAD_ID },
+            },
+            {
+              paneId: "terminal",
+              type: "terminal",
+              title: "Terminal",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 2,
+              size: 1,
+              dockX: 0,
+              dockY: 748,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: DEFAULT_TERMINAL_ID,
+                terminalGroupId: "default",
+              },
+            },
+          ],
+        },
+      },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-repair-workspace-gutter" as MessageId,
+        targetText: "repair workspace gutter",
+      }),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        const editor = getWorkspacePane("editor").getBoundingClientRect();
+        const ai = getWorkspacePane("ai").getBoundingClientRect();
+
+        expect(ai.left - editor.right).toBeCloseTo(WORKSPACE_PANE_GAP, 1);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("repairs a stale editor pane pushed below the AI pane", async () => {
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [THREAD_KEY]: {
+          panes: [
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Editor",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              dockX: 0,
+              dockY: 600,
+              metadata: {},
+            },
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "AI",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 1,
+              size: 1,
+              dockX: 1_000,
+              dockY: 0,
+              metadata: { threadId: THREAD_ID },
+            },
+            {
+              paneId: "terminal",
+              type: "terminal",
+              title: "Terminal",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 2,
+              size: 1,
+              dockX: 0,
+              dockY: 1_348,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: DEFAULT_TERMINAL_ID,
+                terminalGroupId: "default",
+              },
+            },
+            {
+              paneId: "terminal:2",
+              type: "terminal",
+              title: "Terminal 2",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 3,
+              size: 1,
+              dockX: 760,
+              dockY: 1_348,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: "terminal-2",
+                terminalGroupId: "default",
+              },
+            },
+            {
+              paneId: "terminal:3",
+              type: "terminal",
+              title: "Terminal 3",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 4,
+              size: 1,
+              dockX: 1_520,
+              dockY: 1_348,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: "terminal-3",
+                terminalGroupId: "default",
+              },
+            },
+          ],
+        },
+      },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-repair-pushed-editor" as MessageId,
+        targetText: "repair pushed editor",
+      }),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        const host = document.querySelector<HTMLElement>('[data-testid="workspace-pane-host"]')!;
+        const hostRect = host.getBoundingClientRect();
+        const editor = getWorkspacePane("editor").getBoundingClientRect();
+        const ai = getWorkspacePane("ai").getBoundingClientRect();
+        const terminal = getWorkspacePane("terminal").getBoundingClientRect();
+
+        expect(editor.top - hostRect.top).toBeCloseTo(16, 1);
+        expect(ai.top).toBeCloseTo(editor.top, 1);
+        expect(terminal.top).toBeGreaterThanOrEqual(editor.bottom + 11);
+      });
+
+      const host = document.querySelector<HTMLElement>('[data-testid="workspace-pane-host"]')!;
+      host.scrollTop = host.scrollHeight;
+      await waitForLayout();
+
+      const leftSpacing =
+        getWorkspacePane("editor").getBoundingClientRect().left - host.getBoundingClientRect().left;
+      const bottomSpacing =
+        host.getBoundingClientRect().bottom -
+        getWorkspacePane("terminal").getBoundingClientRect().bottom;
+      expect(bottomSpacing).toBe(leftSpacing);
+    } finally {
+      await mounted.cleanup();
+      useUiStateStore.setState({ workspaceThreadLayoutById: {} });
+    }
+  });
+
+  it("keeps AI full height above terminals with bottom workspace spacing", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-full-height-ai-pane" as MessageId,
+        targetText: "full height AI pane",
+      }),
+    });
+
+    try {
+      const host = document.querySelector<HTMLElement>('[data-testid="workspace-pane-host"]');
+      expect(host).not.toBeNull();
+      const editor = getWorkspacePane("editor");
+      const ai = getWorkspacePane("ai");
+      const terminal = getWorkspacePane("terminal");
+      const horizontalDivider = document
+        .querySelector<HTMLElement>('[data-workspace-resize-divider="horizontal"]')!
+        .getBoundingClientRect();
+      const verticalDivider = document
+        .querySelector<HTMLElement>('[data-workspace-resize-divider="vertical"]')!
+        .getBoundingClientRect();
+      const editorRect = editor.getBoundingClientRect();
+      const aiRect = ai.getBoundingClientRect();
+      const terminalRect = terminal.getBoundingClientRect();
+
+      expect(aiRect.height).toBe(editorRect.height);
+      expect(terminalRect.top).toBeGreaterThan(aiRect.bottom);
+      expect(horizontalDivider.left + horizontalDivider.width / 2).toBe(
+        (editorRect.right + aiRect.left) / 2,
+      );
+      expect(verticalDivider.top + verticalDivider.height / 2).toBe(
+        (aiRect.bottom + terminalRect.top) / 2,
+      );
+
+      host!.scrollTop = host!.scrollHeight;
+      await waitForLayout();
+
+      const leftSpacing = editor.getBoundingClientRect().left - host!.getBoundingClientRect().left;
+      const bottomSpacing =
+        host!.getBoundingClientRect().bottom - terminal.getBoundingClientRect().bottom;
+      expect(bottomSpacing).toBe(leftSpacing);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("renders terminals stacked in a column beside the AI pane", async () => {
+    const secondTerminalId = "upper-terminal-2";
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [THREAD_KEY]: {
+          panes: [
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Editor",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              dockSlot: "primary",
+              dockColumn: 0,
+              dockRow: 0,
+              metadata: {},
+            },
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "AI",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 1,
+              size: 1,
+              dockSlot: "upper",
+              dockColumn: 0,
+              dockRow: 0,
+              metadata: { threadId: THREAD_ID },
+            },
+            {
+              paneId: "terminal",
+              type: "terminal",
+              title: "Terminal",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 2,
+              size: 1,
+              dockSlot: "upper",
+              dockColumn: 1,
+              dockRow: 0,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: DEFAULT_TERMINAL_ID,
+                terminalGroupId: "upper-group-1",
+              },
+            },
+            {
+              paneId: "terminal:upper-2",
+              type: "terminal",
+              title: "Terminal 2",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 3,
+              size: 1,
+              dockSlot: "upper",
+              dockColumn: 1,
+              dockRow: 1,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: secondTerminalId,
+                terminalGroupId: "upper-group-2",
+              },
+            },
+          ],
+        },
+      },
+    });
+    useTerminalUiStateStore.setState({
+      terminalUiStateByThreadKey: {
+        [THREAD_KEY]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: [DEFAULT_TERMINAL_ID, secondTerminalId],
+          activeTerminalId: DEFAULT_TERMINAL_ID,
+          terminalGroups: [
+            { id: "upper-group-1", terminalIds: [DEFAULT_TERMINAL_ID] },
+            { id: "upper-group-2", terminalIds: [secondTerminalId] },
+          ],
+          activeTerminalGroupId: "upper-group-1",
+        },
+      },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-upper-terminal-stack" as MessageId,
+        targetText: "upper terminal stack",
+      }),
+    });
+
+    try {
+      const editor = getWorkspacePane("editor").getBoundingClientRect();
+      const ai = getWorkspacePane("ai").getBoundingClientRect();
+      const firstTerminal = getWorkspacePane("terminal").getBoundingClientRect();
+      const secondTerminal = getWorkspacePane("terminal:upper-2").getBoundingClientRect();
+      const rightAiDivider = getWorkspaceDividerRect("Resize AI pane", "horizontal");
+
+      expect(firstTerminal.left).toBeGreaterThan(ai.right);
+      expect(firstTerminal.left - ai.right).toBeCloseTo(ai.left - editor.right, 1);
+      expect(secondTerminal.left).toBe(firstTerminal.left);
+      expect(secondTerminal.top).toBeGreaterThan(firstTerminal.bottom);
+      expect(rightAiDivider.left + rightAiDivider.width / 2).toBeCloseTo(
+        (ai.right + firstTerminal.left) / 2,
+        1,
+      );
+      expect(getWorkspaceResizeHandleRects()).not.toHaveLength(0);
+      for (const handleRect of getWorkspaceResizeHandleRects()) {
+        expect(handleRect.width).toBeGreaterThan(0);
+        expect(handleRect.height).toBeGreaterThan(0);
+      }
+    } finally {
+      await mounted.cleanup();
+      useUiStateStore.setState({ workspaceThreadLayoutById: {} });
+    }
+  });
+
+  it("renders a terminal stacked below the editor pane", async () => {
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [THREAD_KEY]: {
+          panes: [
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Editor",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              dockSlot: "primary",
+              dockColumn: 0,
+              dockRow: 0,
+              metadata: {},
+            },
+            {
+              paneId: "terminal",
+              type: "terminal",
+              title: "Terminal",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 1,
+              size: 1,
+              dockSlot: "primary",
+              dockColumn: 0,
+              dockRow: 1,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: DEFAULT_TERMINAL_ID,
+                terminalGroupId: "primary-group",
+              },
+            },
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "AI",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 2,
+              size: 1,
+              dockSlot: "upper",
+              dockColumn: 0,
+              dockRow: 0,
+              metadata: { threadId: THREAD_ID },
+            },
+          ],
+        },
+      },
+    });
+    useTerminalUiStateStore.setState({
+      terminalUiStateByThreadKey: {
+        [THREAD_KEY]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: [DEFAULT_TERMINAL_ID],
+          activeTerminalId: DEFAULT_TERMINAL_ID,
+          terminalGroups: [{ id: "primary-group", terminalIds: [DEFAULT_TERMINAL_ID] }],
+          activeTerminalGroupId: "primary-group",
+        },
+      },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-primary-terminal-stack" as MessageId,
+        targetText: "primary terminal stack",
+      }),
+    });
+
+    try {
+      const editor = getWorkspacePane("editor").getBoundingClientRect();
+      const terminal = getWorkspacePane("terminal").getBoundingClientRect();
+
+      expect(terminal.left).toBe(editor.left);
+      expect(terminal.top).toBeGreaterThan(editor.bottom);
+    } finally {
+      await mounted.cleanup();
+      useUiStateStore.setState({ workspaceThreadLayoutById: {} });
+    }
+  });
+
+  it("keeps workspace terminals bound to the workspace when the AI pane thread changes", async () => {
+    const secondaryThreadId = "thread-secondary-ai-pane" as ThreadId;
+    const snapshotWithSecondaryThread = addThreadToSnapshot(
+      createSnapshotForTargetUser({
+        targetMessageId: "msg-user-workspace-terminal-owner" as MessageId,
+        targetText: "workspace terminal owner",
+      }),
+      secondaryThreadId,
+    );
+    const snapshot = {
+      ...snapshotWithSecondaryThread,
+      threads: snapshotWithSecondaryThread.threads.map((thread) =>
+        thread.id === secondaryThreadId
+          ? Object.assign({}, thread, { title: "Secondary AI thread" })
+          : thread,
+      ),
+    };
+
+    useTerminalUiStateStore.setState({
+      terminalUiStateByThreadKey: {
+        [THREAD_KEY]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: ["default"],
+          activeTerminalId: "default",
+          terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+          activeTerminalGroupId: "group-default",
+        },
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+      configureFixture: (nextFixture) => {
+        nextFixture.terminalMetadataEvents = [
+          {
+            type: "upsert",
+            terminal: {
+              threadId: THREAD_ID,
+              terminalId: DEFAULT_TERMINAL_ID,
+              cwd: "/repo/project",
+              worktreePath: null,
+              status: "running",
+              pid: 123,
+              exitCode: null,
+              exitSignal: null,
+              hasRunningSubprocess: false,
+              label: "Terminal 1",
+              updatedAt: isoAt(0),
+            },
+          },
+        ];
+      },
+    });
+
+    try {
+      const aiThreadSelect = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="AI pane thread"]'),
+        "Unable to find AI pane thread selector.",
+      );
+      aiThreadSelect.click();
+      const secondaryThreadItem = await waitForSelectItemContainingText("Secondary AI thread");
+      secondaryThreadItem.click();
+
+      await vi.waitFor(
+        () => {
+          expect(
+            useUiStateStore.getState().workspaceThreadLayoutById[
+              workspacePaneLayoutKey({
+                environmentId: LOCAL_ENVIRONMENT_ID,
+                projectId: PROJECT_ID,
+                workspaceRoot: "/repo/project",
+              })
+            ]?.panes?.find((pane) => pane.paneId === "ai"),
+          ).toMatchObject({
+            environmentId: LOCAL_ENVIRONMENT_ID,
+            metadata: {
+              threadId: secondaryThreadId,
+            },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(mounted.router.state.location.pathname).toBe(serverThreadPath(THREAD_ID));
+      expect(
+        selectThreadTerminalUiState(
+          useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+          threadRefFor(THREAD_ID),
+        ).terminalIds,
+      ).toEqual(["default"]);
+      expect(
+        selectThreadTerminalUiState(
+          useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+          threadRefFor(secondaryThreadId),
+        ).terminalIds,
+      ).toEqual([]);
+      expect(
+        wsRequests
+          .filter((request) => request._tag === WS_METHODS.terminalAttach)
+          .map((request) => request.threadId),
+      ).not.toContain(secondaryThreadId);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps promoted AI-pane draft messages after switching the pane away and back", async () => {
+    const secondaryThreadId = "thread-ai-pane-draft-origin" as ThreadId;
+    const snapshot = addThreadToSnapshot(
+      createSnapshotForTargetUser({
+        targetMessageId: "msg-user-ai-pane-promoted-draft" as MessageId,
+        targetText: "AI pane promoted draft",
+      }),
+      secondaryThreadId,
+    );
+    const workspaceKey = workspacePaneLayoutKey({
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      projectId: PROJECT_ID,
+      workspaceRoot: "/repo/project",
+    });
+
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [workspaceKey]: {
+          panes: [
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Editor",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              metadata: {},
+            },
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "Secondary AI thread",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 1,
+              size: 1,
+              metadata: { threadId: secondaryThreadId },
+            },
+            {
+              paneId: "terminal",
+              type: "terminal",
+              title: "Terminal",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 2,
+              size: 1,
+              metadata: {
+                threadId: THREAD_ID,
+                terminalId: DEFAULT_TERMINAL_ID,
+                terminalGroupId: "default",
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+    });
+
+    try {
+      const newThreadButton = page.getByTestId("ai-pane-new-thread-button");
+      await expect.element(newThreadButton).toBeInTheDocument();
+      await newThreadButton.click();
+
+      let promotedThreadId: ThreadId | null = null;
+      await vi.waitFor(() => {
+        const pane = useUiStateStore
+          .getState()
+          .workspaceThreadLayoutById[workspaceKey]?.panes?.find(
+            (candidate) => candidate.paneId === "ai",
+          );
+        if (!pane || pane.type !== "ai") {
+          throw new Error("Expected an AI pane");
+        }
+        expect(pane.metadata.threadId).toBeTruthy();
+        expect(pane.metadata.threadId).not.toBe(secondaryThreadId);
+        promotedThreadId = pane.metadata.threadId as ThreadId;
+      });
+      expect(promotedThreadId).not.toBeNull();
+
+      fixture.snapshot = addThreadToSnapshot(fixture.snapshot, promotedThreadId!);
+      fixture.snapshot = {
+        ...fixture.snapshot,
+        threads: fixture.snapshot.threads.map((thread) =>
+          thread.id === promotedThreadId
+            ? {
+                ...thread,
+                messages: [
+                  createUserMessage({
+                    id: "msg-user-promoted-ai-pane" as MessageId,
+                    text: "Persisted user message",
+                    offsetSeconds: 100,
+                  }),
+                  createAssistantMessage({
+                    id: "msg-assistant-promoted-ai-pane" as MessageId,
+                    text: "Persisted assistant reply",
+                    offsetSeconds: 101,
+                  }),
+                ],
+                session: {
+                  threadId: promotedThreadId,
+                  status: "running",
+                  providerName: "codex",
+                  runtimeMode: "full-access",
+                  activeTurnId: `turn-${promotedThreadId}` as TurnId,
+                  lastError: null,
+                  updatedAt: NOW_ISO,
+                },
+              }
+            : thread,
+        ),
+      };
+      sendShellThreadUpsert(promotedThreadId!);
+
+      await vi.waitFor(() => {
+        expect(
+          wsRequests.filter(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.subscribeThread &&
+              request.threadId === promotedThreadId,
+          ).length,
+        ).toBeGreaterThanOrEqual(2);
+      });
+      await expect.element(page.getByText("Persisted user message")).toBeInTheDocument();
+      await expect.element(page.getByText("Persisted assistant reply")).toBeInTheDocument();
+
+      const setAiPaneThread = (threadId: ThreadId, title: string) => {
+        const layout = useUiStateStore.getState().workspaceThreadLayoutById[workspaceKey];
+        expect(layout?.panes).toBeDefined();
+        useUiStateStore.getState().setWorkspaceThreadDockedPanes(
+          workspaceKey,
+          layout!.panes!.map((pane) =>
+            pane.paneId === "ai" && pane.type === "ai"
+              ? Object.assign({}, pane, {
+                  title,
+                  metadata: Object.assign({}, pane.metadata, { threadId }),
+                })
+              : pane,
+          ),
+          "ai",
+        );
+      };
+
+      setAiPaneThread(secondaryThreadId, "Secondary AI thread");
+      await expect.element(page.getByText("Persisted assistant reply")).not.toBeInTheDocument();
+      setAiPaneThread(promotedThreadId!, "New thread");
+
+      await expect.element(page.getByText("Persisted user message")).toBeInTheDocument();
+      await expect.element(page.getByText("Persisted assistant reply")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+      useUiStateStore.setState({ workspaceThreadLayoutById: {} });
+    }
+  });
+
+  it("keeps pane layouts isolated when switching workspaces", async () => {
+    const secondaryThreadId = "thread-secondary-project" as ThreadId;
+    const primaryWorkspaceKey = workspacePaneLayoutKey({
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      projectId: PROJECT_ID,
+      workspaceRoot: "/repo/project",
+    });
+    const secondaryWorkspaceKey = workspacePaneLayoutKey({
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      projectId: SECOND_PROJECT_ID,
+      workspaceRoot: "/repo/clients/docs-portal",
+    });
+    const uiState = useUiStateStore.getState();
+    uiState.ensureWorkspaceThreadDockedPaneLayout(primaryWorkspaceKey, {
+      threadId: THREAD_ID,
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      cwd: "/repo/project",
+      aiTitle: THREAD_TITLE,
+      editorTitle: "Project Editor",
+      terminalTitle: "project",
+      terminalId: "primary-terminal",
+      terminalGroupId: "primary-group",
+    });
+    uiState.ensureWorkspaceThreadDockedPaneLayout(secondaryWorkspaceKey, {
+      threadId: secondaryThreadId,
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      cwd: "/repo/clients/docs-portal",
+      aiTitle: "Release checklist",
+      editorTitle: "Docs Portal Editor",
+      terminalTitle: "docs-portal",
+      terminalId: "secondary-terminal-1",
+      terminalGroupId: "secondary-group-1",
+    });
+    for (const terminalIndex of [2, 3]) {
+      uiState.addWorkspaceThreadDockedPane(secondaryWorkspaceKey, {
+        paneId: `terminal:secondary-${terminalIndex}`,
+        type: "terminal",
+        title: `Docs terminal ${terminalIndex}`,
+        environmentId: LOCAL_ENVIRONMENT_ID,
+        cwd: "/repo/clients/docs-portal",
+        threadId: secondaryThreadId,
+        terminalId: `secondary-terminal-${terminalIndex}`,
+        terminalGroupId: `secondary-group-${terminalIndex}`,
+      });
+    }
+    useTerminalUiStateStore.setState({
+      terminalUiStateByThreadKey: {
+        [THREAD_KEY]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: ["primary-terminal"],
+          activeTerminalId: "primary-terminal",
+          terminalGroups: [{ id: "primary-group", terminalIds: ["primary-terminal"] }],
+          activeTerminalGroupId: "primary-group",
+        },
+        [threadKeyFor(secondaryThreadId)]: {
+          terminalOpen: true,
+          terminalHeight: 280,
+          terminalIds: ["secondary-terminal-1", "secondary-terminal-2", "secondary-terminal-3"],
+          activeTerminalId: "secondary-terminal-1",
+          terminalGroups: [
+            { id: "secondary-group-1", terminalIds: ["secondary-terminal-1"] },
+            { id: "secondary-group-2", terminalIds: ["secondary-terminal-2"] },
+            { id: "secondary-group-3", terminalIds: ["secondary-terminal-3"] },
+          ],
+          activeTerminalGroupId: "secondary-group-1",
+        },
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithSecondaryProject({ includeArchivedSecondaryThread: false }),
+    });
+    try {
+      await vi.waitFor(() => {
+        expect(countWorkspaceTerminalPanes()).toBe(1);
+        expect(getWorkspacePane("ai").textContent).toContain(THREAD_TITLE);
+      });
+
+      await mounted.router.navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: LOCAL_ENVIRONMENT_ID,
+          threadId: secondaryThreadId,
+        },
+      });
+      await vi.waitFor(() => {
+        expect(countWorkspaceTerminalPanes()).toBe(3);
+        expect(getWorkspacePane("ai").textContent).toContain("Release checklist");
+      });
+
+      await mounted.router.navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: LOCAL_ENVIRONMENT_ID,
+          threadId: THREAD_ID,
+        },
+      });
+      await vi.waitFor(() => {
+        expect(countWorkspaceTerminalPanes()).toBe(1);
+        expect(getWorkspacePane("ai").textContent).toContain(THREAD_TITLE);
+      });
     } finally {
       await mounted.cleanup();
     }
@@ -3950,6 +4960,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+
+      await expect
+        .element(page.getByTestId("workspace-terminal-running-indicator"))
+        .toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }
@@ -4093,6 +5107,48 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(useComposerDraftStore.getState().getDraftSession(newDraftId)).toBeNull();
       await expect.element(aiPaneNewThreadButton).toBeInTheDocument();
       await expect.element(deleteThreadButton).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("creates an AI-pane draft on the first click without moving workspace panes", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-ai-pane-new-thread-first-click" as MessageId,
+        targetText: "AI pane new thread first click",
+      }),
+    });
+
+    try {
+      const panePositionsBefore = Object.fromEntries(
+        ["editor", "ai", "terminal"].map((paneId) => {
+          const rect = getWorkspacePane(paneId).getBoundingClientRect();
+          return [paneId, { left: rect.left, top: rect.top }];
+        }),
+      );
+      const aiPaneNewThreadButton = page.getByTestId("ai-pane-new-thread-button");
+      await expect.element(aiPaneNewThreadButton).toBeInTheDocument();
+
+      const aiPaneNewThreadButtonElement = document.querySelector<HTMLButtonElement>(
+        '[data-testid="ai-pane-new-thread-button"]',
+      );
+      expect(aiPaneNewThreadButtonElement).not.toBeNull();
+      aiPaneNewThreadButtonElement!.click();
+
+      await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "The first AI-pane new-thread click should open a draft.",
+      );
+      await expect
+        .element(page.getByTestId("cancel-clean-draft-thread-button"))
+        .toBeInTheDocument();
+      for (const [paneId, positionBefore] of Object.entries(panePositionsBefore)) {
+        const rect = getWorkspacePane(paneId).getBoundingClientRect();
+        expect({ left: rect.left, top: rect.top }).toEqual(positionBefore);
+      }
     } finally {
       await mounted.cleanup();
     }
