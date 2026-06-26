@@ -8,7 +8,7 @@ import {
   createVcsStatusManager,
   getVcsStatusTargetKey,
   vcsStatusStateAtom,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/legacy";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useEffect } from "react";
 

@@ -7,7 +7,7 @@ import {
   createVcsRefManager,
   getVcsRefTargetKey,
   vcsRefStateAtom,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/legacy";
 import { useEffect, useMemo } from "react";
 
 import {

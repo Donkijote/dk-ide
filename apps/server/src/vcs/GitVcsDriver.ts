@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -152,6 +152,25 @@ export interface GitFetchRemoteTrackingBranchInput {
   remoteBranch: string;
 }
 
+export interface GitFetchRemoteInput {
+  cwd: string;
+  remoteName: string;
+}
+
+export interface GitRemoteStatusOptions {
+  readonly refreshUpstream?: boolean;
+}
+
+export interface GitResolveRemoteTrackingCommitInput {
+  cwd: string;
+  refName: string;
+  fallbackRemoteName: string;
+}
+
+export interface GitResolveRemoteTrackingCommitResult {
+  commitSha: string;
+}
+
 export interface GitSetBranchUpstreamInput {
   cwd: string;
   branch: string;
@@ -164,6 +183,10 @@ export interface GitVcsDriverShape {
   readonly status: (input: VcsStatusInput) => Effect.Effect<VcsStatusResult, GitCommandError>;
   readonly statusDetails: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
   readonly statusDetailsLocal: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
+  readonly statusDetailsRemote: (
+    cwd: string,
+    options?: GitRemoteStatusOptions,
+  ) => Effect.Effect<GitStatusDetails, GitCommandError>;
   readonly prepareCommitContext: (
     cwd: string,
     filePaths?: readonly string[],
@@ -206,9 +229,13 @@ export interface GitVcsDriverShape {
   readonly fetchRemoteBranch: (
     input: GitFetchRemoteBranchInput,
   ) => Effect.Effect<void, GitCommandError>;
+  readonly fetchRemote: (input: GitFetchRemoteInput) => Effect.Effect<void, GitCommandError>;
   readonly fetchRemoteTrackingBranch: (
     input: GitFetchRemoteTrackingBranchInput,
   ) => Effect.Effect<void, GitCommandError>;
+  readonly resolveRemoteTrackingCommit: (
+    input: GitResolveRemoteTrackingCommitInput,
+  ) => Effect.Effect<GitResolveRemoteTrackingCommitResult, GitCommandError>;
   readonly setBranchUpstream: (
     input: GitSetBranchUpstreamInput,
   ) => Effect.Effect<void, GitCommandError>;
@@ -614,7 +641,10 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     captureCheckpoint: Effect.fn("GitVcsDriver.checkpoints.captureCheckpoint")(function* (input) {
       const operation = "GitVcsDriver.checkpoints.captureCheckpoint";
       const gitCommonDir = yield* resolveGitCommonDir(input.cwd);
-      const tempIndexPath = path.join(gitCommonDir, `t3-checkpoint-index-${randomUUID()}`);
+      const tempIndexPath = path.join(
+        gitCommonDir,
+        `t3-checkpoint-index-${NodeCrypto.randomUUID()}`,
+      );
       const commitEnv: NodeJS.ProcessEnv = {
         ...process.env,
         GIT_INDEX_FILE: tempIndexPath,

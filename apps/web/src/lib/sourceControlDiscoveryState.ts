@@ -5,7 +5,7 @@ import {
   createSourceControlDiscoveryManager,
   getSourceControlDiscoveryTargetKey,
   sourceControlDiscoveryStateAtom,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/legacy";
 import { EnvironmentId, type SourceControlDiscoveryResult } from "@t3tools/contracts";
 import { useEffect } from "react";
 

@@ -27,7 +27,7 @@ import {
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/legacy";
 import {
   applyClaudePromptEffortPrefix,
   createModelSelection,

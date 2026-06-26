@@ -1,4 +1,4 @@
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/legacy";
 import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 

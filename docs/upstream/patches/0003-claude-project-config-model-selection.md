@@ -85,3 +85,7 @@ especially Claude session management and composer model selection.
   tightened TSGo rules around ad-hoc JSON parsing, so the local
   project-config-model path was retained and the settings-file read was adapted
   to schema-based decoding instead of raw `JSON.parse`.
+- Verified during the 2026-06-26 upstream sync against upstream commit
+  `52b04b947`; the local workspace-scoped `server.getProviderRuntimeStatus`
+  RPC remains necessary for Claude project-config model detection and was
+  restored in the merged server RPC authorization and handler wiring.

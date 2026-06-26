@@ -12,12 +12,20 @@ import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopState from "../app/DesktopState.ts";
+import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
+import * as PreviewManager from "../preview/Manager.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+
+type DesktopAssetsService = DesktopAssets.DesktopAssets["Service"];
+type DesktopServerExposureService = DesktopServerExposure.DesktopServerExposure["Service"];
+type ElectronMenuService = ElectronMenu.ElectronMenu["Service"];
+type ElectronShellService = ElectronShell.ElectronShell["Service"];
+type ElectronThemeService = ElectronTheme.ElectronTheme["Service"];
+type ElectronWindowService = ElectronWindow.ElectronWindow["Service"];
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -52,6 +60,7 @@ function makeFakeBrowserWindow() {
     on: vi.fn(),
     once: vi.fn(),
     restore: vi.fn(),
+    setAutoHideCursor: vi.fn(),
     setBackgroundColor: vi.fn(),
     setTitle: vi.fn(),
     setTitleBarOverlay: vi.fn(),
@@ -73,7 +82,7 @@ const desktopAssetsLayer = Layer.succeed(DesktopAssets.DesktopAssets, {
     png: Option.none<string>(),
   }),
   resolveResourcePath: () => Effect.succeed(Option.none<string>()),
-} satisfies DesktopAssets.DesktopAssetsShape);
+} satisfies DesktopAssetsService);
 
 const desktopServerExposureLayer = Layer.succeed(DesktopServerExposure.DesktopServerExposure, {
   getState: Effect.die("unexpected getState"),
@@ -88,24 +97,30 @@ const desktopServerExposureLayer = Layer.succeed(DesktopServerExposure.DesktopSe
   setMode: () => Effect.die("unexpected setMode"),
   setTailscaleServeEnabled: () => Effect.die("unexpected setTailscaleServeEnabled"),
   getAdvertisedEndpoints: Effect.die("unexpected getAdvertisedEndpoints"),
-} satisfies DesktopServerExposure.DesktopServerExposureShape);
+} satisfies DesktopServerExposureService);
 
 const electronMenuLayer = Layer.succeed(ElectronMenu.ElectronMenu, {
   setApplicationMenu: () => Effect.void,
   popupTemplate: () => Effect.void,
   showContextMenu: () => Effect.succeed(Option.none()),
-} satisfies ElectronMenu.ElectronMenuShape);
+} satisfies ElectronMenuService);
 
 const electronShellLayer = Layer.succeed(ElectronShell.ElectronShell, {
   openExternal: () => Effect.succeed(true),
   copyText: () => Effect.void,
-} satisfies ElectronShell.ElectronShellShape);
+} satisfies ElectronShellService);
 
 const electronThemeLayer = Layer.succeed(ElectronTheme.ElectronTheme, {
   shouldUseDarkColors: Effect.succeed(false),
   setSource: () => Effect.void,
   onUpdated: () => Effect.void,
-} satisfies ElectronTheme.ElectronThemeShape);
+} satisfies ElectronThemeService);
+
+const previewManagerLayer = Layer.succeed(PreviewManager.PreviewManager, {
+  getBrowserSession: () => Effect.succeed(null as unknown as Electron.Session),
+  setMainWindow: () => Effect.void,
+  isBrowserPartition: () => true,
+} as unknown as PreviewManager.PreviewManager["Service"]);
 
 const desktopEnvironmentLayer = DesktopEnvironment.layer(environmentInput).pipe(
   Layer.provide(
@@ -126,7 +141,7 @@ function makeTestLayer(input: {
   readonly mainWindow: Ref.Ref<Option.Option<Electron.BrowserWindow>>;
 }) {
   const electronWindowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
-    create: (options) =>
+    create: (options: Electron.BrowserWindowConstructorOptions) =>
       Ref.update(input.createCount, (count) => count + 1).pipe(
         Effect.andThen(Ref.update(input.createOptions, (entries) => [...entries, options])),
         Effect.as(input.window),
@@ -134,13 +149,15 @@ function makeTestLayer(input: {
     main: Ref.get(input.mainWindow),
     currentMainOrFirst: Ref.get(input.mainWindow),
     focusedMainOrFirst: Ref.get(input.mainWindow),
-    setMain: (window) => Ref.set(input.mainWindow, Option.some(window)),
+    setMain: (window: Electron.BrowserWindow) => Ref.set(input.mainWindow, Option.some(window)),
     clearMain: () => Ref.set(input.mainWindow, Option.none()),
     reveal: () => Effect.void,
     sendAll: () => Effect.void,
     destroyAll: Effect.void,
-    syncAllAppearance: (sync) => sync(input.window),
-  } satisfies ElectronWindow.ElectronWindowShape);
+    syncAllAppearance: <E, R>(
+      sync: (window: Electron.BrowserWindow) => Effect.Effect<void, E, R>,
+    ) => sync(input.window),
+  } satisfies ElectronWindowService);
 
   return DesktopWindow.layer.pipe(
     Layer.provide(
@@ -153,6 +170,7 @@ function makeTestLayer(input: {
         electronShellLayer,
         electronThemeLayer,
         electronWindowLayer,
+        previewManagerLayer,
       ),
     ),
   );

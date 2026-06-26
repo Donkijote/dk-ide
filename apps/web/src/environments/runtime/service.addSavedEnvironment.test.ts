@@ -112,8 +112,8 @@ vi.mock("./connection", async (importOriginal) => ({
   createEnvironmentConnection: mockCreateEnvironmentConnection,
 }));
 
-vi.mock("@t3tools/client-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@t3tools/client-runtime")>();
+vi.mock("@t3tools/client-runtime/legacy", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@t3tools/client-runtime/legacy")>();
   return {
     ...actual,
     bootstrapRemoteBearerSession: mockBootstrapRemoteBearerSession,

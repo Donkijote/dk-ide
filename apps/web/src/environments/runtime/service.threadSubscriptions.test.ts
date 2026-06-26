@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import type { WsRpcClient } from "@t3tools/client-runtime";
+import type { WsRpcClient } from "@t3tools/client-runtime/legacy";
 import {
   EnvironmentId,
   ProjectId,
@@ -72,8 +72,8 @@ vi.mock("./connection", async (importOriginal) => ({
   createEnvironmentConnection: mockCreateEnvironmentConnection,
 }));
 
-vi.mock("@t3tools/client-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@t3tools/client-runtime")>();
+vi.mock("@t3tools/client-runtime/legacy", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@t3tools/client-runtime/legacy")>();
   const stubWsClient: WsRpcClient = {
     dispose: async () => undefined,
     reconnect: async () => undefined,

@@ -1,7 +1,7 @@
 import { EnvironmentId, type VcsStatusResult } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { WsRpcClient } from "@t3tools/client-runtime";
+import type { WsRpcClient } from "@t3tools/client-runtime/legacy";
 import { resetAppAtomRegistryForTests } from "../rpc/atomRegistry";
 import {
   getGitStatusSnapshot,

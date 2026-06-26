@@ -18,7 +18,7 @@ import {
   fetchRemoteEnvironmentDescriptor,
   fetchRemoteSessionState,
   resolveRemoteWebSocketConnectionUrl,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/legacy";
 
 import { type QueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
@@ -29,7 +29,7 @@ import {
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/legacy";
 
 import {
   markPromotedDraftThreadByRef,
