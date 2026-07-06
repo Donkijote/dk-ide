@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import type { WsRpcClient } from "@t3tools/client-runtime";
+import type { WsRpcClient } from "@t3tools/client-runtime/legacy";
 import {
   EnvironmentId,
   ProjectId,
@@ -24,9 +24,11 @@ const mockFetchRemoteSessionState = vi.fn();
 const mockResolveRemoteWebSocketConnectionUrl = vi.fn(async () => "ws://remote.example.test/ws");
 const mockRemoteHttpRunPromise = vi.fn((effect: Promise<unknown>) => effect);
 const mockConnectionReconnects: Array<ReturnType<typeof vi.fn>> = [];
+const mockWsTransportUrls = vi.hoisted(() => [] as Array<unknown>);
 let savedEnvironmentRegistryListener: (() => void) | null = null;
 
-function MockWsTransport() {
+function MockWsTransport(url: unknown) {
+  mockWsTransportUrls.push(url);
   return undefined;
 }
 
@@ -72,8 +74,8 @@ vi.mock("./connection", async (importOriginal) => ({
   createEnvironmentConnection: mockCreateEnvironmentConnection,
 }));
 
-vi.mock("@t3tools/client-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@t3tools/client-runtime")>();
+vi.mock("@t3tools/client-runtime/legacy", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@t3tools/client-runtime/legacy")>();
   const stubWsClient: WsRpcClient = {
     dispose: async () => undefined,
     reconnect: async () => undefined,
@@ -310,6 +312,7 @@ describe("retainThreadDetailSubscription", () => {
       scopes: ["orchestration:read"],
     });
     mockConnectionReconnects.length = 0;
+    mockWsTransportUrls.length = 0;
   });
 
   afterEach(async () => {
@@ -408,6 +411,41 @@ describe("retainThreadDetailSubscription", () => {
     expect(mockCreateEnvironmentConnection).not.toHaveBeenCalled();
     expect(listEnvironmentConnections()).toEqual([]);
 
+    stop();
+    await resetEnvironmentServiceForTests();
+  });
+
+  it("resolves desktop primary websocket connections through the bearer ticket endpoint", async () => {
+    mockGetPrimaryKnownEnvironment.mockReturnValue({
+      id: "env-1",
+      label: "Primary environment",
+      source: "desktop-managed",
+      target: {
+        httpBaseUrl: "http://127.0.0.1:3773/",
+        wsBaseUrl: "ws://127.0.0.1:3773/",
+      },
+      environmentId: EnvironmentId.make("env-1"),
+    });
+    const { setPrimaryBearerAccessToken, clearPrimaryBearerAccessToken } =
+      await import("../primary/authToken");
+    setPrimaryBearerAccessToken("primary-bearer-token");
+
+    const { resetEnvironmentServiceForTests, startEnvironmentConnectionService } =
+      await import("./service");
+
+    const stop = startEnvironmentConnectionService(new QueryClient());
+
+    expect(mockWsTransportUrls[0]).toEqual(expect.any(Function));
+    await expect((mockWsTransportUrls[0] as () => Promise<string>)()).resolves.toBe(
+      "ws://remote.example.test/ws",
+    );
+    expect(mockResolveRemoteWebSocketConnectionUrl).toHaveBeenCalledWith({
+      wsBaseUrl: "ws://127.0.0.1:3773/",
+      httpBaseUrl: "http://127.0.0.1:3773/",
+      bearerToken: "primary-bearer-token",
+    });
+
+    clearPrimaryBearerAccessToken();
     stop();
     await resetEnvironmentServiceForTests();
   });

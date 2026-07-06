@@ -1,9 +1,14 @@
 import {
+  AuthAccessTokenType,
+  AuthEnvironmentBootstrapTokenType,
+  AuthTokenExchangeGrantType,
   AuthSessionState as AuthSessionStateSchema,
   EnvironmentAuthInvalidError,
+  type AuthAccessTokenResult,
   type AuthBrowserSessionResult,
   type AuthCreatePairingCredentialInput,
   type AuthSessionState,
+  type AuthTokenExchangeRequest,
   type DesktopBridge,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -57,6 +62,14 @@ const browserSession = (scopes: AuthBrowserSessionResult["scopes"]): AuthBrowser
   expiresAt: SESSION_EXPIRES_AT,
 });
 
+const bearerSession = (token = "desktop-bearer-token"): AuthAccessTokenResult => ({
+  access_token: token,
+  issued_token_type: AuthAccessTokenType,
+  token_type: "Bearer",
+  expires_in: 3600,
+  scope: "orchestration:read access:write",
+});
+
 function installTestBrowser(url: string) {
   const testWindow: TestWindow = {
     location: new URL(url),
@@ -81,10 +94,16 @@ function sequence<A>(...values: ReadonlyArray<A>) {
 let disposeHttpTest: (() => Promise<void>) | undefined;
 
 async function installAuthApi(input: {
-  readonly session?: () => AuthSessionState;
+  readonly session?: (headers: {
+    readonly authorization?: string;
+    readonly dpop?: string;
+  }) => AuthSessionState;
   readonly browserSession?: (
     credential: string,
   ) => Effect.Effect<AuthBrowserSessionResult, EnvironmentAuthInvalidError>;
+  readonly token?: (
+    payload: AuthTokenExchangeRequest,
+  ) => Effect.Effect<AuthAccessTokenResult, EnvironmentAuthInvalidError>;
   readonly pairingCredential?: (payload: AuthCreatePairingCredentialInput) => Effect.Effect<{
     readonly id: string;
     readonly credential: string;
@@ -93,10 +112,11 @@ async function installAuthApi(input: {
   }>;
 }) {
   const testApi = await installEnvironmentHttpTest({
-    ...(input.session ? { session: () => Effect.succeed(input.session!()) } : {}),
+    ...(input.session ? { session: (headers) => Effect.succeed(input.session!(headers)) } : {}),
     ...(input.browserSession
       ? { browserSession: (payload) => input.browserSession!(payload.credential) }
       : {}),
+    ...(input.token ? { token: (payload) => input.token!(payload) } : {}),
     ...(input.pairingCredential
       ? { pairingCredential: (payload) => input.pairingCredential!(payload) }
       : {}),
@@ -129,7 +149,7 @@ describe("resolveInitialServerAuthGateState", () => {
     );
     const testApi = await installAuthApi({
       session: nextSession,
-      browserSession: () => Effect.succeed(browserSession(["orchestration:read", "access:write"])),
+      token: () => Effect.succeed(bearerSession()),
     });
 
     const testWindow = installTestBrowser("http://localhost/");
@@ -147,7 +167,20 @@ describe("resolveInitialServerAuthGateState", () => {
     await Promise.all([resolveInitialServerAuthGateState(), resolveInitialServerAuthGateState()]);
 
     expect(testApi.calls.session).toBe(2);
-    expect(testApi.calls.browserSession).toEqual([{ credential: "desktop-bootstrap-token" }]);
+    expect(testApi.calls.token).toEqual([
+      {
+        grant_type: AuthTokenExchangeGrantType,
+        subject_token: "desktop-bootstrap-token",
+        subject_token_type: AuthEnvironmentBootstrapTokenType,
+        requested_token_type: AuthAccessTokenType,
+        client_label: "Local environment",
+        client_device_type: "desktop",
+      },
+    ]);
+    expect(testApi.calls.browserSession).toEqual([]);
+    expect(testApi.calls.sessionHeaders[1]).toEqual({
+      authorization: "Bearer desktop-bearer-token",
+    });
   });
 
   it("uses https urls when the primary environment uses wss", async () => {
@@ -306,16 +339,14 @@ describe("resolveInitialServerAuthGateState", () => {
     expect(testApi.calls.browserSession).toEqual([{ credential: "bad-token" }]);
   });
 
-  it("waits for the authenticated session to become observable after silent desktop bootstrap", async () => {
+  it("uses a bearer session after silent desktop bootstrap", async () => {
     vi.useFakeTimers();
-    const nextSession = sequence(
-      unauthenticatedSession(DESKTOP_AUTH),
-      unauthenticatedSession(DESKTOP_AUTH),
-      authenticatedSession(DESKTOP_AUTH),
-    );
     const testApi = await installAuthApi({
-      session: nextSession,
-      browserSession: () => Effect.succeed(browserSession(["orchestration:read", "access:write"])),
+      session: (headers) =>
+        headers.authorization === "Bearer desktop-bearer-token"
+          ? authenticatedSession(DESKTOP_AUTH)
+          : unauthenticatedSession(DESKTOP_AUTH),
+      token: () => Effect.succeed(bearerSession()),
     });
 
     const testWindow = installTestBrowser("http://localhost/");
@@ -334,7 +365,13 @@ describe("resolveInitialServerAuthGateState", () => {
     await vi.advanceTimersByTimeAsync(100);
 
     await expect(gateStatePromise).resolves.toEqual({ status: "authenticated" });
-    expect(testApi.calls.session).toBe(3);
+    expect(testApi.calls.session).toBe(2);
+    expect(testApi.calls.browserSession).toEqual([]);
+    expect(testApi.calls.token).toHaveLength(1);
+    expect(testApi.calls.sessionHeaders).toEqual([
+      {},
+      { authorization: "Bearer desktop-bearer-token" },
+    ]);
   });
 
   it("memoizes the authenticated gate state after the first successful read", async () => {

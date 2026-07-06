@@ -12,7 +12,7 @@ import {
   type KnownTerminalSession,
   type TerminalSessionTarget,
   type TerminalSessionState,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/legacy";
 import type {
   EnvironmentId,
   TerminalAttachInput,

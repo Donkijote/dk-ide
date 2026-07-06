@@ -22,7 +22,7 @@ import {
   DEFAULT_TERMINAL_ID,
   ServerConfig as ServerConfigSchema,
 } from "@t3tools/contracts";
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/legacy";
 import { createModelCapabilities, createModelSelection } from "@t3tools/shared/model";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import * as Option from "effect/Option";
@@ -2965,6 +2965,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       aiTitle: THREAD_TITLE,
       editorTitle: "Project Editor",
       terminalTitle: "project",
+      editorActivePath: "src/primary-workspace.ts",
       terminalId: "primary-terminal",
       terminalGroupId: "primary-group",
     });
@@ -3024,6 +3025,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(countWorkspaceTerminalPanes()).toBe(1);
         expect(getWorkspacePane("ai").textContent).toContain(THREAD_TITLE);
       });
+      wsRequests.length = 0;
 
       await mounted.router.navigate({
         to: "/$environmentId/$threadId",
@@ -3036,6 +3038,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(countWorkspaceTerminalPanes()).toBe(3);
         expect(getWorkspacePane("ai").textContent).toContain("Release checklist");
       });
+      expect(
+        wsRequests.some(
+          (request) =>
+            request._tag === WS_METHODS.projectsReadFile &&
+            request.cwd === "/repo/project" &&
+            request.relativePath === "src/primary-workspace.ts",
+        ),
+      ).toBe(false);
 
       await mounted.router.navigate({
         to: "/$environmentId/$threadId",

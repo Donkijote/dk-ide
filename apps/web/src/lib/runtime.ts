@@ -3,11 +3,12 @@ import type * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { FetchHttpClient } from "effect/unstable/http";
 
-import { remoteHttpClientLayer } from "@t3tools/client-runtime";
+import { remoteHttpClientLayer } from "@t3tools/client-runtime/legacy";
 import {
   PrimaryEnvironmentHttpClient,
   primaryEnvironmentHttpClientLive,
 } from "../environments/primary/httpClient";
+import { withPrimaryAuthHeaders } from "../environments/primary/authToken";
 
 export const remoteHttpRuntime = ManagedRuntime.make(remoteHttpClientLayer(globalThis.fetch));
 
@@ -15,7 +16,9 @@ const primaryHttpRuntime = ManagedRuntime.make(
   primaryEnvironmentHttpClientLive.pipe(
     Layer.provide(
       Layer.mergeAll(
-        remoteHttpClientLayer((input, init) => globalThis.fetch(input, init)),
+        remoteHttpClientLayer((input, init) =>
+          globalThis.fetch(input, withPrimaryAuthHeaders(init)),
+        ),
         Layer.succeed(FetchHttpClient.RequestInit, { credentials: "include" }),
       ),
     ),

@@ -28,7 +28,7 @@ import {
   type DesktopServerExposureState,
   type EnvironmentId,
 } from "@t3tools/contracts";
-import { WsRpcClient } from "@t3tools/client-runtime";
+import { WsRpcClient } from "@t3tools/client-runtime/legacy";
 import * as DateTime from "effect/DateTime";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";

@@ -7,7 +7,7 @@ import {
   createVcsActionManager,
   getVcsActionTargetKey,
   vcsActionStateAtom,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/legacy";
 import {
   type EnvironmentId,
   type GitActionProgressEvent,

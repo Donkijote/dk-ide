@@ -1,4 +1,4 @@
-export type { VcsStatusClient as GitStatusClient } from "@t3tools/client-runtime";
+export type { VcsStatusClient as GitStatusClient } from "@t3tools/client-runtime/legacy";
 export type {
   VcsStatusState as GitStatusState,
   VcsStatusTarget as GitStatusTarget,

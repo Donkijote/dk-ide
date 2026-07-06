@@ -64,3 +64,7 @@ behavior.
 - Verified during the first upstream sync on 2026-05-14 against upstream commit
   `ea20e800`; no additional code changes were required to keep the patch
   active.
+- Verified during the 2026-06-26 upstream sync against upstream commit
+  `52b04b947`; upstream's desktop runtime packaging continues to preserve the
+  required app-bundle symlink behavior, so no additional launcher changes were
+  required for this local patch.

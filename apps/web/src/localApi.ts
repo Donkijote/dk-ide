@@ -1,5 +1,5 @@
 import type { ContextMenuItem, LocalApi } from "@t3tools/contracts";
-import type { WsRpcClient } from "@t3tools/client-runtime";
+import type { WsRpcClient } from "@t3tools/client-runtime/legacy";
 
 import { resetVcsStatusStateForTests } from "./lib/vcsStatusState";
 import { resetSourceControlDiscoveryStateForTests } from "./lib/sourceControlDiscoveryState";
@@ -88,31 +88,31 @@ function createBrowserLocalApi(rpcClient?: WsRpcClient): LocalApi {
         writeBrowserClientSettings(settings);
       },
       getSavedEnvironmentRegistry: async () => {
-        if (window.desktopBridge) {
+        if (window.desktopBridge?.getSavedEnvironmentRegistry) {
           return window.desktopBridge.getSavedEnvironmentRegistry();
         }
         return readBrowserSavedEnvironmentRegistry();
       },
       setSavedEnvironmentRegistry: async (records) => {
-        if (window.desktopBridge) {
+        if (window.desktopBridge?.setSavedEnvironmentRegistry) {
           return window.desktopBridge.setSavedEnvironmentRegistry(records);
         }
         writeBrowserSavedEnvironmentRegistry(records);
       },
       getSavedEnvironmentSecret: async (environmentId) => {
-        if (window.desktopBridge) {
+        if (window.desktopBridge?.getSavedEnvironmentSecret) {
           return window.desktopBridge.getSavedEnvironmentSecret(environmentId);
         }
         return readBrowserSavedEnvironmentSecret(environmentId);
       },
       setSavedEnvironmentSecret: async (environmentId, secret) => {
-        if (window.desktopBridge) {
+        if (window.desktopBridge?.setSavedEnvironmentSecret) {
           return window.desktopBridge.setSavedEnvironmentSecret(environmentId, secret);
         }
         return writeBrowserSavedEnvironmentSecret(environmentId, secret);
       },
       removeSavedEnvironmentSecret: async (environmentId) => {
-        if (window.desktopBridge) {
+        if (window.desktopBridge?.removeSavedEnvironmentSecret) {
           return window.desktopBridge.removeSavedEnvironmentSecret(environmentId);
         }
         removeBrowserSavedEnvironmentSecret(environmentId);

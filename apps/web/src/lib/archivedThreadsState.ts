@@ -4,7 +4,7 @@ import {
   createArchivedThreadsManager,
   makeArchivedThreadsEnvironmentKey,
   readArchivedThreadsSnapshotState,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/legacy";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useCallback, useMemo } from "react";
 

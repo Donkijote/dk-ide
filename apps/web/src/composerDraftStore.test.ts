@@ -3,7 +3,7 @@ import {
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/legacy";
 import * as Schema from "effect/Schema";
 import {
   defaultInstanceIdForDriver,

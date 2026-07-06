@@ -170,3 +170,8 @@ composition, which are likely to continue evolving upstream.
   `f0116e44`; upstream added environment HTTP APIs and WebSocket authorization
   guards, and the local workspace file/VCS RPC contracts were extended to
   expose authorization failures while preserving the workspace shell adapters.
+- Verified during the 2026-06-26 upstream sync against upstream commit
+  `52b04b947`; upstream moved further into the connection/runtime shell model,
+  so the local web workspace shell was kept as a coherent presentation layer and
+  the `projects.listDirectory` editor adapter was reattached to the merged
+  server authorization scope table and RPC handler map.

@@ -27,7 +27,7 @@ import {
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
-} from "@t3tools/client-runtime";
+} from "@t3tools/client-runtime/legacy";
 import {
   applyClaudePromptEffortPrefix,
   createModelSelection,
@@ -164,9 +164,9 @@ import {
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 import {
   type ComposerImageAttachment,
+  DraftId,
   type DraftThreadEnvMode,
   useComposerDraftStore,
-  type DraftId,
 } from "../composerDraftStore";
 import {
   appendTerminalContextsToPrompt,
@@ -1337,6 +1337,9 @@ export default function ChatView(props: ChatViewProps) {
   const storeAddWorkspaceThreadDockedPane = useUiStateStore(
     (store) => store.addWorkspaceThreadDockedPane,
   );
+  const storeSetWorkspaceThreadAiPaneBinding = useUiStateStore(
+    (store) => store.setWorkspaceThreadAiPaneBinding,
+  );
   const storeRemoveWorkspaceThreadDockedPane = useUiStateStore(
     (store) => store.removeWorkspaceThreadDockedPane,
   );
@@ -1441,7 +1444,6 @@ export default function ChatView(props: ChatViewProps) {
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [editorOpenFileRequest, setEditorOpenFileRequest] =
     useState<WorkspaceEditorOpenFileRequest | null>(null);
-  const [workspaceEditorActivePath, setWorkspaceEditorActivePath] = useState<string | null>(null);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
   const [addPaneDialogOpen, setAddPaneDialogOpen] = useState(false);
@@ -1492,6 +1494,7 @@ export default function ChatView(props: ChatViewProps) {
       ),
     ),
   );
+  const serverThreadKeySet = useMemo(() => new Set(serverThreadKeys), [serverThreadKeys]);
   const draftThreadsByThreadKey = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
   const draftThreadKeys = useMemo(
     () =>
@@ -1500,6 +1503,16 @@ export default function ChatView(props: ChatViewProps) {
       ),
     [draftThreadsByThreadKey],
   );
+  const draftIdByThreadKey = useMemo(() => {
+    const draftIds = new Map<string, DraftId>();
+    for (const [draftId, draftThread] of Object.entries(draftThreadsByThreadKey)) {
+      draftIds.set(
+        scopedThreadKey(scopeThreadRef(draftThread.environmentId, draftThread.threadId)),
+        DraftId.make(draftId),
+      );
+    }
+    return draftIds;
+  }, [draftThreadsByThreadKey]);
   const [mountedTerminalThreadKeys, setMountedTerminalThreadKeys] = useState<string[]>([]);
   const mountedTerminalThreadRefs = useMemo(
     () =>
@@ -2070,25 +2083,16 @@ export default function ChatView(props: ChatViewProps) {
     ],
   );
   const planSidebarOpen = useUiStateStore(
-    (store) =>
-      (
-        store.workspaceThreadLayoutById[workspaceLayoutKey] ??
-        store.workspaceThreadLayoutById[routeThreadKey]
-      )?.planSidebarOpen ?? false,
+    (store) => store.workspaceThreadLayoutById[workspaceLayoutKey]?.planSidebarOpen ?? false,
   );
   const paneTitleOverrideById = useUiStateStore(
     (store) =>
-      (
-        store.workspaceThreadLayoutById[workspaceLayoutKey] ??
-        store.workspaceThreadLayoutById[routeThreadKey]
-      )?.paneTitleOverrideById ?? EMPTY_PANE_TITLE_OVERRIDES,
+      store.workspaceThreadLayoutById[workspaceLayoutKey]?.paneTitleOverrideById ??
+      EMPTY_PANE_TITLE_OVERRIDES,
   );
   const workspaceDockedPanes = useUiStateStore(
     (store) =>
-      (
-        store.workspaceThreadLayoutById[workspaceLayoutKey] ??
-        store.workspaceThreadLayoutById[routeThreadKey]
-      )?.panes ?? EMPTY_WORKSPACE_DOCKED_PANES,
+      store.workspaceThreadLayoutById[workspaceLayoutKey]?.panes ?? EMPTY_WORKSPACE_DOCKED_PANES,
   );
   const renameWorkspacePane = useCallback(
     (paneId: string, title: string | null) => {
@@ -2157,35 +2161,39 @@ export default function ChatView(props: ChatViewProps) {
   );
   const setWorkspaceAiPaneThreadBinding = useCallback(
     (paneId: string, threadRef: ScopedThreadRef, title: string) => {
-      const layout = useUiStateStore.getState().workspaceThreadLayoutById[workspaceLayoutKey];
-      if (!layout?.panes) {
-        return;
-      }
-      storeSetWorkspaceThreadDockedPanes(
-        workspaceLayoutKey,
-        layout.panes.map((pane) =>
-          pane.paneId === paneId && pane.type === "ai"
-            ? Object.assign({}, pane, {
-                title,
-                environmentId: threadRef.environmentId,
-                metadata: Object.assign({}, pane.metadata, {
-                  threadId: threadRef.threadId,
-                }),
-              })
-            : pane,
-        ),
-        paneId,
-      );
+      storeSetWorkspaceThreadAiPaneBinding(workspaceLayoutKey, paneId, {
+        threadId: threadRef.threadId,
+        environmentId: threadRef.environmentId,
+        title,
+      });
     },
-    [storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
+    [storeSetWorkspaceThreadAiPaneBinding, workspaceLayoutKey],
+  );
+  const clearWorkspaceAiPaneThreadBinding = useCallback(
+    (paneId: string, title = "AI") => {
+      storeSetWorkspaceThreadAiPaneBinding(workspaceLayoutKey, paneId, {
+        threadId: null,
+        title,
+      });
+    },
+    [storeSetWorkspaceThreadAiPaneBinding, workspaceLayoutKey],
   );
   const bindScopedAiPaneThread = useCallback(
-    async (input: { draftId: DraftId; threadRef: ScopedThreadRef; title: string }) => {
+    async (input: {
+      draftId: DraftId;
+      threadRef: ScopedThreadRef;
+      title: string;
+      paneId?: string;
+    }) => {
       if (onWorkspaceAiPaneThreadChange) {
         onWorkspaceAiPaneThreadChange(scopedThreadKey(input.threadRef), { title: input.title });
         return;
       }
-      setWorkspaceAiPaneThreadBinding("ai", input.threadRef, input.title);
+      const paneId = input.paneId ?? "ai";
+      setWorkspaceAiPaneThreadBinding(paneId, input.threadRef, input.title);
+      if (paneId !== "ai") {
+        return;
+      }
       await navigate({
         to: "/draft/$draftId",
         params: buildDraftThreadRouteParams(input.draftId),
@@ -2194,7 +2202,7 @@ export default function ChatView(props: ChatViewProps) {
     [navigate, onWorkspaceAiPaneThreadChange, setWorkspaceAiPaneThreadBinding],
   );
   const createScopedAiPaneThread = useCallback(
-    async (mode: "contextual" | "default") => {
+    async (mode: "contextual" | "default", paneId = "ai") => {
       if (!activeThread || !activeThreadRef || !activeProject) {
         return;
       }
@@ -2261,6 +2269,7 @@ export default function ChatView(props: ChatViewProps) {
         draftId,
         threadRef: scopeThreadRef(activeThread.environmentId, nextThreadId),
         title: "New thread",
+        paneId,
       });
     },
     [
@@ -2281,7 +2290,6 @@ export default function ChatView(props: ChatViewProps) {
   );
   useEffect(() => {
     setEditorOpenFileRequest(null);
-    setWorkspaceEditorActivePath(null);
   }, [activeThread?.id, activeWorkspaceRoot]);
   const claudeRuntimeStatusQuery = useQuery(
     providerRuntimeStatusQueryOptions({
@@ -2872,7 +2880,7 @@ export default function ChatView(props: ChatViewProps) {
   const handleWorkspaceAiPaneThreadChange = useCallback(
     (paneId: string, nextThreadKey: string | null, options?: { title?: string }) => {
       if (nextThreadKey === null) {
-        storeRemoveWorkspaceThreadDockedPane(workspaceLayoutKey, paneId);
+        clearWorkspaceAiPaneThreadBinding(paneId);
         return;
       }
       const nextThreadRef = parseScopedThreadKey(nextThreadKey);
@@ -2899,8 +2907,8 @@ export default function ChatView(props: ChatViewProps) {
     },
     [
       activeWorkspaceThreadOptions,
+      clearWorkspaceAiPaneThreadBinding,
       setWorkspaceAiPaneThreadBinding,
-      storeRemoveWorkspaceThreadDockedPane,
       workspaceLayoutKey,
     ],
   );
@@ -2962,9 +2970,9 @@ export default function ChatView(props: ChatViewProps) {
       aiTitle: activeThreadTitle,
       editorTitle: resolveEditorPaneDefaultTitle(workspaceName, activeWorkspaceRoot),
       terminalTitle,
-      editorActivePath: workspaceEditorActivePath,
-      terminalId: terminalState.activeTerminalId || null,
-      terminalGroupId: activeTerminalGroup?.id ?? null,
+      editorActivePath: null,
+      terminalId: DEFAULT_THREAD_TERMINAL_ID,
+      terminalGroupId: `group-${DEFAULT_THREAD_TERMINAL_ID}`,
     });
   }, [
     activeTerminalGroup,
@@ -2973,8 +2981,6 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadTitle,
     activeWorkspaceRoot,
     storeEnsureWorkspaceThreadDockedPaneLayout,
-    terminalState.activeTerminalId,
-    workspaceEditorActivePath,
     workspaceLayoutKey,
     workspaceName,
   ]);
@@ -3135,7 +3141,6 @@ export default function ChatView(props: ChatViewProps) {
   );
   const persistWorkspaceEditorPaneState = useCallback(
     (state: { activePath: string | null; openPaths: readonly string[] }) => {
-      setWorkspaceEditorActivePath(state.activePath);
       const layout = useUiStateStore.getState().workspaceThreadLayoutById[workspaceLayoutKey];
       if (!layout?.panes) {
         return;
@@ -3251,7 +3256,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
       if (!fallbackWorkspaceThread) {
-        onWorkspaceAiPaneThreadChange(null);
+        onWorkspaceAiPaneThreadChange(null, { title: "AI" });
         return;
       }
       const fallbackThreadRef = scopeThreadRef(
@@ -4937,6 +4942,19 @@ export default function ChatView(props: ChatViewProps) {
   );
   // Empty state: no active thread
   if (!activeThread) {
+    if (workspaceMode === "ai-pane") {
+      return (
+        <WorkspacePane
+          title="AI"
+          actions={embeddedPaneActions}
+          className="min-h-[32rem] xl:min-h-0"
+        >
+          <div className="flex flex-1 items-center justify-center p-6 text-center text-muted-foreground text-sm">
+            No thread is open in this AI pane.
+          </div>
+        </WorkspacePane>
+      );
+    }
     return <NoActiveThreadState />;
   }
 
@@ -5069,7 +5087,7 @@ export default function ChatView(props: ChatViewProps) {
       order: 0,
       size: 1,
       metadata: {
-        activePath: workspaceEditorActivePath,
+        activePath: null,
       },
     },
     {
@@ -5094,13 +5112,40 @@ export default function ChatView(props: ChatViewProps) {
       size: 1,
       metadata: {
         threadId: activeThread.id,
-        terminalId: terminalState.activeTerminalId || null,
-        terminalGroupId: activeTerminalGroup?.id ?? null,
+        terminalId: DEFAULT_THREAD_TERMINAL_ID,
+        terminalGroupId: `group-${DEFAULT_THREAD_TERMINAL_ID}`,
       },
     },
   ];
-  const renderedWorkspaceDockedPanes =
+  const rawRenderedWorkspaceDockedPanes =
     workspaceDockedPanes.length > 0 ? workspaceDockedPanes : fallbackWorkspaceDockedPanes;
+  const isStaleAiPane = (pane: PersistedWorkspaceDockedPane) => {
+    if (pane.type !== "ai" || pane.metadata.threadId === null) {
+      return false;
+    }
+    const paneThreadKey = scopedThreadKey(
+      scopeThreadRef(pane.environmentId as EnvironmentId, pane.metadata.threadId as ThreadId),
+    );
+    return !serverThreadKeySet.has(paneThreadKey) && !draftIdByThreadKey.has(paneThreadKey);
+  };
+  const shouldPruneStaleAiPanes =
+    rawRenderedWorkspaceDockedPanes.some(isStaleAiPane) &&
+    rawRenderedWorkspaceDockedPanes.some((pane) => !isStaleAiPane(pane));
+  const renderedWorkspaceDockedPanes = shouldPruneStaleAiPanes
+    ? rawRenderedWorkspaceDockedPanes.filter((pane) => !isStaleAiPane(pane))
+    : rawRenderedWorkspaceDockedPanes;
+  useEffect(() => {
+    if (!shouldPruneStaleAiPanes || workspaceDockedPanes.length === 0) {
+      return;
+    }
+    storeSetWorkspaceThreadDockedPanes(workspaceLayoutKey, renderedWorkspaceDockedPanes);
+  }, [
+    renderedWorkspaceDockedPanes,
+    shouldPruneStaleAiPanes,
+    storeSetWorkspaceThreadDockedPanes,
+    workspaceDockedPanes.length,
+    workspaceLayoutKey,
+  ]);
   const workspaceRunningTerminalThreadRefs = useMemo(() => {
     const threadRefByKey = new Map<string, WorkspaceRunningTerminalThreadRef>();
     for (const pane of renderedWorkspaceDockedPanes) {
@@ -5179,6 +5224,7 @@ export default function ChatView(props: ChatViewProps) {
           bodyClassName="min-h-0 flex-col"
         >
           <WorkspaceEditorPane
+            key={`${workspaceLayoutKey}:${pane.paneId}:${pane.cwd ?? ""}`}
             environmentId={pane.environmentId as EnvironmentId}
             initialActivePath={pane.metadata.activePath ?? null}
             initialOpenPaths={pane.metadata.openPaths ?? EMPTY_WORKSPACE_EDITOR_OPEN_PATHS}
@@ -5188,7 +5234,6 @@ export default function ChatView(props: ChatViewProps) {
             {...(isDefaultEditorPane
               ? {
                   onActive: markEditorActive,
-                  onActivePathChange: setWorkspaceEditorActivePath,
                   onWorkspaceStateChange: persistWorkspaceEditorPaneState,
                 }
               : {})}
@@ -5335,24 +5380,100 @@ export default function ChatView(props: ChatViewProps) {
     }
 
     const isDefaultAiPane = pane.paneId === "ai";
-    const paneThreadId = pane.metadata.threadId ?? activeThread.id;
+    const paneThreadId = pane.metadata.threadId;
+    if (paneThreadId === null) {
+      return (
+        <WorkspacePane
+          key={`${pane.paneId}:unbound`}
+          title={pane.title || "AI"}
+          titleActions={
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    aria-label="Create new thread in this AI pane"
+                    data-testid="ai-pane-new-thread-button"
+                    onClick={() => void createScopedAiPaneThread("default", pane.paneId)}
+                  >
+                    <SquarePenIcon className="size-3.5" />
+                  </button>
+                }
+              />
+              <TooltipPopup side="bottom">New thread</TooltipPopup>
+            </Tooltip>
+          }
+          actions={renderRemovePaneButton()}
+          className="min-h-[32rem] xl:min-h-0"
+        >
+          <div className="flex flex-1 items-center justify-center p-6 text-center text-muted-foreground text-sm">
+            No thread is open in this AI pane.
+          </div>
+        </WorkspacePane>
+      );
+    }
     const paneThreadRef = scopeThreadRef(
       pane.environmentId as EnvironmentId,
       paneThreadId as ThreadId,
     );
     const paneThreadKey = scopedThreadKey(paneThreadRef);
-    if (!isDefaultAiPane || paneThreadKey !== activeThreadKey) {
+    const paneDraftId = draftIdByThreadKey.get(paneThreadKey) ?? null;
+    if (!serverThreadKeySet.has(paneThreadKey) && paneDraftId === null) {
       return (
-        <ChatView
-          key={pane.paneId}
-          environmentId={paneThreadRef.environmentId}
-          threadId={paneThreadRef.threadId}
-          routeKind="server"
-          workspaceMode="ai-pane"
-          embeddedPaneActions={renderRemovePaneButton()}
-          onWorkspaceAiPaneThreadChange={(nextThreadKey, options) =>
-            handleWorkspaceAiPaneThreadChange(pane.paneId, nextThreadKey, options)
+        <WorkspacePane
+          key={`${pane.paneId}:missing-thread`}
+          title={pane.title || "AI"}
+          titleActions={
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    aria-label="Create new thread in this AI pane"
+                    data-testid="ai-pane-new-thread-button"
+                    onClick={() => void createScopedAiPaneThread("default", pane.paneId)}
+                  >
+                    <SquarePenIcon className="size-3.5" />
+                  </button>
+                }
+              />
+              <TooltipPopup side="bottom">New thread</TooltipPopup>
+            </Tooltip>
           }
+          actions={renderRemovePaneButton()}
+          className="min-h-[32rem] xl:min-h-0"
+        >
+          <div className="flex flex-1 items-center justify-center p-6 text-center text-muted-foreground text-sm">
+            This thread is no longer available.
+          </div>
+        </WorkspacePane>
+      );
+    }
+    if (!isDefaultAiPane || paneThreadKey !== activeThreadKey) {
+      const commonAiPaneProps = {
+        environmentId: paneThreadRef.environmentId,
+        threadId: paneThreadRef.threadId,
+        workspaceMode: "ai-pane" as const,
+        embeddedPaneActions: renderRemovePaneButton(),
+        onWorkspaceAiPaneThreadChange: (
+          nextThreadKey: string | null,
+          options?: { title?: string },
+        ) => handleWorkspaceAiPaneThreadChange(pane.paneId, nextThreadKey, options),
+      };
+      return paneDraftId ? (
+        <ChatView
+          key={`${pane.paneId}:${paneThreadKey}`}
+          {...commonAiPaneProps}
+          routeKind="draft"
+          draftId={paneDraftId}
+        />
+      ) : (
+        <ChatView
+          key={`${pane.paneId}:${paneThreadKey}`}
+          {...commonAiPaneProps}
+          routeKind="server"
         />
       );
     }
