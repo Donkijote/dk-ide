@@ -127,6 +127,7 @@ vi.mock("@t3tools/client-runtime/legacy", async (importOriginal) => {
       switchRef: vi.fn(),
       init: vi.fn(),
       workingTreeFileChanges: vi.fn(),
+      restoreFiles: vi.fn(),
     },
     git: {
       runStackedAction: vi.fn(),

@@ -112,6 +112,7 @@ export interface WsRpcClient {
     readonly switchRef: RpcUnaryMethod<typeof WS_METHODS.vcsSwitchRef>;
     readonly init: RpcUnaryMethod<typeof WS_METHODS.vcsInit>;
     readonly workingTreeFileChanges: RpcUnaryMethod<typeof WS_METHODS.vcsWorkingTreeFileChanges>;
+    readonly restoreFiles: RpcUnaryMethod<typeof WS_METHODS.vcsRestoreFiles>;
   };
   readonly git: {
     readonly runStackedAction: (
@@ -264,6 +265,8 @@ export function createWsRpcClient(
       init: (input) => transport.request((client) => client[WS_METHODS.vcsInit](input)),
       workingTreeFileChanges: (input) =>
         transport.request((client) => client[WS_METHODS.vcsWorkingTreeFileChanges](input)),
+      restoreFiles: (input) =>
+        transport.request((client) => client[WS_METHODS.vcsRestoreFiles](input)),
     },
     git: {
       runStackedAction: async (input, options) => {

@@ -105,6 +105,14 @@ function createRegisteredGitStatusClient(environmentId: EnvironmentId) {
       createRef: vi.fn(async () => undefined),
       switchRef: vi.fn(async () => undefined),
       init: vi.fn(async () => undefined),
+      workingTreeFileChanges: vi.fn(async () => ({
+        filePath: "README.md",
+        lineRanges: [],
+        wholeFileChanged: false,
+      })),
+      restoreFiles: vi.fn(async (input: { filePaths: string[] }) => ({
+        filePaths: input.filePaths,
+      })),
     },
     git: {
       runStackedAction: vi.fn(async () => ({}) as any),

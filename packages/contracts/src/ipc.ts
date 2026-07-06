@@ -9,6 +9,8 @@ import type {
   VcsPullInput,
   VcsPullResult,
   VcsRemoveWorktreeInput,
+  VcsRestoreFilesInput,
+  VcsRestoreFilesResult,
   VcsSwitchRefInput,
   VcsSwitchRefResult,
   GitPreparePullRequestThreadInput,
@@ -1134,6 +1136,7 @@ export interface EnvironmentApi {
     workingTreeFileChanges: (
       input: VcsWorkingTreeFileChangesInput,
     ) => Promise<VcsWorkingTreeFileChangesResult>;
+    restoreFiles: (input: VcsRestoreFilesInput) => Promise<VcsRestoreFilesResult>;
     pull: (input: VcsPullInput) => Promise<VcsPullResult>;
     refreshStatus: (input: VcsStatusInput) => Promise<VcsStatusResult>;
     onStatus: (

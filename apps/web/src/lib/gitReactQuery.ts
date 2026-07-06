@@ -45,6 +45,8 @@ export const gitMutationKeys = {
     ["git", "mutation", "prepare-pull-request-thread", environmentId ?? null, cwd] as const,
   publishRepository: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "mutation", "publish-repository", environmentId ?? null, cwd] as const,
+  restoreFiles: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "mutation", "restore-files", environmentId ?? null, cwd] as const,
 };
 
 export function invalidateGitQueries(
@@ -241,6 +243,25 @@ export function gitRunStackedActionMutationOptions(input: {
     },
     onSuccess: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
+    },
+  });
+}
+
+export function vcsRestoreFilesMutationOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.restoreFiles(input.environmentId, input.cwd),
+    mutationFn: async (filePaths: string[]) => {
+      if (!input.cwd || !input.environmentId) throw new Error("File rollback is unavailable.");
+      if (filePaths.length === 0) throw new Error("Select at least one file to roll back.");
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.vcs.restoreFiles({ cwd: input.cwd, filePaths });
+    },
+    onSuccess: async () => {
+      await input.queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
     },
   });
 }

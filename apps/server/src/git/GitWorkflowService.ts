@@ -19,6 +19,8 @@ import {
   type GitPullRequestRefInput,
   type VcsPullResult,
   type VcsRemoveWorktreeInput,
+  type VcsRestoreFilesInput,
+  type VcsRestoreFilesResult,
   type GitResolvePullRequestResult,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
@@ -68,6 +70,9 @@ export interface GitWorkflowServiceShape {
   readonly workingTreeFileChanges: (
     input: VcsWorkingTreeFileChangesInput,
   ) => Effect.Effect<VcsWorkingTreeFileChangesResult, GitCommandError>;
+  readonly restoreFiles: (
+    input: VcsRestoreFilesInput,
+  ) => Effect.Effect<VcsRestoreFilesResult, GitCommandError>;
   readonly createWorktree: (
     input: VcsCreateWorktreeInput,
   ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
@@ -316,6 +321,10 @@ export const make = Effect.fn("makeGitWorkflowService")(function* () {
             ? git.workingTreeFileChanges(input)
             : Effect.succeed({ filePath: input.filePath, lineRanges: [], wholeFileChanged: false }),
         ),
+      ),
+    restoreFiles: (input) =>
+      ensureGitCommand("GitWorkflowService.restoreFiles", input.cwd).pipe(
+        Effect.andThen(git.restoreFiles(input)),
       ),
     createWorktree: (input) =>
       ensureGitCommand("GitWorkflowService.createWorktree", input.cwd).pipe(

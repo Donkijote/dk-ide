@@ -322,6 +322,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.vcsSwitchRef, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsInit, AuthOrchestrationOperateScope],
   [WS_METHODS.vcsWorkingTreeFileChanges, AuthOrchestrationReadScope],
+  [WS_METHODS.vcsRestoreFiles, AuthOrchestrationOperateScope],
   [WS_METHODS.reviewGetDiffPreview, AuthReviewWriteScope],
   [WS_METHODS.terminalOpen, AuthTerminalOperateScope],
   [WS_METHODS.terminalAttach, AuthTerminalOperateScope],
@@ -1583,6 +1584,12 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.vcsWorkingTreeFileChanges,
             gitWorkflow.workingTreeFileChanges(input),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsRestoreFiles]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsRestoreFiles,
+            gitWorkflow.restoreFiles(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.reviewGetDiffPreview]: (input) =>

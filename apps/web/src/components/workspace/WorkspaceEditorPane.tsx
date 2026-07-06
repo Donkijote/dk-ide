@@ -1,5 +1,5 @@
 import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircleIcon,
   ChevronRightIcon,
@@ -7,19 +7,35 @@ import {
   FolderIcon,
   FolderOpenIcon,
   LoaderCircleIcon,
+  RotateCcwIcon,
   SearchIcon,
   XIcon,
 } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
+import { Checkbox } from "~/components/ui/checkbox";
 import { Input } from "~/components/ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Kbd, KbdGroup } from "~/components/ui/kbd";
 import { useGitStatus } from "~/lib/gitStatusState";
-import { gitWorkingTreeFileChangesQueryOptions } from "~/lib/gitReactQuery";
-import { cn, isMacPlatform } from "~/lib/utils";
 import {
+  gitWorkingTreeFileChangesQueryOptions,
+  vcsRestoreFilesMutationOptions,
+} from "~/lib/gitReactQuery";
+import { cn, isMacPlatform } from "~/lib/utils";
+import { stackedThreadToast, toastManager } from "~/components/ui/toast";
+import {
+  projectQueryKeys,
   projectListDirectoryQueryOptions,
   projectReadFileQueryOptions,
   projectSearchEntriesQueryOptions,
@@ -113,6 +129,8 @@ type ChangedFile = {
   readonly deletions: number;
 };
 
+const EMPTY_CHANGED_FILES: readonly ChangedFile[] = [];
+
 type ChangedPathState = {
   readonly changedFileByPath: ReadonlyMap<string, ChangedFile>;
   readonly changedDirectoryPaths: ReadonlySet<string>;
@@ -198,7 +216,12 @@ export function WorkspaceEditorPane({
   >({});
   const [currentDirectoryPath, setCurrentDirectoryPath] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false);
+  const [selectedChangedFilePaths, setSelectedChangedFilePaths] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
+  const queryClient = useQueryClient();
   const workspaceContextKey =
     workspaceRoot === undefined ? null : `${environmentId}\u0000${workspaceRoot}`;
   const initialWorkspaceState = useMemo<EditorWorkspaceState>(() => {
@@ -253,9 +276,14 @@ export function WorkspaceEditorPane({
     environmentId,
     cwd: workspaceRoot ?? null,
   });
-  const changedPathState = useMemo(
-    () => buildChangedPathState(gitStatus.data?.workingTree.files ?? []),
-    [gitStatus.data?.workingTree.files],
+  const changedFiles = gitStatus.data?.workingTree.files ?? EMPTY_CHANGED_FILES;
+  const changedPathState = useMemo(() => buildChangedPathState(changedFiles), [changedFiles]);
+  const restoreFilesMutation = useMutation(
+    vcsRestoreFilesMutationOptions({
+      environmentId,
+      cwd: workspaceRoot ?? null,
+      queryClient,
+    }),
   );
   const currentDirectoryTrail = useMemo(
     () => buildDirectoryTrail(currentDirectoryPath),
@@ -264,11 +292,36 @@ export function WorkspaceEditorPane({
   const currentDirectoryEntries = directoryQuery.data?.entries ?? [];
   const activeLanguage = activePath ? languageForPath(activePath) : "plaintext";
   const activeChangedFile = activePath ? changedPathState.changedFileByPath.get(activePath) : null;
+  const selectedChangedFiles = useMemo(
+    () => changedFiles.filter((file) => selectedChangedFilePaths.has(file.path)),
+    [changedFiles, selectedChangedFilePaths],
+  );
+  const selectedChangedFileCount = selectedChangedFiles.length;
+  const allChangedFilesSelected =
+    changedFiles.length > 0 && selectedChangedFileCount === changedFiles.length;
+  const noChangedFilesSelected = selectedChangedFileCount === 0;
+  const restoreDialogTitle =
+    selectedChangedFileCount === 1
+      ? `Roll back ${basenameOfPath(selectedChangedFiles[0]?.path ?? "file")}?`
+      : `Roll back ${selectedChangedFileCount} files?`;
 
   useEffect(() => {
     onActivePathChange?.(activePath);
     onWorkspaceStateChange?.(workspaceEditorState);
   }, [activePath, onActivePathChange, onWorkspaceStateChange, workspaceEditorState]);
+
+  useEffect(() => {
+    setSelectedChangedFilePaths((currentSelection) => {
+      if (currentSelection.size === 0) {
+        return currentSelection;
+      }
+      const validChangedPaths = new Set(changedFiles.map((file) => file.path));
+      const nextSelection = new Set(
+        [...currentSelection].filter((path) => validChangedPaths.has(path)),
+      );
+      return nextSelection.size === currentSelection.size ? currentSelection : nextSelection;
+    });
+  }, [changedFiles]);
 
   const activeFileChangesQuery = useQuery(
     gitWorkingTreeFileChangesQueryOptions({
@@ -362,6 +415,53 @@ export function WorkspaceEditorPane({
     },
     [onActive],
   );
+  const toggleChangedFileSelection = useCallback((path: string) => {
+    setSelectedChangedFilePaths((currentSelection) => {
+      const nextSelection = new Set(currentSelection);
+      if (nextSelection.has(path)) {
+        nextSelection.delete(path);
+      } else {
+        nextSelection.add(path);
+      }
+      return nextSelection;
+    });
+  }, []);
+  const toggleAllChangedFileSelection = useCallback(() => {
+    setSelectedChangedFilePaths((currentSelection) =>
+      currentSelection.size === changedFiles.length
+        ? new Set()
+        : new Set(changedFiles.map((file) => file.path)),
+    );
+  }, [changedFiles]);
+  const restoreSelectedChangedFiles = useCallback(async () => {
+    const filePaths = selectedChangedFiles.map((file) => file.path);
+    if (filePaths.length === 0) {
+      return;
+    }
+
+    try {
+      await restoreFilesMutation.mutateAsync(filePaths);
+      setRestoreConfirmOpen(false);
+      setSelectedChangedFilePaths(new Set());
+      await queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
+      toastManager.add({
+        type: "success",
+        title: filePaths.length === 1 ? "File rolled back" : "Files rolled back",
+        description:
+          filePaths.length === 1
+            ? filePaths[0]
+            : `${filePaths.length} changed files were restored.`,
+      });
+    } catch (error) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Rollback failed",
+          description: error instanceof Error ? error.message : "Unable to roll back files.",
+        }),
+      );
+    }
+  }, [queryClient, restoreFilesMutation, selectedChangedFiles]);
 
   useEffect(() => {
     if (!openFileRequest || workspaceRoot === undefined) {
@@ -782,6 +882,76 @@ export function WorkspaceEditorPane({
               Some files are hidden because the workspace index is truncated.
             </div>
           ) : null}
+          {changedFiles.length > 0 ? (
+            <div className="border-border/60 border-t bg-background/60">
+              <div className="flex min-h-10 items-center gap-2 px-2">
+                <Checkbox
+                  checked={allChangedFilesSelected}
+                  indeterminate={!allChangedFilesSelected && !noChangedFilesSelected}
+                  aria-label="Select all changed files"
+                  onCheckedChange={toggleAllChangedFileSelection}
+                />
+                <div className="min-w-0 flex-1 truncate font-medium text-xs">
+                  Changes{" "}
+                  <span className="font-normal text-muted-foreground">
+                    ({selectedChangedFileCount}/{changedFiles.length})
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  disabled={noChangedFilesSelected || restoreFilesMutation.isPending}
+                  onClick={() => setRestoreConfirmOpen(true)}
+                  title="Roll back selected files"
+                >
+                  {restoreFilesMutation.isPending ? (
+                    <LoaderCircleIcon className="size-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcwIcon className="size-3.5" />
+                  )}
+                  Rollback
+                </Button>
+              </div>
+              <div className="max-h-36 min-h-0 overflow-auto border-border/60 border-t p-1">
+                {changedFiles.map((file) => {
+                  const selected = selectedChangedFilePaths.has(file.path);
+                  return (
+                    <div
+                      key={file.path}
+                      className="flex min-h-8 items-center gap-2 rounded-md px-1.5 py-1 text-xs transition-colors hover:bg-accent/50"
+                    >
+                      <Checkbox
+                        checked={selected}
+                        aria-label={`Select ${file.path} for rollback`}
+                        onCheckedChange={() => toggleChangedFileSelection(file.path)}
+                      />
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left"
+                        title={file.path}
+                        onClick={() => openPath(file.path)}
+                      >
+                        <span
+                          className={cn(
+                            "min-w-0 truncate font-mono",
+                            !selected && "text-muted-foreground",
+                          )}
+                        >
+                          {file.path}
+                        </span>
+                        <span className="shrink-0 font-mono">
+                          <span className="text-success">+{file.insertions}</span>
+                          <span className="text-muted-foreground"> / </span>
+                          <span className="text-destructive">-{file.deletions}</span>
+                        </span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </aside>
 
         <div className="relative flex min-h-0 min-w-0 flex-1">
@@ -852,6 +1022,52 @@ export function WorkspaceEditorPane({
           ) : null}
         </div>
       </div>
+      <AlertDialog open={restoreConfirmOpen} onOpenChange={setRestoreConfirmOpen}>
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{restoreDialogTitle}</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will discard the selected working tree changes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="max-h-48 min-h-0 overflow-auto px-6 pb-4">
+            <div className="space-y-1 rounded-md border bg-muted/40 p-2">
+              {selectedChangedFiles.map((file) => (
+                <div
+                  key={file.path}
+                  className="flex items-center justify-between gap-3 font-mono text-xs"
+                >
+                  <span className="min-w-0 truncate">{file.path}</span>
+                  <span className="shrink-0">
+                    <span className="text-success">+{file.insertions}</span>
+                    <span className="text-muted-foreground"> / </span>
+                    <span className="text-destructive">-{file.deletions}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" size="sm" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={noChangedFilesSelected || restoreFilesMutation.isPending}
+              onClick={() => void restoreSelectedChangedFiles()}
+            >
+              {restoreFilesMutation.isPending ? (
+                <LoaderCircleIcon className="size-3.5 animate-spin" />
+              ) : (
+                <RotateCcwIcon className="size-3.5" />
+              )}
+              Rollback
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
     </div>
   );
 }

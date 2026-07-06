@@ -1934,6 +1934,72 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       };
     });
 
+  const restoreFiles: GitVcsDriver.GitVcsDriverShape["restoreFiles"] = Effect.fn("restoreFiles")(
+    function* (input) {
+      if (input.filePaths.length === 0) {
+        return yield* createGitCommandError(
+          "GitVcsDriver.restoreFiles",
+          input.cwd,
+          ["restore", "--staged", "--worktree", "--"],
+          "At least one file path is required.",
+        );
+      }
+
+      const trackedResult = yield* executeGit(
+        "GitVcsDriver.restoreFiles.trackedPaths",
+        input.cwd,
+        ["ls-files", "-z", "--", ...input.filePaths],
+        { maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES },
+      );
+      const stagedAddedResult = yield* executeGit(
+        "GitVcsDriver.restoreFiles.stagedAddedPaths",
+        input.cwd,
+        ["diff", "--cached", "--name-only", "--diff-filter=A", "-z", "--", ...input.filePaths],
+        { maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES },
+      );
+      const trackedPaths = new Set(splitNullSeparatedGitStdoutPaths(trackedResult));
+      const stagedAddedPaths = new Set(splitNullSeparatedGitStdoutPaths(stagedAddedResult));
+      const restorePaths = input.filePaths.filter(
+        (filePath) => trackedPaths.has(filePath) && !stagedAddedPaths.has(filePath),
+      );
+      const cleanPaths = input.filePaths.filter(
+        (filePath) => !trackedPaths.has(filePath) || stagedAddedPaths.has(filePath),
+      );
+
+      if (stagedAddedPaths.size > 0) {
+        yield* runGit("GitVcsDriver.restoreFiles.unstageAdded", input.cwd, [
+          "restore",
+          "--staged",
+          "--",
+          ...stagedAddedPaths,
+        ]);
+      }
+
+      if (restorePaths.length > 0) {
+        yield* runGit("GitVcsDriver.restoreFiles.restoreTracked", input.cwd, [
+          "restore",
+          "--staged",
+          "--worktree",
+          "--",
+          ...restorePaths,
+        ]);
+      }
+
+      if (cleanPaths.length > 0) {
+        yield* runGit("GitVcsDriver.restoreFiles.cleanUntracked", input.cwd, [
+          "clean",
+          "-f",
+          "--",
+          ...cleanPaths,
+        ]);
+      }
+
+      return {
+        filePaths: [...input.filePaths],
+      };
+    },
+  );
+
   const listRefs: GitVcsDriver.GitVcsDriverShape["listRefs"] = Effect.fn("listRefs")(
     function* (input) {
       const branchRecencyPromise = readBranchRecency(input.cwd).pipe(
@@ -2467,6 +2533,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     readConfigValue,
     listRefs,
     workingTreeFileChanges,
+    restoreFiles,
     createWorktree,
     fetchPullRequestBranch,
     ensureRemote,
