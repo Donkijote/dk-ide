@@ -13,7 +13,6 @@ import {
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
-import { Checkbox } from "~/components/ui/checkbox";
 import { Input } from "~/components/ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Kbd, KbdGroup } from "~/components/ui/kbd";
@@ -156,7 +155,6 @@ interface WorkspaceEditorPaneProps {
   readonly workspaceRoot: string | undefined;
   readonly onActive?: () => void;
   readonly onActivePathChange?: (path: string | null) => void;
-  readonly onSelectedGitFilePathsChange?: (filePaths: readonly string[]) => void;
   readonly onWorkspaceStateChange?: (state: EditorWorkspaceState) => void;
 }
 
@@ -185,7 +183,6 @@ export function WorkspaceEditorPane({
   workspaceRoot,
   onActive,
   onActivePathChange,
-  onSelectedGitFilePathsChange,
   onWorkspaceStateChange,
 }: WorkspaceEditorPaneProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -200,9 +197,6 @@ export function WorkspaceEditorPane({
     Record<string, EditorWorkspaceState>
   >({});
   const [currentDirectoryPath, setCurrentDirectoryPath] = useState("");
-  const [excludedChangedFilePaths, setExcludedChangedFilePaths] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
   const [searchOpen, setSearchOpen] = useState(false);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
   const workspaceContextKey =
@@ -263,18 +257,6 @@ export function WorkspaceEditorPane({
     () => buildChangedPathState(gitStatus.data?.workingTree.files ?? []),
     [gitStatus.data?.workingTree.files],
   );
-  const changedFilePaths = useMemo(
-    () => Array.from(changedPathState.changedFileByPath.keys()),
-    [changedPathState],
-  );
-  const selectedChangedFilePaths = useMemo(
-    () => changedFilePaths.filter((filePath) => !excludedChangedFilePaths.has(filePath)),
-    [changedFilePaths, excludedChangedFilePaths],
-  );
-  const allChangedFilesSelected =
-    changedFilePaths.length > 0 && selectedChangedFilePaths.length === changedFilePaths.length;
-  const noChangedFilesSelected =
-    changedFilePaths.length > 0 && selectedChangedFilePaths.length === 0;
   const currentDirectoryTrail = useMemo(
     () => buildDirectoryTrail(currentDirectoryPath),
     [currentDirectoryPath],
@@ -287,32 +269,6 @@ export function WorkspaceEditorPane({
     onActivePathChange?.(activePath);
     onWorkspaceStateChange?.(workspaceEditorState);
   }, [activePath, onActivePathChange, onWorkspaceStateChange, workspaceEditorState]);
-
-  useEffect(() => {
-    if (changedFilePaths.length === 0) {
-      setExcludedChangedFilePaths((currentExcludedFilePaths) =>
-        currentExcludedFilePaths.size === 0 ? currentExcludedFilePaths : new Set(),
-      );
-      return;
-    }
-
-    const changedFilePathSet = new Set(changedFilePaths);
-    setExcludedChangedFilePaths((currentExcludedFilePaths) => {
-      const nextExcludedFilePaths = new Set(
-        Array.from(currentExcludedFilePaths).filter((filePath) => changedFilePathSet.has(filePath)),
-      );
-      return nextExcludedFilePaths.size === currentExcludedFilePaths.size
-        ? currentExcludedFilePaths
-        : nextExcludedFilePaths;
-    });
-  }, [changedFilePaths]);
-
-  useEffect(() => {
-    if (!gitStatus.data) {
-      return;
-    }
-    onSelectedGitFilePathsChange?.(selectedChangedFilePaths);
-  }, [gitStatus.data, onSelectedGitFilePathsChange, selectedChangedFilePaths]);
 
   const activeFileChangesQuery = useQuery(
     gitWorkingTreeFileChangesQueryOptions({
@@ -406,22 +362,6 @@ export function WorkspaceEditorPane({
     },
     [onActive],
   );
-  const toggleChangedFileSelection = useCallback((path: string) => {
-    setExcludedChangedFilePaths((currentExcludedFilePaths) => {
-      const nextExcludedFilePaths = new Set(currentExcludedFilePaths);
-      if (nextExcludedFilePaths.has(path)) {
-        nextExcludedFilePaths.delete(path);
-      } else {
-        nextExcludedFilePaths.add(path);
-      }
-      return nextExcludedFilePaths;
-    });
-  }, []);
-  const toggleAllChangedFileSelection = useCallback(() => {
-    setExcludedChangedFilePaths((currentExcludedFilePaths) =>
-      currentExcludedFilePaths.size === 0 ? new Set(changedFilePaths) : new Set(),
-    );
-  }, [changedFilePaths]);
 
   useEffect(() => {
     if (!openFileRequest || workspaceRoot === undefined) {
@@ -767,19 +707,6 @@ export function WorkspaceEditorPane({
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-1.5">
-            {changedFilePaths.length > 0 ? (
-              <div className="mb-1 flex min-h-8 items-center gap-2 rounded-md border border-border/70 bg-background px-2 py-1 text-xs">
-                <Checkbox
-                  checked={allChangedFilesSelected}
-                  indeterminate={!allChangedFilesSelected && !noChangedFilesSelected}
-                  aria-label="Select all changed files for commit"
-                  onCheckedChange={toggleAllChangedFileSelection}
-                />
-                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                  {selectedChangedFilePaths.length} of {changedFilePaths.length} changes selected
-                </span>
-              </div>
-            ) : null}
             {!workspaceRoot ? (
               <div className="px-2 py-8 text-center text-muted-foreground text-xs">
                 No workspace root.
@@ -801,61 +728,7 @@ export function WorkspaceEditorPane({
                     entry.kind === "directory" &&
                     changedPathState.changedDirectoryPaths.has(entry.path);
                   const isActiveFile = entry.kind === "file" && entry.path === activePath;
-                  const isChangedFileSelected =
-                    entry.kind === "file" &&
-                    changedFile !== undefined &&
-                    !excludedChangedFilePaths.has(entry.path);
                   const Icon = entry.kind === "directory" ? FolderIcon : FileCode2Icon;
-                  const rowContent = (
-                    <>
-                      <Icon
-                        className={cn(
-                          "size-3.5 shrink-0",
-                          entry.kind === "directory" && containsChangedFile && "text-amber-500",
-                          entry.kind === "file" && changedFile && "text-amber-500",
-                        )}
-                      />
-                      <span className="min-w-0 flex-1 truncate font-medium">
-                        {basenameOfPath(entry.path)}
-                      </span>
-                      {entry.kind === "directory" ? (
-                        <ChevronRightIcon className="size-3 shrink-0 opacity-45 transition group-hover:opacity-80" />
-                      ) : changedFile ? (
-                        <span
-                          className="size-1.5 shrink-0 rounded-full bg-amber-500"
-                          title={`Changed: +${changedFile.insertions} -${changedFile.deletions}`}
-                        />
-                      ) : null}
-                    </>
-                  );
-
-                  if (entry.kind === "file" && changedFile) {
-                    return (
-                      <div
-                        key={entry.path}
-                        className={cn(
-                          "group flex min-h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
-                          isActiveFile
-                            ? "bg-accent text-accent-foreground"
-                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                        )}
-                        title={entry.path}
-                      >
-                        <Checkbox
-                          checked={isChangedFileSelected}
-                          aria-label={`Select ${basenameOfPath(entry.path)} for commit`}
-                          onCheckedChange={() => toggleChangedFileSelection(entry.path)}
-                        />
-                        <button
-                          type="button"
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                          onClick={() => openPath(entry.path)}
-                        >
-                          {rowContent}
-                        </button>
-                      </div>
-                    );
-                  }
 
                   return (
                     <button
@@ -876,7 +749,24 @@ export function WorkspaceEditorPane({
                         }
                       }}
                     >
-                      {rowContent}
+                      <Icon
+                        className={cn(
+                          "size-3.5 shrink-0",
+                          entry.kind === "directory" && containsChangedFile && "text-amber-500",
+                          entry.kind === "file" && changedFile && "text-amber-500",
+                        )}
+                      />
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {basenameOfPath(entry.path)}
+                      </span>
+                      {entry.kind === "directory" ? (
+                        <ChevronRightIcon className="size-3 shrink-0 opacity-45 transition group-hover:opacity-80" />
+                      ) : changedFile ? (
+                        <span
+                          className="size-1.5 shrink-0 rounded-full bg-amber-500"
+                          title={`Changed: +${changedFile.insertions} -${changedFile.deletions}`}
+                        />
+                      ) : null}
                     </button>
                   );
                 })}

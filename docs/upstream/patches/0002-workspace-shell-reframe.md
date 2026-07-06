@@ -88,7 +88,7 @@ composition, which are likely to continue evolving upstream.
   coordinates, edge placement and center swapping, collision-pushing resize,
   two-axis workspace scrolling, and pane layouts scoped by environment, project,
   and workspace root instead of the active route thread
-- `improvement/ghi#43`: editor-pane changed-file selection wired into Git
+- `improvement/ghi#43`: commit-dialog changed-file selection wired into Git
   commit actions so selected-file commits can reuse the existing stacked-action
   `filePaths` path
 
@@ -158,8 +158,8 @@ composition, which are likely to continue evolving upstream.
   positions
 - resize panes from their right and bottom tile edges; when growth reaches
   another pane, move that pane along the resize axis rather than shrinking it
-- keep editor Git selection as local web presentation state and pass selected
-  paths into the existing stacked Git action API, leaving server commit-context
+- keep selected-file commit choices in the commit dialog and pass selected paths
+  into the existing stacked Git action API, leaving server commit-context
   generation and default-branch confirmation behavior unchanged
 - split future implementation into smaller patch files when the shell reframe
   turns into concrete workstreams such as sidebar mapping, pane extraction, or

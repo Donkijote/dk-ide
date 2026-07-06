@@ -38,8 +38,6 @@ import {
   type DefaultBranchConfirmableAction,
   requiresDefaultBranchConfirmation,
   resolveDefaultBranchActionDialogCopy,
-  resolveExcludedGitDialogFilePaths,
-  resolveGitActionFilePaths,
   resolveLiveThreadBranchUpdate,
   resolveQuickAction,
   resolveThreadBranchUpdate,
@@ -87,7 +85,6 @@ interface GitActionsControlProps {
   gitCwd: string | null;
   activeThreadRef: ScopedThreadRef | null;
   draftId?: DraftId;
-  selectedFilePaths?: readonly string[];
 }
 
 interface PendingDefaultBranchAction {
@@ -952,7 +949,6 @@ export default function GitActionsControl({
   gitCwd,
   activeThreadRef,
   draftId,
-  selectedFilePaths,
 }: GitActionsControlProps) {
   const activeEnvironmentId = activeThreadRef?.environmentId ?? null;
   const threadToastData = useMemo(
@@ -1076,20 +1072,9 @@ export default function GitActionsControl({
   const gitStatusForActions = gitStatus;
 
   const allFiles = gitStatusForActions?.workingTree.files ?? [];
-  const allFilePaths = useMemo(() => allFiles.map((file) => file.path), [allFiles]);
   const selectedFiles = allFiles.filter((f) => !excludedFiles.has(f.path));
   const allSelected = excludedFiles.size === 0;
   const noneSelected = selectedFiles.length === 0;
-  const selectedActionFilePaths = useMemo(
-    () =>
-      resolveGitActionFilePaths({
-        allFilePaths,
-        ...(selectedFilePaths !== undefined ? { selectedFilePaths } : {}),
-      }),
-    [allFilePaths, selectedFilePaths],
-  );
-  const hasNoEditorSelectedFiles =
-    selectedActionFilePaths === null && gitStatusForActions?.hasWorkingTreeChanges === true;
 
   const initAction = useVcsInitAction(sourceControlScope);
   const runImmediateGitAction = useGitStackedAction(sourceControlScope);
@@ -1546,25 +1531,7 @@ export default function GitActionsControl({
       return;
     }
     if (quickAction.action) {
-      const actionCanCommit =
-        quickAction.action === "commit" ||
-        quickAction.action === "commit_push" ||
-        quickAction.action === "commit_push_pr";
-      if (actionCanCommit && hasNoEditorSelectedFiles) {
-        toastManager.add({
-          type: "info",
-          title: "No files selected",
-          description: "Select at least one changed file before committing.",
-          data: threadToastData,
-        });
-        return;
-      }
-      void runGitActionWithToast({
-        action: quickAction.action,
-        ...(actionCanCommit && selectedActionFilePaths
-          ? { filePaths: [...selectedActionFilePaths] }
-          : {}),
-      });
+      void runGitActionWithToast({ action: quickAction.action });
     }
   };
 
@@ -1582,11 +1549,7 @@ export default function GitActionsControl({
       void runGitActionWithToast({ action: "create_pr" });
       return;
     }
-    const nextExcludedFiles = resolveExcludedGitDialogFilePaths({
-      allFilePaths,
-      ...(selectedFilePaths !== undefined ? { selectedFilePaths } : {}),
-    });
-    setExcludedFiles(new Set(nextExcludedFiles));
+    setExcludedFiles(new Set());
     setIsCommitDialogOpen(true);
   };
 

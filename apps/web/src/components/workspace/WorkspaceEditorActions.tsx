@@ -25,7 +25,6 @@ interface WorkspaceEditorActionsProps {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   gitCwd: string | null;
-  selectedGitFilePaths?: readonly string[];
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
@@ -55,7 +54,6 @@ export const WorkspaceEditorActions = memo(function WorkspaceEditorActions({
   keybindings,
   availableEditors,
   gitCwd,
-  selectedGitFilePaths,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
@@ -93,9 +91,6 @@ export const WorkspaceEditorActions = memo(function WorkspaceEditorActions({
           gitCwd={gitCwd}
           activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
           {...(draftId ? { draftId } : {})}
-          {...(selectedGitFilePaths !== undefined
-            ? { selectedFilePaths: selectedGitFilePaths }
-            : {})}
         />
       )}
     </div>

@@ -43,40 +43,6 @@ export type DefaultBranchConfirmableAction =
   | "commit_push"
   | "commit_push_pr";
 
-export function resolveGitActionFilePaths(input: {
-  readonly allFilePaths: readonly string[];
-  readonly selectedFilePaths?: readonly string[];
-}): readonly string[] | null | undefined {
-  if (input.selectedFilePaths === undefined) {
-    return undefined;
-  }
-
-  const selectedFilePathSet = new Set(input.selectedFilePaths);
-  const orderedSelectedFilePaths = input.allFilePaths.filter((filePath) =>
-    selectedFilePathSet.has(filePath),
-  );
-
-  if (orderedSelectedFilePaths.length === 0) {
-    return null;
-  }
-  if (orderedSelectedFilePaths.length === input.allFilePaths.length) {
-    return undefined;
-  }
-  return orderedSelectedFilePaths;
-}
-
-export function resolveExcludedGitDialogFilePaths(input: {
-  readonly allFilePaths: readonly string[];
-  readonly selectedFilePaths?: readonly string[];
-}): readonly string[] {
-  if (input.selectedFilePaths === undefined) {
-    return [];
-  }
-
-  const selectedFilePathSet = new Set(input.selectedFilePaths);
-  return input.allFilePaths.filter((filePath) => !selectedFilePathSet.has(filePath));
-}
-
 function resolveChangeRequestTerminology(
   gitStatus: VcsStatusResult | null,
 ): ChangeRequestTerminology {
