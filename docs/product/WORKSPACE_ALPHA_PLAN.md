@@ -193,18 +193,30 @@ Add a narrow `vcs.restoreFiles` style contract and server handler for
 
 ## Implementation Tracker
 
-- [ ] Create alpha product plan.
-- [ ] Introduce persisted scrollable-column pane layout.
-- [ ] Add pane rename and title model.
-- [ ] Move thread selection into the AI pane.
-- [ ] Support multiple AI panes bound to separate threads.
-- [ ] Add shared pane creation with workspace or directory target.
+Closed alpha issues completed so far:
+
+- [x] Create alpha product plan.
+- [x] Introduce persisted docked pane layout as the first alpha layout baseline.
+- [x] Add pane rename and title model.
+- [x] Keep editor pane titles stable across file selection.
+- [x] Move thread selection into the AI pane.
+- [x] Support multiple AI panes bound to separate threads.
+- [x] Add shared pane creation with workspace or directory target.
 - [x] Support multiple terminal panes with selected cwd.
 - [x] Preserve terminal tabs and splits inside terminal panes.
 - [x] Add pane resize and drag reorder.
-- [ ] Persist and restore workspace pane sessions.
-- [ ] Commit selected editor files.
-- [ ] Roll back selected editor file changes.
+- [x] Persist and restore workspace pane sessions.
+- [x] Commit selected editor files.
+- [x] Roll back selected editor file changes.
+
+Remaining alpha layout work after the scrollable-column direction:
+
+- [ ] Replace the two-dimensional docked layout baseline with the
+      workspace-owned scrollable-column host.
+- [ ] Persist and restore scrollable-column-specific state such as width
+      presets, custom widths, active pane, and strip scroll position.
+- [ ] Validate focus-driven horizontal scrolling and orientation cues in
+      longer workspace sessions.
 - [ ] Validate alpha workspace flows.
 
 ## Validation
@@ -229,6 +241,8 @@ Before implementation PRs are considered complete, run:
 - `bun fmt`
 - `bun lint`
 - `bun typecheck`
+- `vp check`
+- `vp run typecheck`
 
 Do not run `bun test`; use `bun run test` only when targeted tests are needed.
 
