@@ -1444,6 +1444,9 @@ export default function ChatView(props: ChatViewProps) {
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [editorOpenFileRequest, setEditorOpenFileRequest] =
     useState<WorkspaceEditorOpenFileRequest | null>(null);
+  const [editorSelectedGitFilePaths, setEditorSelectedGitFilePaths] = useState<
+    readonly string[] | undefined
+  >(undefined);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
   const [addPaneDialogOpen, setAddPaneDialogOpen] = useState(false);
@@ -2290,6 +2293,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   useEffect(() => {
     setEditorOpenFileRequest(null);
+    setEditorSelectedGitFilePaths(undefined);
   }, [activeThread?.id, activeWorkspaceRoot]);
   const claudeRuntimeStatusQuery = useQuery(
     providerRuntimeStatusQueryOptions({
@@ -5066,6 +5070,9 @@ export default function ChatView(props: ChatViewProps) {
     keybindings,
     availableEditors,
     gitCwd,
+    ...(editorSelectedGitFilePaths !== undefined
+      ? { selectedGitFilePaths: editorSelectedGitFilePaths }
+      : {}),
     onRunProjectScript: runProjectScript,
     onAddProjectScript: saveProjectScript,
     onUpdateProjectScript: updateProjectScript,
@@ -5252,6 +5259,7 @@ export default function ChatView(props: ChatViewProps) {
             {...(isDefaultEditorPane
               ? {
                   onActive: markEditorActive,
+                  onSelectedGitFilePathsChange: setEditorSelectedGitFilePaths,
                   onWorkspaceStateChange: persistWorkspaceEditorPaneState,
                 }
               : {})}

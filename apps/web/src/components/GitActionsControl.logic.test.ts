@@ -4,8 +4,10 @@ import {
   buildGitActionProgressStages,
   buildMenuItems,
   requiresDefaultBranchConfirmation,
+  resolveExcludedGitDialogFilePaths,
   resolveAutoFeatureBranchName,
   resolveDefaultBranchActionDialogCopy,
+  resolveGitActionFilePaths,
   resolveLiveThreadBranchUpdate,
   resolveQuickAction,
   resolveThreadBranchUpdate,
@@ -30,6 +32,57 @@ function status(overrides: Partial<VcsStatusResult> = {}): VcsStatusResult {
     ...overrides,
   };
 }
+
+describe("resolveGitActionFilePaths", () => {
+  const allFilePaths = ["apps/web/a.ts", "apps/web/b.ts", "packages/shared/c.ts"];
+
+  it("keeps all-file commits on the default path when there is no editor selection", () => {
+    assert.equal(resolveGitActionFilePaths({ allFilePaths }), undefined);
+  });
+
+  it("keeps all-file commits on the default path when every changed file is selected", () => {
+    assert.equal(
+      resolveGitActionFilePaths({ allFilePaths, selectedFilePaths: allFilePaths }),
+      undefined,
+    );
+  });
+
+  it("returns selected file paths in git status order for subset commits", () => {
+    assert.deepEqual(
+      resolveGitActionFilePaths({
+        allFilePaths,
+        selectedFilePaths: ["packages/shared/c.ts", "apps/web/a.ts"],
+      }),
+      ["apps/web/a.ts", "packages/shared/c.ts"],
+    );
+  });
+
+  it("returns null when no current changed files are selected", () => {
+    assert.equal(resolveGitActionFilePaths({ allFilePaths, selectedFilePaths: [] }), null);
+    assert.equal(
+      resolveGitActionFilePaths({ allFilePaths, selectedFilePaths: ["deleted/from/status.ts"] }),
+      null,
+    );
+  });
+});
+
+describe("resolveExcludedGitDialogFilePaths", () => {
+  const allFilePaths = ["a.ts", "b.ts", "c.ts"];
+
+  it("does not pre-exclude files without an editor selection", () => {
+    assert.deepEqual(resolveExcludedGitDialogFilePaths({ allFilePaths }), []);
+  });
+
+  it("pre-excludes changed files outside the editor selection", () => {
+    assert.deepEqual(
+      resolveExcludedGitDialogFilePaths({
+        allFilePaths,
+        selectedFilePaths: ["c.ts", "missing.ts"],
+      }),
+      ["a.ts", "b.ts"],
+    );
+  });
+});
 
 describe("when: ref is clean and has an open PR", () => {
   it("resolveQuickAction opens the existing PR", () => {
