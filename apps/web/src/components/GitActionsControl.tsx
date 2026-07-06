@@ -972,7 +972,6 @@ export default function GitActionsControl({
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
-  const [isEditingFiles, setIsEditingFiles] = useState(false);
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
@@ -1479,7 +1478,6 @@ export default function GitActionsControl({
     setIsCommitDialogOpen(false);
     setDialogCommitMessage("");
     setExcludedFiles(new Set());
-    setIsEditingFiles(false);
 
     void runGitActionWithToast({
       action: "commit",
@@ -1552,7 +1550,6 @@ export default function GitActionsControl({
       return;
     }
     setExcludedFiles(new Set());
-    setIsEditingFiles(false);
     setIsCommitDialogOpen(true);
   };
 
@@ -1562,7 +1559,6 @@ export default function GitActionsControl({
     setIsCommitDialogOpen(false);
     setDialogCommitMessage("");
     setExcludedFiles(new Set());
-    setIsEditingFiles(false);
     void runGitActionWithToast({
       action: "commit",
       ...(commitMessage ? { commitMessage } : {}),
@@ -1755,7 +1751,6 @@ export default function GitActionsControl({
             setIsCommitDialogOpen(false);
             setDialogCommitMessage("");
             setExcludedFiles(new Set());
-            setIsEditingFiles(false);
           }
         }}
       >
@@ -1782,10 +1777,11 @@ export default function GitActionsControl({
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    {isEditingFiles && allFiles.length > 0 && (
+                    {allFiles.length > 0 && (
                       <Checkbox
                         checked={allSelected}
                         indeterminate={!allSelected && !noneSelected}
+                        aria-label="Select all files for commit"
                         onCheckedChange={() => {
                           setExcludedFiles(
                             allSelected ? new Set(allFiles.map((f) => f.path)) : new Set(),
@@ -1794,21 +1790,12 @@ export default function GitActionsControl({
                       />
                     )}
                     <span className="text-muted-foreground">Files</span>
-                    {!allSelected && !isEditingFiles && (
+                    {allFiles.length > 0 && (
                       <span className="text-muted-foreground">
                         ({selectedFiles.length} of {allFiles.length})
                       </span>
                     )}
                   </div>
-                  {allFiles.length > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => setIsEditingFiles((prev) => !prev)}
-                    >
-                      {isEditingFiles ? "Done" : "Edit"}
-                    </Button>
-                  )}
                 </div>
                 {!gitStatusForActions || allFiles.length === 0 ? (
                   <p className="font-medium">none</p>
@@ -1823,22 +1810,21 @@ export default function GitActionsControl({
                               key={file.path}
                               className="flex w-full items-center gap-2 rounded-md px-2 py-1 font-mono text-xs transition-colors hover:bg-accent/50"
                             >
-                              {isEditingFiles && (
-                                <Checkbox
-                                  checked={!excludedFiles.has(file.path)}
-                                  onCheckedChange={() => {
-                                    setExcludedFiles((prev) => {
-                                      const next = new Set(prev);
-                                      if (next.has(file.path)) {
-                                        next.delete(file.path);
-                                      } else {
-                                        next.add(file.path);
-                                      }
-                                      return next;
-                                    });
-                                  }}
-                                />
-                              )}
+                              <Checkbox
+                                checked={!excludedFiles.has(file.path)}
+                                aria-label={`Select ${file.path} for commit`}
+                                onCheckedChange={() => {
+                                  setExcludedFiles((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(file.path)) {
+                                      next.delete(file.path);
+                                    } else {
+                                      next.add(file.path);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                              />
                               <button
                                 type="button"
                                 className="flex flex-1 items-center justify-between gap-3 text-left truncate"
@@ -1897,7 +1883,6 @@ export default function GitActionsControl({
                 setIsCommitDialogOpen(false);
                 setDialogCommitMessage("");
                 setExcludedFiles(new Set());
-                setIsEditingFiles(false);
               }}
             >
               Cancel
