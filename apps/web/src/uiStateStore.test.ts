@@ -13,6 +13,7 @@ import {
   type PersistedWorkspaceDockedPane,
   type PersistedUiState,
   persistState,
+  readPersistedState,
   reorderProjects,
   removeWorkspaceThreadDockedPane,
   restoreWorkspaceThreadDefaultDockedPane,
@@ -1365,6 +1366,61 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
+  it("clears a stale active pane when storing sanitized docked panes", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const initialState = makeUiState({
+      workspaceThreadLayoutById: {
+        [thread1]: {
+          activePaneId: "ai:missing",
+          panes: [
+            {
+              paneId: "ai:missing",
+              type: "ai",
+              title: "Missing AI",
+              environmentId: "env-1",
+              cwd: "/repo",
+              order: 0,
+              size: 1,
+              metadata: {
+                threadId: "missing-thread",
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const next = setWorkspaceThreadDockedPanes(initialState, thread1, [
+      {
+        paneId: "editor",
+        type: "editor",
+        title: "Editor",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 0,
+        size: 1,
+        metadata: {},
+      },
+    ]);
+
+    expect(next.workspaceThreadLayoutById[thread1]).toEqual({
+      panes: [
+        {
+          paneId: "editor",
+          type: "editor",
+          title: "Editor",
+          environmentId: "env-1",
+          cwd: "/repo",
+          order: 0,
+          size: 1,
+          metadata: {
+            activePath: null,
+          },
+        },
+      ],
+    });
+  });
+
   it("clears workspace pane title overrides when the title is empty", () => {
     const thread1 = ThreadId.make("thread-1");
     let state = setWorkspaceThreadPaneTitleOverride(makeUiState(), thread1, "editor", "Source");
@@ -1556,6 +1612,127 @@ describe("uiStateStore persistence round-trip", () => {
         planSidebarOpen: true,
         lastActivePane: "plan",
         paneTitleOverrideById: { editor: "Source" },
+      },
+    });
+  });
+
+  it("restores complete workspace pane sessions from persisted storage", () => {
+    const workspaceKey = "workspace:env-1:project-1:%2Frepo";
+    const state = makeUiState({
+      workspaceShellSidebarOpen: false,
+      workspaceThreadLayoutById: {
+        [workspaceKey]: {
+          activePaneId: "terminal:tools",
+          paneTitleOverrideById: {
+            "terminal:tools": "Tools",
+          },
+          panes: [
+            {
+              paneId: "ai:secondary",
+              type: "ai",
+              title: "Review Thread",
+              environmentId: "env-1",
+              cwd: "/repo",
+              order: 1,
+              size: 0.75,
+              height: 720,
+              dockX: 640,
+              dockY: 0,
+              metadata: {
+                threadId: "thread-review",
+              },
+            },
+            {
+              paneId: "editor",
+              type: "editor",
+              title: "Source",
+              environmentId: "env-1",
+              cwd: "/repo",
+              order: 0,
+              size: 1.25,
+              dockX: 0,
+              dockY: 0,
+              metadata: {
+                activePath: "apps/web/src/uiStateStore.ts",
+                openPaths: ["README.md", "apps/web/src/uiStateStore.ts"],
+              },
+            },
+            {
+              paneId: "terminal:tools",
+              type: "terminal",
+              title: "Tools Terminal",
+              environmentId: "env-1",
+              cwd: "/repo/tools",
+              order: 2,
+              size: 1.1,
+              height: 360,
+              dockX: 0,
+              dockY: 720,
+              metadata: {
+                threadId: "thread-main",
+                terminalId: "terminal-tools",
+                terminalGroupId: "group-terminal-tools",
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    persistState(state);
+
+    expect(readPersistedState()).toMatchObject({
+      workspaceShellSidebarOpen: false,
+      workspaceThreadLayoutById: {
+        [workspaceKey]: {
+          activePaneId: "terminal:tools",
+          paneTitleOverrideById: {
+            "terminal:tools": "Tools",
+          },
+          panes: [
+            {
+              paneId: "editor",
+              title: "Source",
+              cwd: "/repo",
+              order: 0,
+              size: 1.25,
+              dockX: 0,
+              dockY: 0,
+              metadata: {
+                activePath: "apps/web/src/uiStateStore.ts",
+                openPaths: ["README.md", "apps/web/src/uiStateStore.ts"],
+              },
+            },
+            {
+              paneId: "ai:secondary",
+              title: "Review Thread",
+              cwd: "/repo",
+              order: 1,
+              size: 0.75,
+              height: 720,
+              dockX: 640,
+              dockY: 0,
+              metadata: {
+                threadId: "thread-review",
+              },
+            },
+            {
+              paneId: "terminal:tools",
+              title: "Tools Terminal",
+              cwd: "/repo/tools",
+              order: 2,
+              size: 1.1,
+              height: 360,
+              dockX: 0,
+              dockY: 720,
+              metadata: {
+                threadId: "thread-main",
+                terminalId: "terminal-tools",
+                terminalGroupId: "group-terminal-tools",
+              },
+            },
+          ],
+        },
       },
     });
   });

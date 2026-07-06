@@ -2311,6 +2311,61 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("repairs a restored AI pane when its attached thread is missing", async () => {
+    const workspaceKey = workspacePaneLayoutKey({
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      projectId: PROJECT_ID,
+      workspaceRoot: "/repo/project",
+    });
+    useUiStateStore.setState({
+      workspaceThreadLayoutById: {
+        [workspaceKey]: {
+          activePaneId: "ai",
+          panes: [
+            {
+              paneId: "ai",
+              type: "ai",
+              title: "Missing thread",
+              environmentId: LOCAL_ENVIRONMENT_ID,
+              cwd: "/repo/project",
+              order: 0,
+              size: 1,
+              metadata: { threadId: "thread-missing-after-restore" },
+            },
+          ],
+        },
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-missing-restored-ai-pane" as MessageId,
+        targetText: "missing restored AI pane",
+      }),
+    });
+
+    try {
+      await expect
+        .element(page.getByText("No thread is open in this AI pane."))
+        .toBeInTheDocument();
+      await vi.waitFor(() => {
+        expect(
+          useUiStateStore
+            .getState()
+            .workspaceThreadLayoutById[workspaceKey]?.panes?.find((pane) => pane.paneId === "ai"),
+        ).toMatchObject({
+          metadata: {
+            threadId: null,
+          },
+        });
+      });
+    } finally {
+      await mounted.cleanup();
+      useUiStateStore.setState({ workspaceThreadLayoutById: {} });
+    }
+  });
+
   it("repairs a stale editor pane pushed below the AI pane", async () => {
     useUiStateStore.setState({
       workspaceThreadLayoutById: {
