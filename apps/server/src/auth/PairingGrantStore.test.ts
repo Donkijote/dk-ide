@@ -137,11 +137,11 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
     }).pipe(Effect.provide(makePairingGrantStoreLayer())),
   );
 
-  it.effect("seeds the desktop bootstrap credential as a one-time grant", () =>
+  it.effect("seeds the desktop bootstrap credential as a reusable local grant", () =>
     Effect.gen(function* () {
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const first = yield* bootstrapCredentials.consume("desktop-bootstrap-token");
-      const second = yield* Effect.flip(bootstrapCredentials.consume("desktop-bootstrap-token"));
+      const second = yield* bootstrapCredentials.consume("desktop-bootstrap-token");
 
       expect(first.method).toBe("desktop-bootstrap");
       expect(first.scopes).toEqual([
@@ -155,7 +155,8 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
         "relay:write",
       ]);
       expect(first.subject).toBe("desktop-bootstrap");
-      expect(second._tag).toBe("UnknownBootstrapCredentialError");
+      expect(second.method).toBe("desktop-bootstrap");
+      expect(second.subject).toBe("desktop-bootstrap");
     }).pipe(
       Effect.provide(
         makePairingGrantStoreLayer({

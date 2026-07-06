@@ -1,6 +1,7 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import {
   AuthSessionId,
+  type AuthAccessTokenResult,
   EnvironmentAuthenticatedAuth,
   EnvironmentAuthenticatedPrincipal,
   EnvironmentHttpApi,
@@ -10,6 +11,7 @@ import {
   type AuthEnvironmentScope,
   type AuthPairingCredentialResult,
   type AuthSessionState,
+  type AuthTokenExchangeRequest,
   type ExecutionEnvironmentDescriptor,
   type EnvironmentAuthInvalidError,
 } from "@t3tools/contracts";
@@ -27,11 +29,21 @@ import { __setPrimaryHttpRunnerForTests } from "../src/lib/runtime";
 type BrowserSessionHandler = (
   payload: AuthBrowserSessionRequest,
 ) => Effect.Effect<AuthBrowserSessionResult, EnvironmentAuthInvalidError>;
+type AuthHeaders = {
+  readonly authorization?: string;
+  readonly dpop?: string;
+};
+type SessionHandler = (headers: AuthHeaders) => Effect.Effect<AuthSessionState>;
+type TokenHandler = (
+  payload: AuthTokenExchangeRequest,
+  headers: AuthHeaders,
+) => Effect.Effect<AuthAccessTokenResult, EnvironmentAuthInvalidError>;
 
 interface EnvironmentHttpTestScenario {
   readonly descriptor?: () => Effect.Effect<ExecutionEnvironmentDescriptor>;
-  readonly session?: () => Effect.Effect<AuthSessionState>;
+  readonly session?: SessionHandler;
   readonly browserSession?: BrowserSessionHandler;
+  readonly token?: TokenHandler;
   readonly pairingCredential?: (
     payload: AuthCreatePairingCredentialInput,
   ) => Effect.Effect<AuthPairingCredentialResult>;
@@ -40,7 +52,10 @@ interface EnvironmentHttpTestScenario {
 export interface EnvironmentHttpTestCalls {
   descriptor: number;
   session: number;
+  sessionHeaders: Array<AuthHeaders>;
   browserSession: Array<AuthBrowserSessionRequest>;
+  token: Array<AuthTokenExchangeRequest>;
+  tokenHeaders: Array<AuthHeaders>;
   pairingCredential: Array<AuthCreatePairingCredentialInput>;
 }
 
@@ -64,7 +79,10 @@ export async function installEnvironmentHttpTest(scenario: EnvironmentHttpTestSc
   const calls: EnvironmentHttpTestCalls = {
     descriptor: 0,
     session: 0,
+    sessionHeaders: [],
     browserSession: [],
+    token: [],
+    tokenHeaders: [],
     pairingCredential: [],
   };
 
@@ -85,9 +103,10 @@ export async function installEnvironmentHttpTest(scenario: EnvironmentHttpTestSc
           handlers
             .handle(
               "session",
-              Effect.fn("test.environment.auth.session")(function* () {
+              Effect.fn("test.environment.auth.session")(function* ({ headers }) {
                 calls.session += 1;
-                return yield* scenario.session?.() ?? unexpectedEndpoint("auth.session");
+                calls.sessionHeaders.push(headers);
+                return yield* scenario.session?.(headers) ?? unexpectedEndpoint("auth.session");
               }),
             )
             .handle(
@@ -99,7 +118,16 @@ export async function installEnvironmentHttpTest(scenario: EnvironmentHttpTestSc
                 );
               }),
             )
-            .handle("token", () => unexpectedEndpoint("auth.token"))
+            .handle(
+              "token",
+              Effect.fn("test.environment.auth.token")(function* ({ payload, headers }) {
+                calls.token.push(payload);
+                calls.tokenHeaders.push(headers);
+                return yield* (
+                  scenario.token?.(payload, headers) ?? unexpectedEndpoint("auth.token")
+                );
+              }),
+            )
             .handle("webSocketTicket", () => unexpectedEndpoint("auth.webSocketTicket"))
             .handle(
               "pairingCredential",

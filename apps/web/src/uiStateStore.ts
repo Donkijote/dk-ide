@@ -1,5 +1,6 @@
 import { Debouncer } from "@tanstack/react-pacer";
 import { create } from "zustand";
+import { DEFAULT_THREAD_TERMINAL_ID } from "./types";
 
 export const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
 const LEGACY_PERSISTED_STATE_KEYS = [
@@ -96,6 +97,12 @@ export interface WorkspaceThreadAddDockedPaneInput {
   threadId?: string | null | undefined;
   terminalId?: string | null | undefined;
   terminalGroupId?: string | null | undefined;
+}
+
+export interface WorkspaceThreadAiPaneBindingInput {
+  threadId: string | null;
+  environmentId?: string | null | undefined;
+  title?: string | null | undefined;
 }
 
 export interface PersistedWorkspaceThreadLayout {
@@ -1192,15 +1199,21 @@ function workspaceDockedPaneWithRuntimeContext(
     return pane;
   }
   if (pane.type === "terminal" && defaultPane.type === "terminal") {
+    const shouldRepairDefaultTerminalPane =
+      pane.paneId === WORKSPACE_DOCKED_PANE_IDS.terminal &&
+      defaultPane.metadata.terminalId === DEFAULT_THREAD_TERMINAL_ID;
     return {
       ...pane,
       environmentId: defaultPane.environmentId,
       cwd: defaultPane.cwd,
       metadata: {
         threadId: pane.metadata.threadId ?? defaultPane.metadata.threadId ?? null,
-        terminalId: pane.metadata.terminalId ?? defaultPane.metadata.terminalId ?? null,
-        terminalGroupId:
-          pane.metadata.terminalGroupId ?? defaultPane.metadata.terminalGroupId ?? null,
+        terminalId: shouldRepairDefaultTerminalPane
+          ? (defaultPane.metadata.terminalId ?? pane.metadata.terminalId ?? null)
+          : (pane.metadata.terminalId ?? defaultPane.metadata.terminalId ?? null),
+        terminalGroupId: shouldRepairDefaultTerminalPane
+          ? (defaultPane.metadata.terminalGroupId ?? pane.metadata.terminalGroupId ?? null)
+          : (pane.metadata.terminalGroupId ?? defaultPane.metadata.terminalGroupId ?? null),
       },
     };
   }
@@ -1378,6 +1391,45 @@ export function addWorkspaceThreadDockedPane(
     return {
       ...layout,
       activePaneId: pane.paneId,
+      panes,
+    };
+  });
+}
+
+export function setWorkspaceThreadAiPaneBinding(
+  state: UiState,
+  threadId: string,
+  paneId: string,
+  input: WorkspaceThreadAiPaneBindingInput,
+): UiState {
+  const normalizedPaneId = sanitizeWorkspacePaneTitle(paneId);
+  if (normalizedPaneId === null) {
+    return state;
+  }
+  return updateWorkspaceThreadLayout(state, threadId, (layout) => {
+    const existingPanes = sanitizeWorkspaceDockedPanes(layout.panes);
+    if (!existingPanes.some((pane) => pane.paneId === normalizedPaneId && pane.type === "ai")) {
+      return layout;
+    }
+    const nextThreadId = sanitizeOptionalString(input.threadId);
+    const nextEnvironmentId = sanitizeOptionalString(input.environmentId);
+    const nextTitle = sanitizeWorkspacePaneTitle(input.title);
+    const panes = existingPanes.map((pane) => {
+      if (pane.paneId !== normalizedPaneId || pane.type !== "ai") {
+        return pane;
+      }
+      return {
+        ...pane,
+        ...(nextEnvironmentId ? { environmentId: nextEnvironmentId } : {}),
+        ...(nextTitle ? { title: nextTitle } : {}),
+        metadata: {
+          threadId: nextThreadId,
+        },
+      };
+    });
+    return {
+      ...layout,
+      activePaneId: normalizedPaneId,
       panes,
     };
   });
@@ -1577,6 +1629,11 @@ interface UiStateStore extends UiState {
     threadId: string,
     input: WorkspaceThreadAddDockedPaneInput,
   ) => void;
+  setWorkspaceThreadAiPaneBinding: (
+    threadId: string,
+    paneId: string,
+    input: WorkspaceThreadAiPaneBindingInput,
+  ) => void;
   removeWorkspaceThreadDockedPane: (threadId: string, paneId: string) => void;
   restoreWorkspaceThreadDefaultDockedPane: (threadId: string, paneId: string) => void;
   setWorkspaceThreadActiveDockedPane: (threadId: string, paneId: string) => void;
@@ -1616,6 +1673,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setWorkspaceThreadDockedPanes(state, threadId, panes, activePaneId)),
   addWorkspaceThreadDockedPane: (threadId, input) =>
     set((state) => addWorkspaceThreadDockedPane(state, threadId, input)),
+  setWorkspaceThreadAiPaneBinding: (threadId, paneId, input) =>
+    set((state) => setWorkspaceThreadAiPaneBinding(state, threadId, paneId, input)),
   removeWorkspaceThreadDockedPane: (threadId, paneId) =>
     set((state) => removeWorkspaceThreadDockedPane(state, threadId, paneId)),
   restoreWorkspaceThreadDefaultDockedPane: (threadId, paneId) =>

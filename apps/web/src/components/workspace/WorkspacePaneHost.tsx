@@ -75,9 +75,14 @@ interface WorkspacePaneDragHandleValue {
 }
 
 const WorkspacePaneDragHandleContext = createContext<WorkspacePaneDragHandleValue | null>(null);
+const WorkspacePaneContentContext = createContext(false);
 
 export function useWorkspacePaneDragHandle(): WorkspacePaneDragHandleValue | null {
   return useContext(WorkspacePaneDragHandleContext);
+}
+
+export function useIsInsideWorkspacePane(): boolean {
+  return useContext(WorkspacePaneContentContext);
 }
 
 interface WorkspacePaneContainerProps {
@@ -100,17 +105,19 @@ function SortableWorkspacePane({ children, pane }: WorkspacePaneContainerProps) 
 
   return (
     <WorkspacePaneDragHandleContext.Provider value={dragHandle}>
-      <div
-        ref={setNodeRef}
-        className={cn("flex h-full shrink-0 flex-col", isDragging && "z-20 opacity-70")}
-        data-workspace-pane-id={pane.paneId}
-        style={{
-          width: "100%",
-          transform: CSS.Transform.toString(transform),
-        }}
-      >
-        {children}
-      </div>
+      <WorkspacePaneContentContext.Provider value>
+        <div
+          ref={setNodeRef}
+          className={cn("flex h-full shrink-0 flex-col", isDragging && "z-20 opacity-70")}
+          data-workspace-pane-id={pane.paneId}
+          style={{
+            width: "100%",
+            transform: CSS.Transform.toString(transform),
+          }}
+        >
+          {children}
+        </div>
+      </WorkspacePaneContentContext.Provider>
     </WorkspacePaneDragHandleContext.Provider>
   );
 }

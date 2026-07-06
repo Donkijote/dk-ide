@@ -40,6 +40,7 @@ import { ensureLocalApi } from "~/localApi";
 import { collectActiveTerminalUiThreadKeys } from "~/lib/terminalUiStateCleanup";
 import { deriveOrchestrationBatchEffects } from "~/orchestrationEventEffects";
 import { getPrimaryKnownEnvironment } from "../primary";
+import { readPrimaryBearerAccessToken } from "../primary/authToken";
 import { remoteHttpRuntime } from "../../lib/runtime";
 
 import {
@@ -1159,9 +1160,26 @@ function createPrimaryEnvironmentClient(
     );
   }
   const connectionLabel = knownEnvironment?.label ?? null;
+  const httpBaseUrl = knownEnvironment?.target.httpBaseUrl;
+  const socketUrl =
+    knownEnvironment?.source === "desktop-managed" && httpBaseUrl
+      ? async () => {
+          const bearerToken = readPrimaryBearerAccessToken();
+          if (!bearerToken) {
+            throw new Error("Primary desktop environment is missing its bearer session.");
+          }
+          return await remoteHttpRuntime.runPromise(
+            resolveRemoteWebSocketConnectionUrl({
+              wsBaseUrl,
+              httpBaseUrl,
+              bearerToken,
+            }),
+          );
+        }
+      : wsBaseUrl;
 
   return createWsRpcClient(
-    new WsTransport(wsBaseUrl, {
+    new WsTransport(socketUrl, {
       getConnectionLabel: () => connectionLabel,
       getVersionMismatchHint: () =>
         resolveServerConfigVersionMismatch(getServerConfig())?.hint ?? null,

@@ -1,12 +1,19 @@
 import type {
+  AuthAccessTokenResult,
   AuthBrowserSessionResult,
   AuthClientMetadata,
   AuthEnvironmentScope,
   AuthPairingCredentialResult,
   AuthSessionId,
   AuthSessionState,
+  DesktopEnvironmentBootstrap,
 } from "@t3tools/contracts";
-import { EnvironmentHttpCommonError } from "@t3tools/contracts";
+import {
+  AuthAccessTokenType,
+  AuthEnvironmentBootstrapTokenType,
+  AuthTokenExchangeGrantType,
+  EnvironmentHttpCommonError,
+} from "@t3tools/contracts";
 import type { EnvironmentHttpCommonError as EnvironmentHttpCommonErrorType } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -19,6 +26,11 @@ import {
 } from "../../pairingUrl";
 
 import { PrimaryEnvironmentHttpClient } from "./httpClient";
+import {
+  clearPrimaryBearerAccessToken,
+  currentPrimaryAuthHeaders,
+  setPrimaryBearerAccessToken,
+} from "./authToken";
 import { runPrimaryHttp } from "../../lib/runtime";
 import * as Data from "effect/Data";
 import * as Predicate from "effect/Predicate";
@@ -61,6 +73,9 @@ type ServerAuthGateState =
       auth: AuthSessionState["auth"];
       errorMessage?: string;
     };
+type DesktopBootstrapWithToken = DesktopEnvironmentBootstrap & {
+  readonly bootstrapToken: string;
+};
 
 let bootstrapPromise: Promise<ServerAuthGateState> | null = null;
 let resolvedAuthenticatedGateState: ServerAuthGateState | null = null;
@@ -89,10 +104,10 @@ export function takePairingTokenFromUrl(): string | null {
   return token;
 }
 
-function getDesktopBootstrapCredential(): string | null {
+function getDesktopBootstrap(): DesktopBootstrapWithToken | null {
   const bootstrap = window.desktopBridge?.getLocalEnvironmentBootstrap();
   return typeof bootstrap?.bootstrapToken === "string" && bootstrap.bootstrapToken.length > 0
-    ? bootstrap.bootstrapToken
+    ? (bootstrap as DesktopBootstrapWithToken)
     : null;
 }
 
@@ -101,7 +116,7 @@ export async function fetchSessionState(): Promise<AuthSessionState> {
     try {
       return await runPrimaryHttp(
         PrimaryEnvironmentHttpClient.pipe(
-          Effect.flatMap((client) => client.auth.session({ headers: {} })),
+          Effect.flatMap((client) => client.auth.session({ headers: currentPrimaryAuthHeaders() })),
         ),
       );
     } catch (error) {
@@ -192,6 +207,39 @@ async function exchangeBootstrapCredential(credential: string): Promise<AuthBrow
   });
 }
 
+async function exchangeDesktopBootstrapForBearerSession(
+  bootstrap: DesktopBootstrapWithToken,
+): Promise<AuthAccessTokenResult> {
+  return retryTransientBootstrap(async () => {
+    try {
+      return await runPrimaryHttp(
+        PrimaryEnvironmentHttpClient.pipe(
+          Effect.flatMap((client) =>
+            client.auth.token({
+              headers: {},
+              payload: {
+                grant_type: AuthTokenExchangeGrantType,
+                subject_token: bootstrap.bootstrapToken,
+                subject_token_type: AuthEnvironmentBootstrapTokenType,
+                requested_token_type: AuthAccessTokenType,
+                client_device_type: "desktop",
+                ...(bootstrap.label ? { client_label: bootstrap.label } : {}),
+              },
+            }),
+          ),
+        ),
+      );
+    } catch (error) {
+      const status = readHttpApiStatus(error) ?? 500;
+      const message = toFriendlyBootstrapErrorMessage(status, readHttpApiErrorMessage(error, ""));
+      throw new BootstrapHttpError({
+        message: message || `Failed to bootstrap desktop auth session (${status}).`,
+        status,
+      });
+    }
+  });
+}
+
 async function waitForAuthenticatedSessionAfterBootstrap(): Promise<AuthSessionState> {
   const startedAt = Date.now();
 
@@ -251,13 +299,13 @@ function isTransientBootstrapError(error: unknown): boolean {
 }
 
 async function bootstrapServerAuth(): Promise<ServerAuthGateState> {
-  const bootstrapCredential = getDesktopBootstrapCredential();
+  const desktopBootstrap = getDesktopBootstrap();
   const currentSession = await fetchSessionState();
   if (currentSession.authenticated) {
     return { status: "authenticated" };
   }
 
-  if (!bootstrapCredential) {
+  if (!desktopBootstrap) {
     return {
       status: "requires-auth",
       auth: currentSession.auth,
@@ -265,7 +313,8 @@ async function bootstrapServerAuth(): Promise<ServerAuthGateState> {
   }
 
   try {
-    await exchangeBootstrapCredential(bootstrapCredential);
+    const bearerSession = await exchangeDesktopBootstrapForBearerSession(desktopBootstrap);
+    setPrimaryBearerAccessToken(bearerSession.access_token);
     await waitForAuthenticatedSessionAfterBootstrap();
     return { status: "authenticated" };
   } catch (error) {
@@ -284,6 +333,7 @@ export async function submitServerAuthCredential(credential: string): Promise<vo
   }
 
   resolvedAuthenticatedGateState = null;
+  clearPrimaryBearerAccessToken();
   await exchangeBootstrapCredential(trimmedCredential);
   bootstrapPromise = null;
   stripPairingTokenFromUrl();
@@ -299,7 +349,7 @@ export async function createServerPairingCredential(input?: {
       PrimaryEnvironmentHttpClient.pipe(
         Effect.flatMap((client) =>
           client.auth.pairingCredential({
-            headers: {},
+            headers: currentPrimaryAuthHeaders(),
             payload: {
               ...(trimmedLabel ? { label: trimmedLabel } : {}),
               ...(input?.scopes ? { scopes: input.scopes } : {}),
@@ -323,7 +373,9 @@ export async function listServerPairingLinks(): Promise<ReadonlyArray<ServerPair
   try {
     const pairingLinks = await runPrimaryHttp(
       PrimaryEnvironmentHttpClient.pipe(
-        Effect.flatMap((client) => client.auth.pairingLinks({ headers: {} })),
+        Effect.flatMap((client) =>
+          client.auth.pairingLinks({ headers: currentPrimaryAuthHeaders() }),
+        ),
       ),
     );
     return pairingLinks.map((pairingLink) => {
@@ -366,7 +418,9 @@ export async function revokeServerPairingLink(id: string): Promise<void> {
   try {
     await runPrimaryHttp(
       PrimaryEnvironmentHttpClient.pipe(
-        Effect.flatMap((client) => client.auth.revokePairingLink({ headers: {}, payload: { id } })),
+        Effect.flatMap((client) =>
+          client.auth.revokePairingLink({ headers: currentPrimaryAuthHeaders(), payload: { id } }),
+        ),
       ),
     );
   } catch (error) {
@@ -386,7 +440,7 @@ export async function listServerClientSessions(): Promise<
   try {
     const clientSessions = await runPrimaryHttp(
       PrimaryEnvironmentHttpClient.pipe(
-        Effect.flatMap((client) => client.auth.clients({ headers: {} })),
+        Effect.flatMap((client) => client.auth.clients({ headers: currentPrimaryAuthHeaders() })),
       ),
     );
     return clientSessions.map((clientSession) => ({
@@ -420,7 +474,10 @@ export async function revokeServerClientSession(sessionId: AuthSessionId): Promi
     await runPrimaryHttp(
       PrimaryEnvironmentHttpClient.pipe(
         Effect.flatMap((client) =>
-          client.auth.revokeClient({ headers: {}, payload: { sessionId } }),
+          client.auth.revokeClient({
+            headers: currentPrimaryAuthHeaders(),
+            payload: { sessionId },
+          }),
         ),
       ),
     );
@@ -439,7 +496,9 @@ export async function revokeOtherServerClientSessions(): Promise<number> {
   try {
     const result = await runPrimaryHttp(
       PrimaryEnvironmentHttpClient.pipe(
-        Effect.flatMap((client) => client.auth.revokeOtherClients({ headers: {} })),
+        Effect.flatMap((client) =>
+          client.auth.revokeOtherClients({ headers: currentPrimaryAuthHeaders() }),
+        ),
       ),
     );
     return result.revokedCount;
