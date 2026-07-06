@@ -5128,20 +5128,38 @@ export default function ChatView(props: ChatViewProps) {
     );
     return !serverThreadKeySet.has(paneThreadKey) && !draftIdByThreadKey.has(paneThreadKey);
   };
-  const shouldPruneStaleAiPanes =
-    rawRenderedWorkspaceDockedPanes.some(isStaleAiPane) &&
-    rawRenderedWorkspaceDockedPanes.some((pane) => !isStaleAiPane(pane));
-  const renderedWorkspaceDockedPanes = shouldPruneStaleAiPanes
-    ? rawRenderedWorkspaceDockedPanes.filter((pane) => !isStaleAiPane(pane))
-    : rawRenderedWorkspaceDockedPanes;
+  const staleAiPaneCount = rawRenderedWorkspaceDockedPanes.filter(isStaleAiPane).length;
+  const renderedWorkspaceDockedPanes: PersistedWorkspaceDockedPane[] =
+    staleAiPaneCount > 0
+      ? rawRenderedWorkspaceDockedPanes.flatMap((pane): PersistedWorkspaceDockedPane[] => {
+          if (!isStaleAiPane(pane)) {
+            return [pane];
+          }
+          if (pane.type !== "ai") {
+            return [];
+          }
+          if (pane.paneId === "ai" || staleAiPaneCount === rawRenderedWorkspaceDockedPanes.length) {
+            return [
+              {
+                ...pane,
+                title: pane.title || "AI",
+                metadata: {
+                  threadId: null,
+                },
+              },
+            ];
+          }
+          return [];
+        })
+      : rawRenderedWorkspaceDockedPanes;
   useEffect(() => {
-    if (!shouldPruneStaleAiPanes || workspaceDockedPanes.length === 0) {
+    if (staleAiPaneCount === 0 || workspaceDockedPanes.length === 0) {
       return;
     }
     storeSetWorkspaceThreadDockedPanes(workspaceLayoutKey, renderedWorkspaceDockedPanes);
   }, [
     renderedWorkspaceDockedPanes,
-    shouldPruneStaleAiPanes,
+    staleAiPaneCount,
     storeSetWorkspaceThreadDockedPanes,
     workspaceDockedPanes.length,
     workspaceLayoutKey,

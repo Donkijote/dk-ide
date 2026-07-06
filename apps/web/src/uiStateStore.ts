@@ -182,7 +182,7 @@ const currentProjectCwdsByLogicalKey = new Map<string, string[]>();
 const currentLogicalKeyByPhysicalKey = new Map<string, string>();
 let legacyKeysCleanedUp = false;
 
-function readPersistedState(): UiState {
+export function readPersistedState(): UiState {
   if (typeof window === "undefined") {
     return initialState;
   }
@@ -521,6 +521,9 @@ export function persistState(state: UiState): void {
         return Object.keys(nextTurns).length > 0 ? [[threadId, nextTurns]] : [];
       }),
     );
+    const workspaceThreadLayoutById = sanitizePersistedWorkspaceThreadLayout(
+      state.workspaceThreadLayoutById,
+    );
     window.localStorage.setItem(
       PERSISTED_STATE_KEY,
       JSON.stringify({
@@ -530,7 +533,7 @@ export function persistState(state: UiState): void {
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         threadChangedFilesExpandedById,
         workspaceShellSidebarOpen: state.workspaceShellSidebarOpen,
-        workspaceThreadLayoutById: state.workspaceThreadLayoutById,
+        workspaceThreadLayoutById,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -1286,19 +1289,28 @@ export function setWorkspaceThreadDockedPanes(
 ): UiState {
   const sanitizedPanes = sanitizeWorkspaceDockedPanes(panes);
   return updateWorkspaceThreadLayout(state, threadId, (layout) => {
-    const normalizedActivePaneId =
-      sanitizeWorkspacePaneTitle(activePaneId) ??
-      (layout.activePaneId && sanitizedPanes.some((pane) => pane.paneId === layout.activePaneId)
+    const requestedActivePaneId = sanitizeWorkspacePaneTitle(activePaneId);
+    const retainedActivePaneId =
+      activePaneId === undefined &&
+      layout.activePaneId &&
+      sanitizedPanes.some((pane) => pane.paneId === layout.activePaneId)
         ? layout.activePaneId
-        : null);
-    return {
+        : null;
+    const normalizedActivePaneId =
+      requestedActivePaneId !== null &&
+      sanitizedPanes.some((pane) => pane.paneId === requestedActivePaneId)
+        ? requestedActivePaneId
+        : retainedActivePaneId;
+    const nextLayout: PersistedWorkspaceThreadLayout = {
       ...layout,
       panes: sanitizedPanes,
-      ...(normalizedActivePaneId !== null &&
-      sanitizedPanes.some((pane) => pane.paneId === normalizedActivePaneId)
-        ? { activePaneId: normalizedActivePaneId }
-        : {}),
     };
+    if (normalizedActivePaneId !== null) {
+      nextLayout.activePaneId = normalizedActivePaneId;
+    } else {
+      delete nextLayout.activePaneId;
+    }
+    return nextLayout;
   });
 }
 
