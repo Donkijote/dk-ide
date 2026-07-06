@@ -26,6 +26,15 @@ interaction before attempting deeper domain changes.
 
 Preserve the upstream logic spine. Refactor the visible product first.
 
+## Status
+
+Pre-alpha is closed. Issue #9 validated the workspace shell, and issue #8
+closed the first overview/switcher idea as intentionally deferred until the
+workspace, pane, and editor model has more product feedback.
+
+Later alpha implementation progress is tracked in
+[Workspace Alpha Plan](./WORKSPACE_ALPHA_PLAN.md).
+
 ## Non-Goals
 
 - no rewrite of provider orchestration
@@ -48,8 +57,8 @@ Preserve the upstream logic spine. Refactor the visible product first.
 - [x] Add the first lightweight editor pane with workspace file navigation
 - [x] Validate the workspace shell against the current app flows
 - [x] Document what still depends on upstream project/thread framing
-- [ ] Introduce a first overview or workspace switcher model that preserves orientation
-      (deferred until later product learning)
+- [x] Close the first overview or workspace switcher model as deferred until
+      later product learning
 
 ## Phase 0: Language And Framing
 
@@ -178,6 +187,8 @@ Acceptance:
 
 ## Phase 6: Orientation And Overview
 
+Status: deferred from pre-alpha.
+
 Goal:
 
 Preserve multi-context orientation as the shell becomes less linear.
@@ -218,7 +229,7 @@ The pre-alpha is successful if it answers these questions positively:
 
 ## Follow-On Work
 
-After this pre-alpha proves itself, follow-on work can evaluate:
+After this pre-alpha proved itself, follow-on work can evaluate:
 
 - richer pane placement and resizing
 - deeper layout persistence

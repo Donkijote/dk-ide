@@ -18,6 +18,9 @@ The concrete visible vocabulary for that shift is defined in
 The first visual expectations for how workspace scenes should read are defined
 in [Workspace Visual Framing](./WORKSPACE_VISUAL_FRAMING.md).
 
+The alpha layout direction is defined in
+[Workspace Scrollable Columns](./WORKSPACE_SCROLLABLE_COLUMNS.md).
+
 In practical terms:
 
 - keep the server/runtime/provider spine
@@ -33,7 +36,7 @@ The intended product direction is the same underlying thesis explored in
 
 - the durable unit is the workspace
 - repositories are attached resources, not the whole app
-- panes are first-class surfaces
+- panes are first-class surfaces in a workspace-owned scrollable strip
 - AI is native, but not the only center of gravity
 - work should feel assembled, spatial, and resumable
 

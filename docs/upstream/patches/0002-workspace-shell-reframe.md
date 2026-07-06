@@ -40,6 +40,7 @@ not a fixed chat screen with accessory UI.
 - `docs/product/WORKSPACE_TERMINOLOGY.md`
 - `docs/product/WORKSPACE_VISUAL_FRAMING.md`
 - `docs/product/WORKSPACE_PRE_ALPHA_PLAN.md`
+- `docs/product/WORKSPACE_SCROLLABLE_COLUMNS.md`
 - `apps/web/src/components/`
 - `apps/web/src/routes/`
 - `apps/web/src/*sidebar*`
@@ -94,6 +95,9 @@ composition, which are likely to continue evolving upstream.
 - `improvement/ghi#44`: editor changed-file selection can restore selected
   working tree files through a narrow `vcs.restoreFiles` contract and Git
   status refresh path
+- `documentation/ghi#63`: alpha layout direction narrowed from a general
+  two-dimensional docked grid to a Niri-inspired workspace-owned scrollable
+  column strip
 
 ## Sync Notes
 
@@ -161,6 +165,11 @@ composition, which are likely to continue evolving upstream.
   positions
 - resize panes from their right and bottom tile edges; when growth reaches
   another pane, move that pane along the resize axis rather than shrinking it
+- the alpha layout direction now narrows the docked host into a scrollable
+  horizontal column strip: pane order, role-based widths, focus-driven viewport
+  alignment, and workspace-scoped restoration are retained, while arbitrary
+  two-dimensional rows, collision-pushing coordinates, and full Niri parity are
+  deferred
 - keep selected-file commit choices in the commit dialog and pass selected paths
   into the existing stacked Git action API, leaving server commit-context
   generation and default-branch confirmation behavior unchanged

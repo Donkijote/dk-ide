@@ -5,11 +5,12 @@ Related direction docs:
 - [Workspace Reframe](./WORKSPACE_REFRAME.md)
 - [Workspace Pre-Alpha Plan](./WORKSPACE_PRE_ALPHA_PLAN.md)
 - [Workspace Pre-Alpha Validation](./WORKSPACE_PRE_ALPHA_VALIDATION.md)
+- [Workspace Scrollable Columns](./WORKSPACE_SCROLLABLE_COLUMNS.md)
 
 ## Goal
 
-Turn the completed workspace pre-alpha shell into a real docked workspace for
-multi-pane development.
+Turn the completed workspace pre-alpha shell into a real scrollable-column
+workspace for multi-pane development.
 
 Alpha should make the app capable of running multiple named panes side by side:
 AI panes attached to different threads, terminal panes attached to selected
@@ -22,7 +23,8 @@ with existing APIs.
 
 ## Product Shape
 
-The alpha workspace is a docked pane environment, not a freeform spatial canvas.
+The alpha workspace is a scrollable pane-strip environment, not a freeform
+spatial canvas or a general two-dimensional docked grid.
 
 Panes are the primary working surfaces:
 
@@ -37,7 +39,9 @@ once without making the sidebar the center of the product.
 
 ## Pane Model
 
-Introduce a persisted docked pane model in UI state.
+Introduce a persisted scrollable-column pane model in UI state. The concrete
+layout behavior is defined in
+[Workspace Scrollable Columns](./WORKSPACE_SCROLLABLE_COLUMNS.md).
 
 Each pane should have:
 
@@ -47,7 +51,8 @@ Each pane should have:
 - `environmentId`
 - `cwd`
 - `order`
-- `size`
+- `widthPreset`
+- optional custom `width`
 - type-specific metadata
 
 Pane titles are user-renamable. Defaults should be helpful before rename:
@@ -61,7 +66,8 @@ Persisted layout should restore:
 - open panes
 - active pane
 - pane order
-- pane sizes
+- pane widths
+- pane-strip scroll position
 - pane cwd
 - pane title
 - type-specific attachment such as AI thread ref or terminal id
@@ -73,30 +79,34 @@ workspace's AI or terminal pane set.
 
 Invalid persisted panes should be sanitized instead of breaking app startup.
 
-## Docked Pane Host
+## Scrollable Column Host
 
-Replace the current fixed workspace grid with a docked pane host.
+Replace the current fixed workspace grid with a scrollable column host.
 
-The docked host should support:
+The column host should support:
 
 - add pane
 - close pane
 - rename pane
 - reorder panes by drag and drop
-- resize panes from their tile edges, pushing colliding panes instead of shrinking
-  them below their default footprint
+- role-based width presets with optional manual width adjustment
+- horizontal overflow instead of shrinking existing panes below their useful
+  role width
+- focus-driven viewport alignment
 - restore persisted pane sessions
 
 Use the existing frontend dependencies and local patterns:
 
 - use `@dnd-kit` for drag reorder
 - use pointer-resize behavior similar to existing sidebar and terminal resizing
-- persist two-dimensional dock coordinates so separate rows can use different
-  pane widths and column counts without becoming a freeform canvas
+- persist pane order, width preset or custom width, active pane, and strip scroll
+  position
 - avoid adding another layout dependency unless implementation proves the local
   approach too fragile
 
 Freeform canvas behavior from `dk-code` remains out of scope for alpha.
+Two-dimensional workspace rows, collision-pushing tile coordinates, and full
+Niri parity are also out of scope for alpha.
 
 ## AI Panes
 
@@ -183,18 +193,30 @@ Add a narrow `vcs.restoreFiles` style contract and server handler for
 
 ## Implementation Tracker
 
-- [ ] Create alpha product plan.
-- [ ] Introduce persisted docked pane layout.
-- [ ] Add pane rename and title model.
-- [ ] Move thread selection into the AI pane.
-- [ ] Support multiple AI panes bound to separate threads.
-- [ ] Add shared pane creation with workspace or directory target.
+Closed alpha issues completed so far:
+
+- [x] Create alpha product plan.
+- [x] Introduce persisted docked pane layout as the first alpha layout baseline.
+- [x] Add pane rename and title model.
+- [x] Keep editor pane titles stable across file selection.
+- [x] Move thread selection into the AI pane.
+- [x] Support multiple AI panes bound to separate threads.
+- [x] Add shared pane creation with workspace or directory target.
 - [x] Support multiple terminal panes with selected cwd.
 - [x] Preserve terminal tabs and splits inside terminal panes.
-- [x] Add docked pane resize and drag reorder.
-- [ ] Persist and restore workspace pane sessions.
-- [ ] Commit selected editor files.
-- [ ] Roll back selected editor file changes.
+- [x] Add pane resize and drag reorder.
+- [x] Persist and restore workspace pane sessions.
+- [x] Commit selected editor files.
+- [x] Roll back selected editor file changes.
+
+Remaining alpha layout work after the scrollable-column direction:
+
+- [ ] Replace the two-dimensional docked layout baseline with the
+      workspace-owned scrollable-column host.
+- [ ] Persist and restore scrollable-column-specific state such as width
+      presets, custom widths, active pane, and strip scroll position.
+- [ ] Validate focus-driven horizontal scrolling and orientation cues in
+      longer workspace sessions.
 - [ ] Validate alpha workspace flows.
 
 ## Validation
@@ -206,7 +228,8 @@ The alpha is successful when:
 3. A terminal pane can target the current workspace or another selected
    directory.
 4. Existing terminal split behavior still works inside a terminal pane.
-5. Pane rename, resize, reorder, add, close, and restore behavior is stable.
+5. Pane rename, resize, reorder, add, close, focus, horizontal scroll, and
+   restore behavior is stable.
 6. Editor Git actions support selected-file commit and selected-file rollback.
 7. The sidebar reads as workspace/project navigation, not thread navigation.
 8. Switching workspaces restores each workspace's own AI and terminal panes.
@@ -218,13 +241,17 @@ Before implementation PRs are considered complete, run:
 - `bun fmt`
 - `bun lint`
 - `bun typecheck`
+- `vp check`
+- `vp run typecheck`
 
 Do not run `bun test`; use `bun run test` only when targeted tests are needed.
 
 ## Deferred
 
 - freeform spatial canvas behavior
+- general two-dimensional docked grid behavior
 - deeper backend workspace-domain rewrite
 - terminal server ownership rewrite away from thread-scoped sessions
 - patch-backup flow before file rollback
 - global overview or workspace switcher
+- full Niri layout parity

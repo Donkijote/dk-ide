@@ -108,3 +108,11 @@ No alpha-blocking issue was found in this validation pass. The next alpha
 workstream should focus on hardening the workspace shell under longer real-world
 sessions, cleaning up remaining project terminology in secondary surfaces, and
 deciding whether the deferred overview is needed after more product learning.
+
+## Post-Checkpoint Note
+
+This document is a historical validation checkpoint for closing pre-alpha. Later
+workspace alpha implementation work, including pane persistence, multi-pane AI
+and terminal behavior, selected-file Git actions, and the scrollable-column
+layout direction, is tracked in
+[Workspace Alpha Plan](./WORKSPACE_ALPHA_PLAN.md).
