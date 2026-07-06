@@ -2,19 +2,13 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
 import { SidebarInset, SidebarTrigger, useSidebar } from "./ui/sidebar";
 import { isElectron } from "../env";
 import { cn } from "~/lib/utils";
-import { useUiStateStore } from "../uiStateStore";
 import { useIsInsideWorkspacePane } from "./workspace/WorkspacePaneHost";
 
 export function NoActiveThreadState() {
   const { open: sidebarOpen } = useSidebar();
   const isInsideWorkspacePane = useIsInsideWorkspacePane();
-  const hasWorkspacePaneLayout = useUiStateStore((state) =>
-    Object.values(state.workspaceThreadLayoutById).some(
-      (layout) => (layout.panes?.length ?? 0) > 0,
-    ),
-  );
 
-  if (isInsideWorkspacePane || hasWorkspacePaneLayout) {
+  if (isInsideWorkspacePane) {
     return null;
   }
 

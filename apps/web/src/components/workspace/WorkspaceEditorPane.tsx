@@ -113,6 +113,8 @@ type ChangedFile = {
   readonly deletions: number;
 };
 
+const EMPTY_CHANGED_FILES: readonly ChangedFile[] = [];
+
 type ChangedPathState = {
   readonly changedFileByPath: ReadonlyMap<string, ChangedFile>;
   readonly changedDirectoryPaths: ReadonlySet<string>;
@@ -253,10 +255,8 @@ export function WorkspaceEditorPane({
     environmentId,
     cwd: workspaceRoot ?? null,
   });
-  const changedPathState = useMemo(
-    () => buildChangedPathState(gitStatus.data?.workingTree.files ?? []),
-    [gitStatus.data?.workingTree.files],
-  );
+  const changedFiles = gitStatus.data?.workingTree.files ?? EMPTY_CHANGED_FILES;
+  const changedPathState = useMemo(() => buildChangedPathState(changedFiles), [changedFiles]);
   const currentDirectoryTrail = useMemo(
     () => buildDirectoryTrail(currentDirectoryPath),
     [currentDirectoryPath],

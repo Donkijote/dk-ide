@@ -25,6 +25,8 @@ import {
   type VcsListRefsResult,
   type VcsPullResult,
   type VcsRemoveWorktreeInput,
+  type VcsRestoreFilesInput,
+  type VcsRestoreFilesResult,
   type VcsStatusInput,
   type VcsStatusResult,
   type VcsWorkingTreeFileChangesInput,
@@ -217,6 +219,9 @@ export interface GitVcsDriverShape {
   readonly workingTreeFileChanges: (
     input: VcsWorkingTreeFileChangesInput,
   ) => Effect.Effect<VcsWorkingTreeFileChangesResult, GitCommandError>;
+  readonly restoreFiles: (
+    input: VcsRestoreFilesInput,
+  ) => Effect.Effect<VcsRestoreFilesResult, GitCommandError>;
   readonly pullCurrentBranch: (cwd: string) => Effect.Effect<VcsPullResult, GitCommandError>;
   readonly createWorktree: (
     input: VcsCreateWorktreeInput,

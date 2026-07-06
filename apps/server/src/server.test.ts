@@ -4793,6 +4793,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("routes websocket rpc git methods", () =>
     Effect.gen(function* () {
+      let restoreFilesInput: {
+        readonly cwd: string;
+        readonly filePaths: readonly string[];
+      } | null = null;
+      let refreshStatusCalls = 0;
       yield* buildAppUnderTest({
         config: {
           cwd: "/tmp/repo",
@@ -4936,20 +4941,28 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             removeWorktree: () => Effect.void,
             createRef: (input) => Effect.succeed({ refName: input.refName }),
             switchRef: (input) => Effect.succeed({ refName: input.refName }),
+            restoreFiles: (input) =>
+              Effect.sync(() => {
+                restoreFilesInput = input;
+                return { filePaths: [...input.filePaths] };
+              }),
           },
           vcsStatusBroadcaster: {
             refreshStatus: () =>
-              Effect.succeed({
-                isRepo: true,
-                hasPrimaryRemote: true,
-                isDefaultRef: true,
-                refName: "main",
-                hasWorkingTreeChanges: false,
-                workingTree: { files: [], insertions: 0, deletions: 0 },
-                hasUpstream: true,
-                aheadCount: 0,
-                behindCount: 0,
-                pr: null,
+              Effect.sync(() => {
+                refreshStatusCalls += 1;
+                return {
+                  isRepo: true,
+                  hasPrimaryRemote: true,
+                  isDefaultRef: true,
+                  refName: "main",
+                  hasWorkingTreeChanges: false,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                };
               }),
           },
           reviewService: {
@@ -5079,6 +5092,19 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           }),
         ),
       );
+
+      const refreshCallsBeforeRestore = refreshStatusCalls;
+      const restored = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsRestoreFiles]({
+            cwd: "/tmp/repo",
+            filePaths: ["README.md"],
+          }),
+        ),
+      );
+      assert.deepEqual(restored.filePaths, ["README.md"]);
+      assert.deepEqual(restoreFilesInput, { cwd: "/tmp/repo", filePaths: ["README.md"] });
+      assert.equal(refreshStatusCalls, refreshCallsBeforeRestore + 1);
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>

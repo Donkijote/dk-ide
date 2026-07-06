@@ -1,6 +1,8 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/legacy";
-import { ThreadId } from "@t3tools/contracts";
-import { useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ThreadId, type VcsStatusResult } from "@t3tools/contracts";
+import { useState, type ReactNode } from "react";
+import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -28,6 +30,7 @@ const {
   hasServerThreadRef,
   invalidateSourceControlStateSpy,
   refreshVcsStatusSpy,
+  restoreFilesSpy,
   runStackedActionSpy,
   setDraftThreadContextSpy,
   setThreadBranchSpy,
@@ -35,20 +38,46 @@ const {
   toastCloseSpy,
   toastPromiseSpy,
   toastUpdateSpy,
-} = vi.hoisted(() => ({
-  activeRunStackedActionDeferredRef: { current: createDeferredPromise<never>() },
-  activeDraftThreadRef: { current: null as unknown },
-  hasServerThreadRef: { current: true },
-  invalidateSourceControlStateSpy: vi.fn(() => Promise.resolve()),
-  refreshVcsStatusSpy: vi.fn(() => Promise.resolve(null)),
-  runStackedActionSpy: vi.fn(() => activeRunStackedActionDeferredRef.current.promise),
-  setDraftThreadContextSpy: vi.fn(),
-  setThreadBranchSpy: vi.fn(),
-  toastAddSpy: vi.fn(() => "toast-1"),
-  toastCloseSpy: vi.fn(),
-  toastPromiseSpy: vi.fn(),
-  toastUpdateSpy: vi.fn(),
-}));
+  defaultVcsStatusData,
+  vcsStatusDataRef,
+} = vi.hoisted(() => {
+  const makeDefaultVcsStatusData = (): VcsStatusResult => ({
+    isRepo: true,
+    sourceControlProvider: {
+      kind: "github",
+      name: "GitHub",
+      baseUrl: "https://github.com",
+    },
+    hasPrimaryRemote: true,
+    isDefaultRef: false,
+    refName: "feature/toast-scope",
+    hasWorkingTreeChanges: false,
+    workingTree: { files: [], insertions: 0, deletions: 0 },
+    hasUpstream: true,
+    aheadCount: 1,
+    behindCount: 0,
+    pr: null,
+  });
+  const activeRunStackedActionDeferredRef = { current: createDeferredPromise<never>() };
+
+  return {
+    activeRunStackedActionDeferredRef,
+    activeDraftThreadRef: { current: null as unknown },
+    hasServerThreadRef: { current: true },
+    invalidateSourceControlStateSpy: vi.fn(() => Promise.resolve()),
+    refreshVcsStatusSpy: vi.fn(() => Promise.resolve(null)),
+    restoreFilesSpy: vi.fn(() => Promise.resolve({ filePaths: ["src/app.ts"] })),
+    runStackedActionSpy: vi.fn(() => activeRunStackedActionDeferredRef.current.promise),
+    setDraftThreadContextSpy: vi.fn(),
+    setThreadBranchSpy: vi.fn(),
+    toastAddSpy: vi.fn(() => "toast-1"),
+    toastCloseSpy: vi.fn(),
+    toastPromiseSpy: vi.fn(),
+    toastUpdateSpy: vi.fn(),
+    defaultVcsStatusData: makeDefaultVcsStatusData,
+    vcsStatusDataRef: { current: makeDefaultVcsStatusData() },
+  };
+});
 
 vi.mock("~/components/ui/toast", () => ({
   toastManager: {
@@ -97,25 +126,20 @@ vi.mock("~/lib/vcsStatusState", () => ({
   refreshVcsStatus: refreshVcsStatusSpy,
   resetVcsStatusStateForTests: () => undefined,
   useVcsStatus: vi.fn(() => ({
-    data: {
-      isRepo: true,
-      sourceControlProvider: {
-        kind: "github",
-        name: "GitHub",
-        baseUrl: "https://github.com",
-      },
-      hasPrimaryRemote: true,
-      isDefaultRef: false,
-      refName: BRANCH_NAME,
-      hasWorkingTreeChanges: false,
-      workingTree: { files: [], insertions: 0, deletions: 0 },
-      hasUpstream: true,
-      aheadCount: 1,
-      behindCount: 0,
-      pr: null,
-    },
+    data: vcsStatusDataRef.current,
     error: null,
     isPending: false,
+  })),
+}));
+
+vi.mock("~/environmentApi", () => ({
+  readEnvironmentApi: vi.fn(() => ({
+    orchestration: {
+      dispatchCommand: vi.fn(() => Promise.resolve()),
+    },
+    vcs: {
+      restoreFiles: restoreFilesSpy,
+    },
   })),
 }));
 
@@ -239,10 +263,26 @@ vi.mock("~/terminal-links", () => ({
 
 import GitActionsControl from "./GitActionsControl";
 
+function TestQueryProvider({ children }: { readonly children: ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient());
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
 function findButtonByText(text: string): HTMLButtonElement | null {
   return (Array.from(document.querySelectorAll("button")).find((button) =>
     button.textContent?.includes(text),
   ) ?? null) as HTMLButtonElement | null;
+}
+
+function findLastButtonByText(text: string): HTMLButtonElement | null {
+  const buttons = Array.from(document.querySelectorAll("button"));
+  for (let index = buttons.length - 1; index >= 0; index -= 1) {
+    const button = buttons[index];
+    if (button?.textContent?.includes(text)) {
+      return button;
+    }
+  }
+  return null;
 }
 
 function Harness() {
@@ -258,7 +298,9 @@ function Harness() {
       >
         Switch environment
       </button>
-      <GitActionsControl gitCwd={GIT_CWD} activeThreadRef={activeThreadRef} />
+      <TestQueryProvider>
+        <GitActionsControl gitCwd={GIT_CWD} activeThreadRef={activeThreadRef} />
+      </TestQueryProvider>
     </>
   );
 }
@@ -270,6 +312,8 @@ describe("GitActionsControl thread-scoped progress toast", () => {
     activeRunStackedActionDeferredRef.current = createDeferredPromise<never>();
     activeDraftThreadRef.current = null;
     hasServerThreadRef.current = true;
+    vcsStatusDataRef.current = defaultVcsStatusData();
+    restoreFilesSpy.mockResolvedValue({ filePaths: ["src/app.ts"] });
     document.body.innerHTML = "";
   });
 
@@ -335,6 +379,66 @@ describe("GitActionsControl thread-scoped progress toast", () => {
     }
   });
 
+  it("rolls back the selected commit files from the commit dialog", async () => {
+    vcsStatusDataRef.current = {
+      ...defaultVcsStatusData(),
+      hasWorkingTreeChanges: true,
+      aheadCount: 0,
+      workingTree: {
+        files: [
+          { path: "src/app.ts", insertions: 4, deletions: 1 },
+          { path: "src/unused.ts", insertions: 2, deletions: 0 },
+        ],
+        insertions: 6,
+        deletions: 1,
+      },
+    };
+    restoreFilesSpy.mockResolvedValue({ filePaths: ["src/app.ts"] });
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <TestQueryProvider>
+        <GitActionsControl
+          gitCwd={GIT_CWD}
+          activeThreadRef={scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID)}
+        />
+      </TestQueryProvider>,
+      {
+        container: host,
+      },
+    );
+
+    try {
+      await page.getByRole("button", { name: "Git action options" }).click();
+      await page.getByRole("menuitem", { name: "Commit" }).click();
+      await page.getByRole("checkbox", { name: "Select src/unused.ts for commit" }).click();
+      const rollbackButton = findButtonByText("Rollback");
+      expect(rollbackButton, 'Unable to find button containing "Rollback"').toBeTruthy();
+      rollbackButton?.click();
+      await Promise.resolve();
+      const confirmRollbackButton = findLastButtonByText("Rollback");
+      expect(
+        confirmRollbackButton,
+        'Unable to find confirmation button containing "Rollback"',
+      ).toBeTruthy();
+      confirmRollbackButton?.click();
+      await Promise.resolve();
+
+      expect(restoreFilesSpy).toHaveBeenCalledWith({
+        cwd: GIT_CWD,
+        filePaths: ["src/app.ts"],
+      });
+      expect(refreshVcsStatusSpy).toHaveBeenCalledWith({
+        environmentId: ENVIRONMENT_A,
+        cwd: GIT_CWD,
+      });
+    } finally {
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
   it("debounces focus-driven git status refreshes", async () => {
     vi.useFakeTimers();
 
@@ -348,10 +452,12 @@ describe("GitActionsControl thread-scoped progress toast", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const screen = await render(
-      <GitActionsControl
-        gitCwd={GIT_CWD}
-        activeThreadRef={scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID)}
-      />,
+      <TestQueryProvider>
+        <GitActionsControl
+          gitCwd={GIT_CWD}
+          activeThreadRef={scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID)}
+        />
+      </TestQueryProvider>,
       {
         container: host,
       },
@@ -395,10 +501,12 @@ describe("GitActionsControl thread-scoped progress toast", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const screen = await render(
-      <GitActionsControl
-        gitCwd={GIT_CWD}
-        activeThreadRef={scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID)}
-      />,
+      <TestQueryProvider>
+        <GitActionsControl
+          gitCwd={GIT_CWD}
+          activeThreadRef={scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID)}
+        />
+      </TestQueryProvider>,
       {
         container: host,
       },
@@ -434,10 +542,12 @@ describe("GitActionsControl thread-scoped progress toast", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const screen = await render(
-      <GitActionsControl
-        gitCwd={GIT_CWD}
-        activeThreadRef={scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID)}
-      />,
+      <TestQueryProvider>
+        <GitActionsControl
+          gitCwd={GIT_CWD}
+          activeThreadRef={scopeThreadRef(ENVIRONMENT_A, SHARED_THREAD_ID)}
+        />
+      </TestQueryProvider>,
       {
         container: host,
       },

@@ -141,6 +141,70 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         });
       }),
     );
+
+    it.effect("restores selected tracked working tree edits", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        yield* writeTextFile(cwd, "README.md", "# changed\n");
+
+        const result = yield* (yield* GitVcsDriver.GitVcsDriver).restoreFiles({
+          cwd,
+          filePaths: ["README.md"],
+        });
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const contents = yield* fileSystem.readFileString(pathService.join(cwd, "README.md"));
+        const status = yield* (yield* GitVcsDriver.GitVcsDriver).statusDetails(cwd);
+
+        assert.deepStrictEqual(result.filePaths, ["README.md"]);
+        assert.equal(contents, "# test\n");
+        assert.equal(status.hasWorkingTreeChanges, false);
+      }),
+    );
+
+    it.effect("removes selected untracked files when restoring", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        yield* writeTextFile(cwd, "new-file.ts", "one\ntwo\n");
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const filePath = pathService.join(cwd, "new-file.ts");
+
+        const result = yield* (yield* GitVcsDriver.GitVcsDriver).restoreFiles({
+          cwd,
+          filePaths: ["new-file.ts"],
+        });
+        const status = yield* (yield* GitVcsDriver.GitVcsDriver).statusDetails(cwd);
+
+        assert.deepStrictEqual(result.filePaths, ["new-file.ts"]);
+        assert.equal(yield* fileSystem.exists(filePath), false);
+        assert.equal(status.hasWorkingTreeChanges, false);
+      }),
+    );
+
+    it.effect("removes selected staged additions when restoring", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        yield* writeTextFile(cwd, "new-file.ts", "one\ntwo\n");
+        yield* git(cwd, ["add", "new-file.ts"]);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const filePath = pathService.join(cwd, "new-file.ts");
+
+        const result = yield* (yield* GitVcsDriver.GitVcsDriver).restoreFiles({
+          cwd,
+          filePaths: ["new-file.ts"],
+        });
+        const status = yield* (yield* GitVcsDriver.GitVcsDriver).statusDetails(cwd);
+
+        assert.deepStrictEqual(result.filePaths, ["new-file.ts"]);
+        assert.equal(yield* fileSystem.exists(filePath), false);
+        assert.equal(status.hasWorkingTreeChanges, false);
+      }),
+    );
   });
 
   describe("review diff previews", () => {

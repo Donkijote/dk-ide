@@ -91,6 +91,9 @@ composition, which are likely to continue evolving upstream.
 - `improvement/ghi#43`: commit-dialog changed-file selection wired into Git
   commit actions so selected-file commits can reuse the existing stacked-action
   `filePaths` path
+- `improvement/ghi#44`: editor changed-file selection can restore selected
+  working tree files through a narrow `vcs.restoreFiles` contract and Git
+  status refresh path
 
 ## Sync Notes
 
@@ -161,6 +164,9 @@ composition, which are likely to continue evolving upstream.
 - keep selected-file commit choices in the commit dialog and pass selected paths
   into the existing stacked Git action API, leaving server commit-context
   generation and default-branch confirmation behavior unchanged
+- keep selected-file rollback owned by the editor change list, require explicit
+  confirmation before discard, and route the destructive operation through a
+  VCS-specific RPC instead of broadening stacked commit actions
 - split future implementation into smaller patch files when the shell reframe
   turns into concrete workstreams such as sidebar mapping, pane extraction, or
   layout persistence

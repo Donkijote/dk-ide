@@ -1,4 +1,5 @@
 import { type ScopedThreadRef } from "@t3tools/contracts";
+import { useQueryClient } from "@tanstack/react-query";
 import type {
   GitActionProgressEvent,
   GitRunStackedActionResult,
@@ -23,6 +24,7 @@ import {
   InfoIcon,
   LockIcon,
   GlobeIcon,
+  RotateCcwIcon,
 } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "~/components/Icons";
@@ -43,6 +45,15 @@ import {
   resolveThreadBranchUpdate,
 } from "./GitActionsControl.logic";
 import { AnimatedHeight } from "./AnimatedHeight";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
@@ -73,6 +84,7 @@ import {
 import { refreshVcsStatus, useVcsStatus } from "~/lib/vcsStatusState";
 import { useSourceControlDiscovery } from "~/lib/sourceControlDiscoveryState";
 import { newCommandId, randomUUID } from "~/lib/utils";
+import { projectQueryKeys } from "~/lib/projectReactQuery";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { readEnvironmentApi } from "~/environmentApi";
@@ -950,6 +962,7 @@ export default function GitActionsControl({
   activeThreadRef,
   draftId,
 }: GitActionsControlProps) {
+  const queryClient = useQueryClient();
   const activeEnvironmentId = activeThreadRef?.environmentId ?? null;
   const threadToastData = useMemo(
     () => (activeThreadRef ? { threadRef: activeThreadRef } : undefined),
@@ -972,6 +985,8 @@ export default function GitActionsControl({
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
+  const [isRestoreDialogOpen, setIsRestoreDialogOpen] = useState(false);
+  const [isRestoreFilesPending, setIsRestoreFilesPending] = useState(false);
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
@@ -1075,6 +1090,10 @@ export default function GitActionsControl({
   const selectedFiles = allFiles.filter((f) => !excludedFiles.has(f.path));
   const allSelected = excludedFiles.size === 0;
   const noneSelected = selectedFiles.length === 0;
+  const restoreDialogTitle =
+    selectedFiles.length === 1
+      ? `Roll back ${selectedFiles[0]?.path ?? "selected file"}?`
+      : `Roll back ${selectedFiles.length} files?`;
 
   const initAction = useVcsInitAction(sourceControlScope);
   const runImmediateGitAction = useGitStackedAction(sourceControlScope);
@@ -1214,6 +1233,57 @@ export default function GitActionsControl({
       );
     });
   }, [gitStatusForActions, threadToastData]);
+
+  const restoreSelectedFiles = useCallback(async () => {
+    if (!activeEnvironmentId || !gitCwd || selectedFiles.length === 0) {
+      return;
+    }
+
+    const api = readEnvironmentApi(activeEnvironmentId);
+    if (!api) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Rollback failed",
+          description: "Environment API is unavailable.",
+          ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+        }),
+      );
+      return;
+    }
+
+    const filePaths = selectedFiles.map((file) => file.path);
+    setIsRestoreFilesPending(true);
+    try {
+      await api.vcs.restoreFiles({ cwd: gitCwd, filePaths });
+      await Promise.all([
+        refreshVcsStatus({ environmentId: activeEnvironmentId, cwd: gitCwd }).catch(() => null),
+        queryClient.invalidateQueries({ queryKey: projectQueryKeys.all }),
+      ]);
+      setExcludedFiles(new Set());
+      setIsRestoreDialogOpen(false);
+      toastManager.add({
+        type: "success",
+        title: filePaths.length === 1 ? "File rolled back" : "Files rolled back",
+        description:
+          filePaths.length === 1
+            ? filePaths[0]
+            : `${filePaths.length} selected files were restored.`,
+        data: threadToastData,
+      });
+    } catch (error) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Rollback failed",
+          description: error instanceof Error ? error.message : "Unable to roll back files.",
+          ...(threadToastData !== undefined ? { data: threadToastData } : {}),
+        }),
+      );
+    } finally {
+      setIsRestoreFilesPending(false);
+    }
+  }, [activeEnvironmentId, gitCwd, queryClient, selectedFiles, threadToastData]);
 
   runGitActionWithToast = useEffectEvent(
     async ({
@@ -1478,6 +1548,7 @@ export default function GitActionsControl({
     setIsCommitDialogOpen(false);
     setDialogCommitMessage("");
     setExcludedFiles(new Set());
+    setIsRestoreDialogOpen(false);
 
     void runGitActionWithToast({
       action: "commit",
@@ -1550,6 +1621,7 @@ export default function GitActionsControl({
       return;
     }
     setExcludedFiles(new Set());
+    setIsRestoreDialogOpen(false);
     setIsCommitDialogOpen(true);
   };
 
@@ -1559,6 +1631,7 @@ export default function GitActionsControl({
     setIsCommitDialogOpen(false);
     setDialogCommitMessage("");
     setExcludedFiles(new Set());
+    setIsRestoreDialogOpen(false);
     void runGitActionWithToast({
       action: "commit",
       ...(commitMessage ? { commitMessage } : {}),
@@ -1751,6 +1824,7 @@ export default function GitActionsControl({
             setIsCommitDialogOpen(false);
             setDialogCommitMessage("");
             setExcludedFiles(new Set());
+            setIsRestoreDialogOpen(false);
           }
         }}
       >
@@ -1796,6 +1870,23 @@ export default function GitActionsControl({
                       </span>
                     )}
                   </div>
+                  {allFiles.length > 0 ? (
+                    <Button
+                      type="button"
+                      variant="destructive-outline"
+                      size="xs"
+                      disabled={noneSelected || isRestoreFilesPending}
+                      onClick={() => setIsRestoreDialogOpen(true)}
+                      title="Roll back selected files"
+                    >
+                      {isRestoreFilesPending ? (
+                        <Spinner className="size-3.5" aria-hidden />
+                      ) : (
+                        <RotateCcwIcon className="size-3.5" />
+                      )}
+                      Rollback
+                    </Button>
+                  ) : null}
                 </div>
                 {!gitStatusForActions || allFiles.length === 0 ? (
                   <p className="font-medium">none</p>
@@ -1883,6 +1974,7 @@ export default function GitActionsControl({
                 setIsCommitDialogOpen(false);
                 setDialogCommitMessage("");
                 setExcludedFiles(new Set());
+                setIsRestoreDialogOpen(false);
               }}
             >
               Cancel
@@ -1901,6 +1993,62 @@ export default function GitActionsControl({
           </DialogFooter>
         </DialogPopup>
       </Dialog>
+
+      <AlertDialog
+        open={isCommitDialogOpen && isRestoreDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !isRestoreFilesPending) {
+            setIsRestoreDialogOpen(false);
+          }
+        }}
+      >
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{restoreDialogTitle}</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will discard the selected working tree changes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="max-h-48 min-h-0 overflow-auto px-6 pb-4">
+            <div className="space-y-1 rounded-md border bg-muted/40 p-2">
+              {selectedFiles.map((file) => (
+                <div
+                  key={file.path}
+                  className="flex items-center justify-between gap-3 font-mono text-xs"
+                >
+                  <span className="min-w-0 truncate">{file.path}</span>
+                  <span className="shrink-0">
+                    <span className="text-success">+{file.insertions}</span>
+                    <span className="text-muted-foreground"> / </span>
+                    <span className="text-destructive">-{file.deletions}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={<Button variant="outline" size="sm" disabled={isRestoreFilesPending} />}
+            >
+              Cancel
+            </AlertDialogClose>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={noneSelected || isRestoreFilesPending}
+              onClick={() => void restoreSelectedFiles()}
+            >
+              {isRestoreFilesPending ? (
+                <Spinner className="size-3.5" aria-hidden />
+              ) : (
+                <RotateCcwIcon className="size-3.5" />
+              )}
+              Rollback
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
 
       <PublishRepositoryDialog
         open={isPublishDialogOpen}

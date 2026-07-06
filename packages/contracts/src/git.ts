@@ -193,6 +193,12 @@ export const VcsWorkingTreeFileChangesInput = Schema.Struct({
 });
 export type VcsWorkingTreeFileChangesInput = typeof VcsWorkingTreeFileChangesInput.Type;
 
+export const VcsRestoreFilesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  filePaths: Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
+});
+export type VcsRestoreFilesInput = typeof VcsRestoreFilesInput.Type;
+
 // RPC Results
 
 const VcsStatusChangeRequest = Schema.Struct({
@@ -279,6 +285,11 @@ export const VcsWorkingTreeFileChangesResult = Schema.Struct({
   wholeFileChanged: Schema.Boolean,
 });
 export type VcsWorkingTreeFileChangesResult = typeof VcsWorkingTreeFileChangesResult.Type;
+
+export const VcsRestoreFilesResult = Schema.Struct({
+  filePaths: Schema.Array(TrimmedNonEmptyStringSchema),
+});
+export type VcsRestoreFilesResult = typeof VcsRestoreFilesResult.Type;
 
 export const VcsCreateWorktreeResult = Schema.Struct({
   worktree: VcsWorktree,
