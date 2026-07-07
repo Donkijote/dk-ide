@@ -10,7 +10,7 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
   createContext,
@@ -30,10 +30,7 @@ import {
   MIN_WORKSPACE_PANE_HEIGHT,
   normalizeWorkspacePaneLayout,
   placeWorkspacePane,
-  pushWorkspacePaneCollisions,
-  resizeWorkspacePaneHeight,
   resizeWorkspacePaneWidth,
-  workspacePaneHeight,
   workspacePaneRects,
   workspacePaneWidth,
   workspaceTerminalRowHeight,
@@ -126,13 +123,21 @@ interface WorkspacePaneHostProps {
   readonly panes: readonly PersistedWorkspaceDockedPane[];
   readonly renderPane: (pane: PersistedWorkspaceDockedPane) => ReactNode;
   readonly terminalRowHeight: number;
+  readonly activePaneId?: string | null;
+  readonly scrollLeft?: number | null;
+  readonly onActivePaneChange?: (paneId: string) => void;
   readonly onPanesChange: (panes: readonly PersistedWorkspaceDockedPane[]) => void;
+  readonly onScrollLeftChange?: (scrollLeft: number) => void;
 }
 
 export function WorkspacePaneHost({
+  activePaneId,
   onPanesChange,
+  onActivePaneChange,
+  onScrollLeftChange,
   panes,
   renderPane,
+  scrollLeft,
   terminalRowHeight,
 }: WorkspacePaneHostProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -143,15 +148,9 @@ export function WorkspacePaneHost({
     startX: number;
     panes: readonly PersistedWorkspaceDockedPane[];
   } | null>(null);
-  const verticalResizeStateRef = useRef<{
-    defaultHeight: number;
-    pointerId: number;
-    paneId: string;
-    startHeight: number;
-    startY: number;
-    panes: readonly PersistedWorkspaceDockedPane[];
-  } | null>(null);
   const dragStartPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const didRestoreScrollRef = useRef(false);
+  const lastReportedScrollLeftRef = useRef<number | null>(null);
   const [layoutWidth, setLayoutWidth] = useState(1_280);
   const [layoutHeight, setLayoutHeight] = useState(MIN_WORKSPACE_PANE_HEIGHT);
   const [previewPanes, setPreviewPanes] = useState<readonly PersistedWorkspaceDockedPane[] | null>(
@@ -181,7 +180,7 @@ export function WorkspacePaneHost({
     [layoutHeight, layoutWidth, normalizedRenderedPanes, renderedTerminalRowHeight],
   );
   const contentWidth = Math.max(...paneRects.map((rect) => rect.x + rect.width), 0);
-  const contentHeight = Math.max(...paneRects.map((rect) => rect.y + rect.height), 0);
+  const contentHeight = Math.max(layoutHeight, ...paneRects.map((rect) => rect.y + rect.height), 0);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -208,6 +207,10 @@ export function WorkspacePaneHost({
       return (
         !normalizedPane ||
         pane.paneId !== normalizedPane.paneId ||
+        pane.order !== normalizedPane.order ||
+        pane.widthPreset !== normalizedPane.widthPreset ||
+        pane.dockColumn !== normalizedPane.dockColumn ||
+        pane.dockRow !== normalizedPane.dockRow ||
         pane.dockX !== normalizedPane.dockX ||
         pane.dockY !== normalizedPane.dockY
       );
@@ -217,6 +220,40 @@ export function WorkspacePaneHost({
     }
   }, [normalizedRenderedPanes, onPanesChange, panes, previewPanes]);
 
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host || didRestoreScrollRef.current) {
+      return;
+    }
+    host.scrollLeft = Math.max(0, scrollLeft ?? 0);
+    didRestoreScrollRef.current = true;
+  }, [scrollLeft]);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !activePaneId) {
+      return;
+    }
+    const activeRect = paneRects.find((rect) => rect.pane.paneId === activePaneId);
+    if (!activeRect) {
+      return;
+    }
+
+    const viewportLeft = host.scrollLeft;
+    const viewportRight = viewportLeft + host.clientWidth;
+    const paneLeft = activeRect.x;
+    const paneRight = activeRect.x + activeRect.width;
+    if (paneLeft >= viewportLeft && paneRight <= viewportRight) {
+      return;
+    }
+
+    const nextScrollLeft =
+      activeRect.width > host.clientWidth || paneLeft < viewportLeft
+        ? paneLeft
+        : paneRight - host.clientWidth;
+    host.scrollTo({ left: Math.max(0, nextScrollLeft), behavior: "smooth" });
+  }, [activePaneId, paneRects]);
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
@@ -225,10 +262,11 @@ export function WorkspacePaneHost({
       if (!over || active.id === over.id) {
         return;
       }
+      const nextActivePaneId = String(active.id);
       onPanesChange(
         placeWorkspacePane(
           panes,
-          String(active.id),
+          nextActivePaneId,
           String(over.id),
           workspacePaneDropDirection({
             activeRect: active.rect.current.translated,
@@ -245,8 +283,16 @@ export function WorkspacePaneHost({
           renderedTerminalRowHeight,
         ),
       );
+      onActivePaneChange?.(nextActivePaneId);
     },
-    [layoutHeight, layoutWidth, onPanesChange, panes, renderedTerminalRowHeight],
+    [
+      layoutHeight,
+      layoutWidth,
+      onActivePaneChange,
+      onPanesChange,
+      panes,
+      renderedTerminalRowHeight,
+    ],
   );
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const activatorEvent = event.activatorEvent;
@@ -265,11 +311,8 @@ export function WorkspacePaneHost({
       paneId: string,
       width: number,
     ): PersistedWorkspaceDockedPane[] => {
-      const resized = resizeWorkspacePaneWidth(sourcePanes, paneId, width, layoutWidth);
-      return pushWorkspacePaneCollisions(
-        resized,
-        paneId,
-        "horizontal",
+      return normalizeWorkspacePaneLayout(
+        resizeWorkspacePaneWidth(sourcePanes, paneId, width, layoutWidth),
         layoutWidth,
         layoutHeight,
         renderedTerminalRowHeight,
@@ -332,88 +375,9 @@ export function WorkspacePaneHost({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       onPanesChange(nextPanes);
+      onActivePaneChange?.(resizeState.paneId);
     },
-    [onPanesChange, resizePaneWidth],
-  );
-
-  const resizePaneHeight = useCallback(
-    (
-      sourcePanes: readonly PersistedWorkspaceDockedPane[],
-      paneId: string,
-      height: number,
-      defaultHeight: number,
-    ): PersistedWorkspaceDockedPane[] =>
-      pushWorkspacePaneCollisions(
-        resizeWorkspacePaneHeight(sourcePanes, paneId, height, defaultHeight),
-        paneId,
-        "vertical",
-        layoutWidth,
-        layoutHeight,
-        renderedTerminalRowHeight,
-      ),
-    [layoutHeight, layoutWidth, renderedTerminalRowHeight],
-  );
-
-  const handleVerticalResizePointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>, pane: PersistedWorkspaceDockedPane) => {
-      event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      const defaultHeight = pane.type === "terminal" ? renderedTerminalRowHeight : layoutHeight;
-      verticalResizeStateRef.current = {
-        defaultHeight,
-        pointerId: event.pointerId,
-        paneId: pane.paneId,
-        startHeight: workspacePaneHeight(pane, defaultHeight),
-        startY: event.clientY,
-        panes,
-      };
-      setPreviewPanes(panes);
-      document.body.style.cursor = "row-resize";
-      document.body.style.userSelect = "none";
-    },
-    [layoutHeight, panes, renderedTerminalRowHeight],
-  );
-
-  const handleVerticalResizePointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const resizeState = verticalResizeStateRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) {
-        return;
-      }
-      setPreviewPanes(
-        resizePaneHeight(
-          resizeState.panes,
-          resizeState.paneId,
-          resizeState.startHeight + event.clientY - resizeState.startY,
-          resizeState.defaultHeight,
-        ),
-      );
-    },
-    [resizePaneHeight],
-  );
-
-  const finishVerticalResize = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const resizeState = verticalResizeStateRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) {
-        return;
-      }
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-      const nextPanes = resizePaneHeight(
-        resizeState.panes,
-        resizeState.paneId,
-        resizeState.startHeight + event.clientY - resizeState.startY,
-        resizeState.defaultHeight,
-      );
-      verticalResizeStateRef.current = null;
-      setPreviewPanes(null);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      onPanesChange(nextPanes);
-    },
-    [onPanesChange, resizePaneHeight],
+    [onActivePaneChange, onPanesChange, resizePaneWidth],
   );
 
   useEffect(
@@ -429,6 +393,14 @@ export function WorkspacePaneHost({
       ref={hostRef}
       className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       data-testid="workspace-pane-host"
+      onScroll={(event) => {
+        const nextScrollLeft = Math.round(event.currentTarget.scrollLeft);
+        if (lastReportedScrollLeftRef.current === nextScrollLeft) {
+          return;
+        }
+        lastReportedScrollLeftRef.current = nextScrollLeft;
+        onScrollLeftChange?.(nextScrollLeft);
+      }}
     >
       <DndContext
         collisionDetection={WORKSPACE_PANE_COLLISION_DETECTION}
@@ -440,7 +412,7 @@ export function WorkspacePaneHost({
         onDragEnd={handleDragEnd}
         onDragStart={handleDragStart}
       >
-        <SortableContext items={paneIds} strategy={rectSortingStrategy}>
+        <SortableContext items={paneIds} strategy={horizontalListSortingStrategy}>
           <div className="w-max p-3 sm:p-4">
             <div
               className="relative"
@@ -449,13 +421,17 @@ export function WorkspacePaneHost({
               {paneRects.map(({ height, pane, width, x, y }) => (
                 <div
                   key={pane.paneId}
-                  className="absolute"
+                  className={cn(
+                    "absolute rounded-[1.75rem] transition-shadow",
+                    activePaneId === pane.paneId && "shadow-[0_0_0_1px_hsl(var(--ring))]",
+                  )}
                   style={{
                     left: `${x}px`,
                     top: `${y}px`,
                     width: `${width}px`,
                     height: `${height}px`,
                   }}
+                  onPointerDown={() => onActivePaneChange?.(pane.paneId)}
                 >
                   <SortableWorkspacePane pane={pane}>{renderPane(pane)}</SortableWorkspacePane>
                   <HorizontalResizeHandle
@@ -463,12 +439,6 @@ export function WorkspacePaneHost({
                     onPointerDown={(event) => handleHorizontalResizePointerDown(event, pane)}
                     onPointerMove={handleHorizontalResizePointerMove}
                     onPointerUp={finishHorizontalResize}
-                  />
-                  <VerticalResizeHandle
-                    label={`Resize ${pane.title} pane`}
-                    onPointerDown={(event) => handleVerticalResizePointerDown(event, pane)}
-                    onPointerMove={handleVerticalResizePointerMove}
-                    onPointerUp={finishVerticalResize}
                   />
                 </div>
               ))}
@@ -508,32 +478,6 @@ function HorizontalResizeHandle({
       <div
         className="mx-auto h-full w-px bg-border/60 transition-colors hover:bg-ring/70"
         data-workspace-resize-divider="horizontal"
-      />
-    </div>
-  );
-}
-
-function VerticalResizeHandle({
-  label,
-  onPointerDown,
-  onPointerMove,
-  onPointerUp,
-}: ResizeHandleProps) {
-  return (
-    <div
-      role="separator"
-      aria-label={label}
-      aria-orientation="horizontal"
-      className="absolute -bottom-3 left-0 z-30 flex h-3 w-full cursor-row-resize items-center touch-none"
-      data-workspace-resize-handle="vertical"
-      onPointerCancel={onPointerUp}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-    >
-      <div
-        className="h-px w-full bg-border/60 transition-colors hover:bg-ring/70"
-        data-workspace-resize-divider="vertical"
       />
     </div>
   );

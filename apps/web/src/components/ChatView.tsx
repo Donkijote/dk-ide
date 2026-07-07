@@ -1346,6 +1346,12 @@ export default function ChatView(props: ChatViewProps) {
   const storeRestoreWorkspaceThreadDefaultDockedPane = useUiStateStore(
     (store) => store.restoreWorkspaceThreadDefaultDockedPane,
   );
+  const storeSetWorkspaceThreadActiveDockedPane = useUiStateStore(
+    (store) => store.setWorkspaceThreadActiveDockedPane,
+  );
+  const storeSetWorkspaceThreadPaneStripScrollLeft = useUiStateStore(
+    (store) => store.setWorkspaceThreadPaneStripScrollLeft,
+  );
   const settings = useSettings();
   const setStickyComposerModelSelection = useComposerDraftStore(
     (store) => store.setStickyModelSelection,
@@ -2093,6 +2099,12 @@ export default function ChatView(props: ChatViewProps) {
   const workspaceDockedPanes = useUiStateStore(
     (store) =>
       store.workspaceThreadLayoutById[workspaceLayoutKey]?.panes ?? EMPTY_WORKSPACE_DOCKED_PANES,
+  );
+  const activeWorkspaceDockedPaneId = useUiStateStore(
+    (store) => store.workspaceThreadLayoutById[workspaceLayoutKey]?.activePaneId ?? null,
+  );
+  const workspacePaneStripScrollLeft = useUiStateStore(
+    (store) => store.workspaceThreadLayoutById[workspaceLayoutKey]?.paneStripScrollLeft ?? 0,
   );
   const renameWorkspacePane = useCallback(
     (paneId: string, title: string | null) => {
@@ -5746,10 +5758,18 @@ export default function ChatView(props: ChatViewProps) {
       />
       <WorkspacePaneHost
         key={workspaceLayoutKey}
+        activePaneId={activeWorkspaceDockedPaneId}
         panes={renderedWorkspaceDockedPanes}
         renderPane={renderWorkspacePane}
+        scrollLeft={workspacePaneStripScrollLeft}
         terminalRowHeight={terminalPaneDeckHeight}
+        onActivePaneChange={(paneId) =>
+          storeSetWorkspaceThreadActiveDockedPane(workspaceLayoutKey, paneId)
+        }
         onPanesChange={handleWorkspacePanesChange}
+        onScrollLeftChange={(scrollLeft) =>
+          storeSetWorkspaceThreadPaneStripScrollLeft(workspaceLayoutKey, scrollLeft)
+        }
       />
 
       {hiddenMountedTerminalThreadRefs.map(
