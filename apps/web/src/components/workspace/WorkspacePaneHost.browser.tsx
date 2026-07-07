@@ -11,6 +11,7 @@ import { WorkspacePaneHost } from "./WorkspacePaneHost";
 
 const HOST_WIDTH = 1_280;
 const EDITOR_WIDTH = workspacePaneDefaultWidth({ paneId: "editor" }, HOST_WIDTH);
+const AI_WIDTH = workspacePaneDefaultWidth({ paneId: "ai" }, HOST_WIDTH);
 const PANES: readonly PersistedWorkspaceDockedPane[] = [
   {
     paneId: "editor",
@@ -20,6 +21,9 @@ const PANES: readonly PersistedWorkspaceDockedPane[] = [
     cwd: "/repo",
     order: 0,
     size: 1,
+    widthPreset: "large",
+    dockColumn: 0,
+    dockRow: 0,
     dockX: 0,
     dockY: 0,
     metadata: {},
@@ -32,6 +36,9 @@ const PANES: readonly PersistedWorkspaceDockedPane[] = [
     cwd: "/repo",
     order: 1,
     size: 1,
+    widthPreset: "large",
+    dockColumn: 1,
+    dockRow: 0,
     dockX: Math.round(EDITOR_WIDTH + WORKSPACE_PANE_GAP),
     dockY: 0,
     metadata: { threadId: "thread-1" },
@@ -44,8 +51,11 @@ const PANES: readonly PersistedWorkspaceDockedPane[] = [
     cwd: "/repo",
     order: 2,
     size: 1,
-    dockX: 0,
-    dockY: 748,
+    widthPreset: "medium",
+    dockColumn: 2,
+    dockRow: 0,
+    dockX: Math.round(EDITOR_WIDTH + AI_WIDTH + WORKSPACE_PANE_GAP * 2),
+    dockY: 0,
     metadata: { threadId: "thread-1" },
   },
 ];

@@ -540,6 +540,7 @@ describe("uiStateStore pure functions", () => {
           cwd: "/repo",
           order: 0,
           size: 1,
+          widthPreset: "large",
           metadata: {
             activePath: "apps/web/src/main.tsx",
           },
@@ -552,6 +553,7 @@ describe("uiStateStore pure functions", () => {
           cwd: "/repo",
           order: 1,
           size: 1,
+          widthPreset: "large",
           metadata: {
             threadId: thread1,
           },
@@ -564,6 +566,7 @@ describe("uiStateStore pure functions", () => {
           cwd: "/repo",
           order: 2,
           size: 1,
+          widthPreset: "medium",
           metadata: {
             threadId: thread1,
             terminalId: "terminal-1",
@@ -722,14 +725,19 @@ describe("uiStateStore pure functions", () => {
     expect(next.workspaceThreadLayoutById[thread1]).toMatchObject({
       activePaneId: "terminal:secondary",
     });
-    expect(next.workspaceThreadLayoutById[thread1]?.panes?.at(-1)).toEqual({
+    expect(
+      next.workspaceThreadLayoutById[thread1]?.panes?.find(
+        (pane) => pane.paneId === "terminal:secondary",
+      ),
+    ).toEqual({
       paneId: "terminal:secondary",
       type: "terminal",
       title: "Tools Terminal",
       environmentId: "env-1",
       cwd: "/repo/tools",
-      order: 3,
+      order: 1.5,
       size: 1,
+      widthPreset: "medium",
       metadata: {
         threadId: thread1,
         terminalId: "terminal-secondary",
@@ -985,6 +993,7 @@ describe("uiStateStore pure functions", () => {
         cwd: "/repo",
         order: 0,
         size: 1,
+        widthPreset: "large",
         metadata: {
           threadId: thread1,
         },
@@ -997,6 +1006,7 @@ describe("uiStateStore pure functions", () => {
         cwd: "/repo",
         order: 1,
         size: 1,
+        widthPreset: "large",
         metadata: {
           threadId: null,
         },
@@ -1101,7 +1111,7 @@ describe("uiStateStore pure functions", () => {
     ).toBeUndefined();
   });
 
-  it("places added panes in the terminal row and copies the default terminal size", () => {
+  it("places added panes after the active pane with their role width preset", () => {
     const thread1 = ThreadId.make("thread-1");
     const initialState = setWorkspaceThreadDockedPanes(
       makeUiState(),
@@ -1168,17 +1178,18 @@ describe("uiStateStore pure functions", () => {
       "editor",
       "editor:notes",
       "ai",
-      "terminal",
       "editor:docs",
+      "terminal",
     ]);
-    expect(next.workspaceThreadLayoutById[thread1]?.panes?.[4]).toMatchObject({
+    expect(next.workspaceThreadLayoutById[thread1]?.panes?.[3]).toMatchObject({
       paneId: "editor:docs",
-      order: 3,
-      size: 0.65,
+      order: 1.5,
+      size: 1,
+      widthPreset: "large",
     });
   });
 
-  it("appends new terminal panes beside the existing terminal panes", () => {
+  it("inserts new terminal panes after the active pane in the strip", () => {
     const thread1 = ThreadId.make("thread-1");
     let state = ensureWorkspaceThreadDockedPaneLayout(makeUiState(), thread1, {
       threadId: thread1,
@@ -1208,9 +1219,9 @@ describe("uiStateStore pure functions", () => {
     expect(state.workspaceThreadLayoutById[thread1]?.panes?.map((pane) => pane.paneId)).toEqual([
       "editor",
       "ai",
-      "terminal",
       "terminal:first",
       "terminal:second",
+      "terminal",
     ]);
   });
 
@@ -1275,6 +1286,7 @@ describe("uiStateStore pure functions", () => {
         cwd: "/repo",
         order: 0,
         size: 0.4,
+        widthPreset: "large",
         metadata: {
           activePath: "src/main.ts",
           openPaths: ["src/main.ts", "src/other.ts"],
@@ -1288,6 +1300,7 @@ describe("uiStateStore pure functions", () => {
         cwd: null,
         order: 1,
         size: 1,
+        widthPreset: "medium",
         metadata: {
           threadId: "thread-1",
           terminalId: "term-1",
@@ -1342,6 +1355,7 @@ describe("uiStateStore pure functions", () => {
           cwd: "/repo",
           order: 1,
           size: 1.5,
+          widthPreset: "large",
           metadata: {
             activePath: null,
             openPaths: ["README.md"],
@@ -1355,6 +1369,7 @@ describe("uiStateStore pure functions", () => {
           cwd: "/repo",
           order: 3,
           size: 0.5,
+          widthPreset: "large",
           height: 900,
           dockX: 640,
           dockY: 748,
@@ -1413,6 +1428,7 @@ describe("uiStateStore pure functions", () => {
           cwd: "/repo",
           order: 0,
           size: 1,
+          widthPreset: "large",
           metadata: {
             activePath: null,
           },

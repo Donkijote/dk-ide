@@ -30,6 +30,7 @@ export type WorkspacePaneId = "ai" | "editor" | "plan" | "terminal";
 export type WorkspaceDockedPaneType = "ai" | "editor" | "terminal";
 export type WorkspaceDockedPaneId = string;
 export type WorkspaceDockedPaneSlot = "primary" | "upper" | "grid";
+export type WorkspaceDockedPaneWidthPreset = "narrow" | "medium" | "large" | "wide";
 
 export interface PersistedWorkspaceDockedPaneBase {
   paneId: WorkspaceDockedPaneId;
@@ -39,6 +40,8 @@ export interface PersistedWorkspaceDockedPaneBase {
   cwd: string | null;
   order: number;
   size: number;
+  widthPreset?: WorkspaceDockedPaneWidthPreset;
+  width?: number;
   height?: number;
   dockSlot?: WorkspaceDockedPaneSlot;
   dockColumn?: number;
@@ -109,6 +112,7 @@ export interface PersistedWorkspaceThreadLayout {
   activePaneId?: WorkspaceDockedPaneId;
   lastActivePane?: WorkspacePaneId;
   panes?: PersistedWorkspaceDockedPane[];
+  paneStripScrollLeft?: number;
   paneTitleOverrideById?: Record<string, string>;
   planSidebarOpen?: boolean;
   removedDefaultPaneIds?: WorkspaceDockedPaneId[];
@@ -285,6 +289,10 @@ function sanitizePersistedWorkspaceThreadLayout(
     if (typeof layout.planSidebarOpen === "boolean") {
       nextLayout.planSidebarOpen = layout.planSidebarOpen;
     }
+    const paneStripScrollLeft = sanitizeWorkspacePaneScrollLeft(layout.paneStripScrollLeft);
+    if (paneStripScrollLeft !== undefined) {
+      nextLayout.paneStripScrollLeft = paneStripScrollLeft;
+    }
     const paneTitleOverrideById = sanitizeWorkspacePaneTitleOverrides(layout.paneTitleOverrideById);
     if (Object.keys(paneTitleOverrideById).length > 0) {
       nextLayout.paneTitleOverrideById = paneTitleOverrideById;
@@ -324,6 +332,32 @@ function sanitizeWorkspacePaneHeight(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? Math.min(value, 10_000)
     : undefined;
+}
+
+function sanitizeWorkspacePaneWidth(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.min(Math.max(value, 280), 1_400)
+    : undefined;
+}
+
+function sanitizeWorkspacePaneScrollLeft(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.min(value, 100_000)
+    : undefined;
+}
+
+function sanitizeWorkspacePaneWidthPreset(
+  value: unknown,
+): WorkspaceDockedPaneWidthPreset | undefined {
+  return value === "narrow" || value === "medium" || value === "large" || value === "wide"
+    ? value
+    : undefined;
+}
+
+function defaultWorkspacePaneWidthPreset(
+  type: WorkspaceDockedPaneType,
+): WorkspaceDockedPaneWidthPreset {
+  return type === "terminal" ? "medium" : "large";
 }
 
 function sanitizeWorkspacePaneOrder(value: unknown, fallbackOrder: number): number {
@@ -410,6 +444,7 @@ function sanitizeWorkspaceDockedPane(
   const dockX = sanitizeWorkspacePaneCoordinate(pane.dockX);
   const dockY = sanitizeWorkspacePaneCoordinate(pane.dockY);
   const height = sanitizeWorkspacePaneHeight(pane.height);
+  const width = sanitizeWorkspacePaneWidth(pane.width);
   const base = {
     paneId,
     type,
@@ -418,6 +453,9 @@ function sanitizeWorkspaceDockedPane(
     cwd: sanitizeOptionalString(pane.cwd),
     order: sanitizeWorkspacePaneOrder(pane.order, fallbackOrder),
     size: sanitizeWorkspacePaneSize(pane.size),
+    widthPreset:
+      sanitizeWorkspacePaneWidthPreset(pane.widthPreset) ?? defaultWorkspacePaneWidthPreset(type),
+    ...(width !== undefined ? { width } : {}),
     ...(height !== undefined ? { height } : {}),
     ...(dockSlot ? { dockSlot } : {}),
     ...(dockColumn !== undefined ? { dockColumn } : {}),
@@ -892,6 +930,7 @@ function workspaceThreadLayoutEqual(
     (left?.activePaneId ?? undefined) === (right?.activePaneId ?? undefined) &&
     (left?.lastActivePane ?? undefined) === (right?.lastActivePane ?? undefined) &&
     (left?.planSidebarOpen === true) === (right?.planSidebarOpen === true) &&
+    (left?.paneStripScrollLeft ?? undefined) === (right?.paneStripScrollLeft ?? undefined) &&
     workspaceDockedPanesEqual(left?.panes ?? [], right?.panes ?? []) &&
     recordsEqual(left?.paneTitleOverrideById ?? {}, right?.paneTitleOverrideById ?? {}) &&
     stringArraysEqual(left?.removedDefaultPaneIds ?? [], right?.removedDefaultPaneIds ?? [])
@@ -920,6 +959,7 @@ function isDefaultWorkspaceThreadLayout(layout: PersistedWorkspaceThreadLayout):
     layout.planSidebarOpen !== true &&
     layout.activePaneId === undefined &&
     layout.lastActivePane === undefined &&
+    layout.paneStripScrollLeft === undefined &&
     (layout.panes?.length ?? 0) === 0 &&
     Object.keys(layout.paneTitleOverrideById ?? {}).length === 0 &&
     (layout.removedDefaultPaneIds?.length ?? 0) === 0
@@ -1107,6 +1147,8 @@ function workspaceDockedPaneEqual(
     left.cwd === right.cwd &&
     left.order === right.order &&
     left.size === right.size &&
+    left.widthPreset === right.widthPreset &&
+    left.width === right.width &&
     left.height === right.height &&
     left.dockSlot === right.dockSlot &&
     left.dockColumn === right.dockColumn &&
@@ -1157,6 +1199,7 @@ function defaultWorkspaceDockedPanes(
       cwd,
       order: 0,
       size: DEFAULT_WORKSPACE_PANE_SIZE,
+      widthPreset: "large",
       metadata: {
         activePath: sanitizeOptionalString(input.editorActivePath),
       },
@@ -1169,6 +1212,7 @@ function defaultWorkspaceDockedPanes(
       cwd,
       order: 1,
       size: DEFAULT_WORKSPACE_PANE_SIZE,
+      widthPreset: "large",
       metadata: {
         threadId,
       },
@@ -1181,6 +1225,7 @@ function defaultWorkspaceDockedPanes(
       cwd,
       order: 2,
       size: DEFAULT_WORKSPACE_PANE_SIZE,
+      widthPreset: "medium",
       metadata: {
         threadId,
         terminalId: sanitizeOptionalString(input.terminalId),
@@ -1334,6 +1379,7 @@ export function addWorkspaceThreadDockedPane(
     cwd: sanitizeOptionalString(input.cwd),
     order: 0,
     size: DEFAULT_WORKSPACE_PANE_SIZE,
+    widthPreset: defaultWorkspacePaneWidthPreset(input.type),
   };
   const pane: PersistedWorkspaceDockedPane =
     input.type === "ai"
@@ -1369,15 +1415,12 @@ export function addWorkspaceThreadDockedPane(
       };
     }
     const sortedPanes = sanitizeWorkspaceDockedPanes(existingPanes);
-    const defaultTerminalPane =
-      sortedPanes.find(
-        (existingPane) => existingPane.paneId === WORKSPACE_DOCKED_PANE_IDS.terminal,
-      ) ?? null;
     const placementAnchor =
-      pane.type === "terminal"
-        ? (sortedPanes.findLast((existingPane) => existingPane.type === "terminal") ??
-          defaultTerminalPane)
-        : (sortedPanes.at(-1) ?? defaultTerminalPane);
+      (layout.activePaneId
+        ? sortedPanes.find((existingPane) => existingPane.paneId === layout.activePaneId)
+        : null) ??
+      sortedPanes.at(-1) ??
+      null;
     const anchorIndex = placementAnchor
       ? sortedPanes.findIndex((existingPane) => existingPane.paneId === placementAnchor.paneId)
       : -1;
@@ -1397,7 +1440,6 @@ export function addWorkspaceThreadDockedPane(
       {
         ...pane,
         order,
-        size: defaultTerminalPane?.size ?? pane.size,
       },
     ]);
     return {
@@ -1544,6 +1586,27 @@ export function setWorkspaceThreadActiveDockedPane(
   });
 }
 
+export function setWorkspaceThreadPaneStripScrollLeft(
+  state: UiState,
+  threadId: string,
+  scrollLeft: number,
+): UiState {
+  const normalizedScrollLeft = sanitizeWorkspacePaneScrollLeft(scrollLeft);
+  if (normalizedScrollLeft === undefined) {
+    return updateWorkspaceThreadLayout(state, threadId, (layout) => {
+      if (layout.paneStripScrollLeft === undefined) {
+        return layout;
+      }
+      const { paneStripScrollLeft: _paneStripScrollLeft, ...nextLayout } = layout;
+      return nextLayout;
+    });
+  }
+  return updateWorkspaceThreadLayout(state, threadId, (layout) => ({
+    ...layout,
+    paneStripScrollLeft: Math.round(normalizedScrollLeft),
+  }));
+}
+
 export function toggleProject(state: UiState, projectId: string): UiState {
   const expanded = state.projectExpandedById[projectId] ?? true;
   return {
@@ -1649,6 +1712,7 @@ interface UiStateStore extends UiState {
   removeWorkspaceThreadDockedPane: (threadId: string, paneId: string) => void;
   restoreWorkspaceThreadDefaultDockedPane: (threadId: string, paneId: string) => void;
   setWorkspaceThreadActiveDockedPane: (threadId: string, paneId: string) => void;
+  setWorkspaceThreadPaneStripScrollLeft: (threadId: string, scrollLeft: number) => void;
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
   reorderProjects: (
@@ -1693,6 +1757,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => restoreWorkspaceThreadDefaultDockedPane(state, threadId, paneId)),
   setWorkspaceThreadActiveDockedPane: (threadId, paneId) =>
     set((state) => setWorkspaceThreadActiveDockedPane(state, threadId, paneId)),
+  setWorkspaceThreadPaneStripScrollLeft: (threadId, scrollLeft) =>
+    set((state) => setWorkspaceThreadPaneStripScrollLeft(state, threadId, scrollLeft)),
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),

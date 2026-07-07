@@ -98,6 +98,9 @@ composition, which are likely to continue evolving upstream.
 - `documentation/ghi#63`: alpha layout direction narrowed from a general
   two-dimensional docked grid to a Niri-inspired workspace-owned scrollable
   column strip
+- `feature/ghi#64`: workspace pane host replaced the two-dimensional docked
+  grid behavior with an ordered horizontal column strip, role-based pane width
+  presets, active-pane viewport alignment, and persisted strip scroll position
 
 ## Sync Notes
 
@@ -170,6 +173,10 @@ composition, which are likely to continue evolving upstream.
   alignment, and workspace-scoped restoration are retained, while arbitrary
   two-dimensional rows, collision-pushing coordinates, and full Niri parity are
   deferred
+- the first scrollable-column host implementation keeps the existing pane state
+  compatible while normalizing stale dock coordinates into one ordered strip,
+  inserting new panes after the active pane, preserving terminal splits inside
+  terminal panes, and persisting the active pane plus horizontal scroll offset
 - keep selected-file commit choices in the commit dialog and pass selected paths
   into the existing stacked Git action API, leaving server commit-context
   generation and default-branch confirmation behavior unchanged
