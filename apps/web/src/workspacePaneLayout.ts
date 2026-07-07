@@ -12,6 +12,7 @@ export const WORKSPACE_PANE_GAP = 12;
 const MAX_WORKSPACE_PANE_WIDTH = 1_400;
 const MAX_WORKSPACE_PANE_HEIGHT = 4_000;
 const MIN_CUSTOM_WORKSPACE_PANE_WIDTH = 280;
+export const WORKSPACE_PANE_WIDTH_PRESETS = ["narrow", "medium", "large", "wide"] as const;
 
 export type WorkspacePaneDropDirection = "above" | "below" | "before" | "after" | "swap";
 
@@ -38,7 +39,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-function paneWidthPreset(
+export function workspacePaneWidthPreset(
   pane: Pick<PersistedWorkspaceDockedPane, "paneId"> & {
     readonly type?: WorkspaceDockedPaneType;
     readonly widthPreset?: WorkspaceDockedPaneWidthPreset;
@@ -61,7 +62,7 @@ export function workspacePaneDefaultWidth(
   hostWidth: number,
 ): number {
   const safeHostWidth = Number.isFinite(hostWidth) && hostWidth > 0 ? hostWidth : 1_280;
-  switch (paneWidthPreset(pane)) {
+  switch (workspacePaneWidthPreset(pane)) {
     case "narrow":
       return clamp(safeHostWidth * 0.24, 280, 420);
     case "medium":
@@ -184,7 +185,7 @@ function withWorkspacePaneRects(
     return {
       ...pane,
       order,
-      widthPreset: pane.widthPreset ?? paneWidthPreset(pane),
+      widthPreset: pane.widthPreset ?? workspacePaneWidthPreset(pane),
       dockSlot: "grid",
       dockColumn: order,
       dockRow: 0,
@@ -272,6 +273,37 @@ export function resizeWorkspacePaneWidth(
         }
       : pane,
   );
+}
+
+export function cycleWorkspacePaneWidthPreset(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  paneId: string,
+  direction: "previous" | "next",
+): PersistedWorkspaceDockedPane[] {
+  const orderedPanes = normalizePaneOrder(panes);
+  if (!orderedPanes.some((pane) => pane.paneId === paneId)) {
+    return orderedPanes;
+  }
+
+  return orderedPanes.map((pane) => {
+    if (pane.paneId !== paneId) {
+      return pane;
+    }
+
+    const currentIndex = WORKSPACE_PANE_WIDTH_PRESETS.indexOf(workspacePaneWidthPreset(pane));
+    const delta = direction === "previous" ? -1 : 1;
+    const nextPreset =
+      WORKSPACE_PANE_WIDTH_PRESETS[
+        (currentIndex + delta + WORKSPACE_PANE_WIDTH_PRESETS.length) %
+          WORKSPACE_PANE_WIDTH_PRESETS.length
+      ]!;
+    const { width: _width, ...paneWithoutCustomWidth } = pane;
+    return {
+      ...paneWithoutCustomWidth,
+      widthPreset: nextPreset,
+      size: 1,
+    };
+  });
 }
 
 export function resizeWorkspacePaneHeight(

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PersistedWorkspaceDockedPane } from "./uiStateStore";
 import {
+  cycleWorkspacePaneWidthPreset,
   MIN_WORKSPACE_PANE_HEIGHT,
   MIN_WORKSPACE_TERMINAL_ROW_HEIGHT,
   WORKSPACE_PANE_GAP,
@@ -141,6 +142,27 @@ describe("workspace pane layout", () => {
 
     expect(ai.width).toBe(1_400);
     expect(terminal.x).toBeCloseTo(ai.x + ai.width + WORKSPACE_PANE_GAP);
+  });
+
+  it("cycles width presets without changing sibling pane widths", () => {
+    const resized = resizeWorkspacePaneWidth(panes, "ai", 1_100, 1_280);
+    const cycled = cycleWorkspacePaneWidthPreset(resized, "ai", "next");
+    const terminalBefore = workspacePaneWidth(resized[2]!, 1_280);
+    const terminalAfter = workspacePaneWidth(cycled[2]!, 1_280);
+
+    expect(cycled[1]).toMatchObject({
+      paneId: "ai",
+      widthPreset: "wide",
+      size: 1,
+    });
+    expect(cycled[1]?.width).toBeUndefined();
+    expect(terminalAfter).toBe(terminalBefore);
+  });
+
+  it("cycles width presets backward with wraparound", () => {
+    const cycled = cycleWorkspacePaneWidthPreset(panes, "terminal", "previous");
+
+    expect(cycled.find((pane) => pane.paneId === "terminal")?.widthPreset).toBe("narrow");
   });
 
   it("keeps collision repair as strip normalization for compatibility callers", () => {
