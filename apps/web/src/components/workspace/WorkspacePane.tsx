@@ -11,6 +11,7 @@ interface WorkspacePaneProps {
   readonly children: ReactNode;
   readonly className?: string;
   readonly description?: ReactNode;
+  readonly leadingActions?: ReactNode;
   readonly onTitleRename?: (title: string | null) => void;
   readonly rootRef?: Ref<HTMLElement>;
   readonly title: string;
@@ -26,6 +27,7 @@ export function WorkspacePane({
   children,
   className,
   description,
+  leadingActions,
   onTitleRename,
   rootRef,
   title,
@@ -80,6 +82,9 @@ export function WorkspacePane({
               />
               <TooltipPopup side="bottom">Drag to move pane</TooltipPopup>
             </Tooltip>
+          ) : null}
+          {leadingActions ? (
+            <div className="flex shrink-0 items-center gap-1">{leadingActions}</div>
           ) : null}
           <div className="min-w-0 flex-1">
             {editingTitle ? (

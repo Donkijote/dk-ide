@@ -84,6 +84,7 @@ import { createProjectSelectorByRef, createThreadSelectorByRef } from "../storeS
 import {
   type PersistedWorkspaceDockedPane,
   type WorkspaceDockedPaneType,
+  type WorkspaceDockedPaneWidthPreset,
   useUiStateStore,
 } from "../uiStateStore";
 import {
@@ -120,16 +121,21 @@ import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
   BotIcon,
   ChevronDownIcon,
+  Columns2Icon,
   CornerLeftUpIcon,
   DiffIcon,
   FileCode2Icon,
   FolderIcon,
+  Maximize2Icon,
   PlusIcon,
+  RectangleHorizontalIcon,
+  RectangleVerticalIcon,
   SquarePenIcon,
   TerminalIcon,
   TerminalSquareIcon,
   Trash2Icon,
   TriangleAlertIcon,
+  type LucideIcon,
   WifiOffIcon,
   XIcon,
 } from "lucide-react";
@@ -233,6 +239,9 @@ import { retainThreadDetailSubscription } from "../environments/runtime/service"
 import { RightPanelSheet } from "./RightPanelSheet";
 import {
   mergeVisibleWorkspacePaneUpdates,
+  setWorkspacePaneWidthPreset,
+  WORKSPACE_PANE_WIDTH_PRESETS,
+  workspacePaneWidthPreset,
   workspaceTerminalRowHeight,
 } from "../workspacePaneLayout";
 import { Button, buttonVariants } from "./ui/button";
@@ -246,6 +255,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Select, SelectItem, SelectPopup, SelectTrigger } from "./ui/select";
+import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { useSidebar } from "./ui/sidebar";
 import { Toggle } from "./ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -889,6 +899,20 @@ function formatOutgoingPrompt(params: {
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
 
+function workspacePaneWidthPresetIcon(widthPreset: WorkspaceDockedPaneWidthPreset): LucideIcon {
+  switch (widthPreset) {
+    case "narrow":
+      return RectangleVerticalIcon;
+    case "medium":
+      return Columns2Icon;
+    case "wide":
+      return Maximize2Icon;
+    case "large":
+    default:
+      return RectangleHorizontalIcon;
+  }
+}
+
 type AiPaneDraftOrigin = {
   threadRef: ScopedThreadRef;
   title: string;
@@ -908,6 +932,7 @@ type ChatViewProps =
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
       embeddedPaneActions?: ReactNode;
+      embeddedPaneLeadingActions?: ReactNode;
       onWorkspaceAiPaneThreadChange?: (
         nextThreadKey: string | null,
         options?: { title?: string },
@@ -922,6 +947,7 @@ type ChatViewProps =
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
       embeddedPaneActions?: ReactNode;
+      embeddedPaneLeadingActions?: ReactNode;
       onWorkspaceAiPaneThreadChange?: (
         nextThreadKey: string | null,
         options?: { title?: string },
@@ -1291,6 +1317,7 @@ export default function ChatView(props: ChatViewProps) {
     threadId,
     routeKind,
     embeddedPaneActions,
+    embeddedPaneLeadingActions,
     onDiffPanelOpen,
     onWorkspaceAiPaneThreadChange,
     reserveTitleBarControlInset = true,
@@ -5204,6 +5231,16 @@ export default function ChatView(props: ChatViewProps) {
     },
     [renderedWorkspaceDockedPanes, storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
   );
+  const setWorkspacePaneWidth = useCallback(
+    (paneId: string, widthPreset: WorkspaceDockedPaneWidthPreset) => {
+      storeSetWorkspaceThreadDockedPanes(
+        workspaceLayoutKey,
+        setWorkspacePaneWidthPreset(renderedWorkspaceDockedPanes, paneId, widthPreset),
+        paneId,
+      );
+    },
+    [renderedWorkspaceDockedPanes, storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
+  );
   const terminalPaneDeckHeight = workspaceTerminalRowHeight(terminalState.terminalHeight);
   const terminalRuntimeEnv = useMemo(
     () =>
@@ -5217,6 +5254,64 @@ export default function ChatView(props: ChatViewProps) {
   );
   const renderWorkspacePane = (pane: PersistedWorkspaceDockedPane) => {
     const paneTitle = paneTitleOverrideById[pane.paneId] ?? pane.title;
+    const renderPaneWidthPresetControl = () => {
+      const currentPreset = workspacePaneWidthPreset(pane);
+      const presetLabel = currentPreset[0]!.toUpperCase() + currentPreset.slice(1);
+      const CurrentPresetIcon = workspacePaneWidthPresetIcon(currentPreset);
+      return (
+        <Popover>
+          <PopoverTrigger
+            openOnHover
+            delay={120}
+            closeDelay={180}
+            className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-popup-open:bg-accent data-popup-open:text-foreground"
+            aria-label={`${paneTitle} width preset: ${presetLabel}`}
+          >
+            <CurrentPresetIcon className="size-3.5" />
+          </PopoverTrigger>
+          <PopoverPopup
+            tooltipStyle
+            side="bottom"
+            align="start"
+            sideOffset={6}
+            className="w-max max-w-none p-1"
+            viewportClassName="p-0"
+          >
+            <div className="grid grid-cols-4 gap-0.5" aria-label={`${paneTitle} width presets`}>
+              {WORKSPACE_PANE_WIDTH_PRESETS.map((widthPreset) => {
+                const label = widthPreset[0]!.toUpperCase() + widthPreset.slice(1);
+                const isSelected = widthPreset === currentPreset;
+                const PresetIcon = workspacePaneWidthPresetIcon(widthPreset);
+                return (
+                  <PopoverClose
+                    key={widthPreset}
+                    type="button"
+                    className={cn(
+                      "relative inline-flex size-8 cursor-pointer items-center justify-center rounded-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+                      isSelected ? "bg-accent text-accent-foreground" : "text-popover-foreground",
+                    )}
+                    aria-label={`Set ${paneTitle} pane width to ${label}`}
+                    aria-pressed={isSelected}
+                    title={label}
+                    onClick={() => setWorkspacePaneWidth(pane.paneId, widthPreset)}
+                  >
+                    <PresetIcon className="size-4" />
+                    <span className="sr-only">{label}</span>
+                    <span
+                      className={cn(
+                        "absolute right-1 bottom-1 size-1 rounded-full transition-opacity",
+                        isSelected ? "bg-current opacity-100" : "opacity-0",
+                      )}
+                      aria-hidden="true"
+                    />
+                  </PopoverClose>
+                );
+              })}
+            </div>
+          </PopoverPopup>
+        </Popover>
+      );
+    };
     const renderRemovePaneButton = () => (
       <Tooltip>
         <TooltipTrigger
@@ -5243,6 +5338,7 @@ export default function ChatView(props: ChatViewProps) {
           key={pane.paneId}
           title={isDefaultEditorPane ? editorPaneTitle : paneTitle}
           onTitleRename={(nextTitle) => renameWorkspacePane(pane.paneId, nextTitle)}
+          leadingActions={renderPaneWidthPresetControl()}
           actions={
             isDefaultEditorPane ? (
               <WorkspaceEditorActions {...workspaceEditorActionProps} />
@@ -5350,6 +5446,7 @@ export default function ChatView(props: ChatViewProps) {
           key={pane.paneId}
           title={paneTitle}
           onTitleRename={(nextTitle) => renameWorkspacePane(pane.paneId, nextTitle)}
+          leadingActions={renderPaneWidthPresetControl()}
           titleActions={
             <TerminalPaneHeaderActions
               splitCount={terminalGroup.terminalIds.length}
@@ -5412,10 +5509,12 @@ export default function ChatView(props: ChatViewProps) {
     const isDefaultAiPane = pane.paneId === "ai";
     const paneThreadId = pane.metadata.threadId;
     if (paneThreadId === null) {
+      const aiPaneTitle = pane.title || "AI";
       return (
         <WorkspacePane
           key={`${pane.paneId}:unbound`}
-          title={pane.title || "AI"}
+          title={aiPaneTitle}
+          leadingActions={renderPaneWidthPresetControl()}
           titleActions={
             <Tooltip>
               <TooltipTrigger
@@ -5450,10 +5549,12 @@ export default function ChatView(props: ChatViewProps) {
     const paneThreadKey = scopedThreadKey(paneThreadRef);
     const paneDraftId = draftIdByThreadKey.get(paneThreadKey) ?? null;
     if (!serverThreadKeySet.has(paneThreadKey) && paneDraftId === null) {
+      const aiPaneTitle = pane.title || "AI";
       return (
         <WorkspacePane
           key={`${pane.paneId}:missing-thread`}
-          title={pane.title || "AI"}
+          title={aiPaneTitle}
+          leadingActions={renderPaneWidthPresetControl()}
           titleActions={
             <Tooltip>
               <TooltipTrigger
@@ -5487,6 +5588,7 @@ export default function ChatView(props: ChatViewProps) {
         threadId: paneThreadRef.threadId,
         workspaceMode: "ai-pane" as const,
         embeddedPaneActions: renderRemovePaneButton(),
+        embeddedPaneLeadingActions: renderPaneWidthPresetControl(),
         onWorkspaceAiPaneThreadChange: (
           nextThreadKey: string | null,
           options?: { title?: string },
@@ -5512,6 +5614,7 @@ export default function ChatView(props: ChatViewProps) {
       <WorkspacePane
         key={pane.paneId}
         title={activeThread.title}
+        leadingActions={embeddedPaneLeadingActions ?? renderPaneWidthPresetControl()}
         titleActions={aiPaneHeaderActions}
         titleControl={aiPaneTitleControl}
         titleInputLabel="Thread title"
