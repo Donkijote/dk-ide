@@ -13,6 +13,7 @@ import {
   reorderWorkspacePanes,
   resizeWorkspacePaneHeight,
   resizeWorkspacePaneWidth,
+  setWorkspacePaneWidthPreset,
   workspacePaneDefaultWidth,
   workspacePaneHeight,
   workspacePaneRects,
@@ -163,6 +164,19 @@ describe("workspace pane layout", () => {
     const cycled = cycleWorkspacePaneWidthPreset(panes, "terminal", "previous");
 
     expect(cycled.find((pane) => pane.paneId === "terminal")?.widthPreset).toBe("narrow");
+  });
+
+  it("sets an explicit width preset and clears custom pane width", () => {
+    const resized = resizeWorkspacePaneWidth(panes, "editor", 1_100, 1_280);
+    const next = setWorkspacePaneWidthPreset(resized, "editor", "narrow");
+
+    expect(next[0]).toMatchObject({
+      paneId: "editor",
+      widthPreset: "narrow",
+      size: 1,
+    });
+    expect(next[0]?.width).toBeUndefined();
+    expect(next[1]).toStrictEqual(resized[1]);
   });
 
   it("keeps collision repair as strip normalization for compatibility callers", () => {

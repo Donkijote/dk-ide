@@ -306,6 +306,29 @@ export function cycleWorkspacePaneWidthPreset(
   });
 }
 
+export function setWorkspacePaneWidthPreset(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  paneId: string,
+  widthPreset: WorkspaceDockedPaneWidthPreset,
+): PersistedWorkspaceDockedPane[] {
+  const orderedPanes = normalizePaneOrder(panes);
+  if (!WORKSPACE_PANE_WIDTH_PRESETS.includes(widthPreset)) {
+    return orderedPanes;
+  }
+  return orderedPanes.map((pane) => {
+    if (pane.paneId !== paneId) {
+      return pane;
+    }
+
+    const { width: _width, ...paneWithoutCustomWidth } = pane;
+    return {
+      ...paneWithoutCustomWidth,
+      widthPreset,
+      size: 1,
+    };
+  });
+}
+
 export function resizeWorkspacePaneHeight(
   panes: readonly PersistedWorkspaceDockedPane[],
   paneId: string,

@@ -84,6 +84,7 @@ import { createProjectSelectorByRef, createThreadSelectorByRef } from "../storeS
 import {
   type PersistedWorkspaceDockedPane,
   type WorkspaceDockedPaneType,
+  type WorkspaceDockedPaneWidthPreset,
   useUiStateStore,
 } from "../uiStateStore";
 import {
@@ -120,12 +121,11 @@ import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
   BotIcon,
   ChevronDownIcon,
+  Columns2Icon,
   CornerLeftUpIcon,
   DiffIcon,
   FileCode2Icon,
   FolderIcon,
-  PanelLeftCloseIcon,
-  PanelLeftIcon,
   PlusIcon,
   SquarePenIcon,
   TerminalIcon,
@@ -234,8 +234,9 @@ import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { retainThreadDetailSubscription } from "../environments/runtime/service";
 import { RightPanelSheet } from "./RightPanelSheet";
 import {
-  cycleWorkspacePaneWidthPreset,
   mergeVisibleWorkspacePaneUpdates,
+  setWorkspacePaneWidthPreset,
+  WORKSPACE_PANE_WIDTH_PRESETS,
   workspacePaneWidthPreset,
   workspaceTerminalRowHeight,
 } from "../workspacePaneLayout";
@@ -250,6 +251,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Select, SelectItem, SelectPopup, SelectTrigger } from "./ui/select";
+import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { useSidebar } from "./ui/sidebar";
 import { Toggle } from "./ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -912,6 +914,7 @@ type ChatViewProps =
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
       embeddedPaneActions?: ReactNode;
+      embeddedPaneLeadingActions?: ReactNode;
       onWorkspaceAiPaneThreadChange?: (
         nextThreadKey: string | null,
         options?: { title?: string },
@@ -926,6 +929,7 @@ type ChatViewProps =
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
       embeddedPaneActions?: ReactNode;
+      embeddedPaneLeadingActions?: ReactNode;
       onWorkspaceAiPaneThreadChange?: (
         nextThreadKey: string | null,
         options?: { title?: string },
@@ -1295,6 +1299,7 @@ export default function ChatView(props: ChatViewProps) {
     threadId,
     routeKind,
     embeddedPaneActions,
+    embeddedPaneLeadingActions,
     onDiffPanelOpen,
     onWorkspaceAiPaneThreadChange,
     reserveTitleBarControlInset = true,
@@ -5208,11 +5213,11 @@ export default function ChatView(props: ChatViewProps) {
     },
     [renderedWorkspaceDockedPanes, storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
   );
-  const cycleWorkspacePaneWidth = useCallback(
-    (paneId: string, direction: "previous" | "next") => {
+  const setWorkspacePaneWidth = useCallback(
+    (paneId: string, widthPreset: WorkspaceDockedPaneWidthPreset) => {
       storeSetWorkspaceThreadDockedPanes(
         workspaceLayoutKey,
-        cycleWorkspacePaneWidthPreset(renderedWorkspaceDockedPanes, paneId, direction),
+        setWorkspacePaneWidthPreset(renderedWorkspaceDockedPanes, paneId, widthPreset),
         paneId,
       );
     },
@@ -5231,53 +5236,55 @@ export default function ChatView(props: ChatViewProps) {
   );
   const renderWorkspacePane = (pane: PersistedWorkspaceDockedPane) => {
     const paneTitle = paneTitleOverrideById[pane.paneId] ?? pane.title;
-    const renderPaneWidthPresetActions = () => {
+    const renderPaneWidthPresetControl = () => {
       const currentPreset = workspacePaneWidthPreset(pane);
       const presetLabel = currentPreset[0]!.toUpperCase() + currentPreset.slice(1);
       return (
-        <div
-          className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/60 bg-muted/35 p-0.5"
-          aria-label={`${paneTitle} width preset: ${presetLabel}`}
-        >
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  className="inline-flex size-6 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  aria-label={`Cycle ${paneTitle} pane width backward`}
-                  onClick={() => cycleWorkspacePaneWidth(pane.paneId, "previous")}
-                >
-                  <PanelLeftCloseIcon className="size-3.5" />
-                </button>
-              }
-            />
-            <TooltipPopup side="bottom">Previous width preset</TooltipPopup>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  className="inline-flex size-6 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  aria-label={`Cycle ${paneTitle} pane width forward`}
-                  onClick={() => cycleWorkspacePaneWidth(pane.paneId, "next")}
-                >
-                  <PanelLeftIcon className="size-3.5" />
-                </button>
-              }
-            />
-            <TooltipPopup side="bottom">Next width preset</TooltipPopup>
-          </Tooltip>
-        </div>
+        <Popover>
+          <PopoverTrigger
+            openOnHover
+            delay={120}
+            closeDelay={180}
+            className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-popup-open:bg-accent data-popup-open:text-foreground"
+            aria-label={`${paneTitle} width preset: ${presetLabel}`}
+          >
+            <Columns2Icon className="size-3.5" />
+          </PopoverTrigger>
+          <PopoverPopup
+            tooltipStyle
+            side="bottom"
+            align="start"
+            sideOffset={6}
+            className="w-max max-w-none p-1"
+            viewportClassName="p-0"
+          >
+            <div className="grid min-w-34 gap-0.5" aria-label={`${paneTitle} width presets`}>
+              {WORKSPACE_PANE_WIDTH_PRESETS.map((widthPreset) => {
+                const label = widthPreset[0]!.toUpperCase() + widthPreset.slice(1);
+                const isSelected = widthPreset === currentPreset;
+                return (
+                  <PopoverClose
+                    key={widthPreset}
+                    type="button"
+                    className={cn(
+                      "flex h-7 cursor-pointer items-center justify-between rounded-sm px-2 text-left font-medium text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+                      isSelected ? "bg-accent text-accent-foreground" : "text-popover-foreground",
+                    )}
+                    aria-pressed={isSelected}
+                    onClick={() => setWorkspacePaneWidth(pane.paneId, widthPreset)}
+                  >
+                    <span>{label}</span>
+                    <span className="ml-3 text-[0.65rem] text-muted-foreground tabular-nums">
+                      {isSelected ? "On" : ""}
+                    </span>
+                  </PopoverClose>
+                );
+              })}
+            </div>
+          </PopoverPopup>
+        </Popover>
       );
     };
-    const renderPaneTitleActions = (actions?: ReactNode) => (
-      <>
-        {renderPaneWidthPresetActions()}
-        {actions}
-      </>
-    );
     const renderRemovePaneButton = () => (
       <Tooltip>
         <TooltipTrigger
@@ -5304,7 +5311,7 @@ export default function ChatView(props: ChatViewProps) {
           key={pane.paneId}
           title={isDefaultEditorPane ? editorPaneTitle : paneTitle}
           onTitleRename={(nextTitle) => renameWorkspacePane(pane.paneId, nextTitle)}
-          titleActions={renderPaneTitleActions()}
+          leadingActions={renderPaneWidthPresetControl()}
           actions={
             isDefaultEditorPane ? (
               <WorkspaceEditorActions {...workspaceEditorActionProps} />
@@ -5412,7 +5419,8 @@ export default function ChatView(props: ChatViewProps) {
           key={pane.paneId}
           title={paneTitle}
           onTitleRename={(nextTitle) => renameWorkspacePane(pane.paneId, nextTitle)}
-          titleActions={renderPaneTitleActions(
+          leadingActions={renderPaneWidthPresetControl()}
+          titleActions={
             <TerminalPaneHeaderActions
               splitCount={terminalGroup.terminalIds.length}
               splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
@@ -5425,8 +5433,8 @@ export default function ChatView(props: ChatViewProps) {
               onCloseTerminal={() =>
                 closeWorkspaceTerminalPane(pane, terminalGroup, activeTerminalId)
               }
-            />,
-          )}
+            />
+          }
           actions={cwd ? <TerminalPanePath fullPath={cwd} /> : null}
           className="min-h-0 flex-1"
           bodyClassName="min-h-0"
@@ -5479,7 +5487,8 @@ export default function ChatView(props: ChatViewProps) {
         <WorkspacePane
           key={`${pane.paneId}:unbound`}
           title={aiPaneTitle}
-          titleActions={renderPaneTitleActions(
+          leadingActions={renderPaneWidthPresetControl()}
+          titleActions={
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -5495,8 +5504,8 @@ export default function ChatView(props: ChatViewProps) {
                 }
               />
               <TooltipPopup side="bottom">New thread</TooltipPopup>
-            </Tooltip>,
-          )}
+            </Tooltip>
+          }
           actions={renderRemovePaneButton()}
           className="min-h-[32rem] xl:min-h-0"
         >
@@ -5518,7 +5527,8 @@ export default function ChatView(props: ChatViewProps) {
         <WorkspacePane
           key={`${pane.paneId}:missing-thread`}
           title={aiPaneTitle}
-          titleActions={renderPaneTitleActions(
+          leadingActions={renderPaneWidthPresetControl()}
+          titleActions={
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -5534,8 +5544,8 @@ export default function ChatView(props: ChatViewProps) {
                 }
               />
               <TooltipPopup side="bottom">New thread</TooltipPopup>
-            </Tooltip>,
-          )}
+            </Tooltip>
+          }
           actions={renderRemovePaneButton()}
           className="min-h-[32rem] xl:min-h-0"
         >
@@ -5550,12 +5560,8 @@ export default function ChatView(props: ChatViewProps) {
         environmentId: paneThreadRef.environmentId,
         threadId: paneThreadRef.threadId,
         workspaceMode: "ai-pane" as const,
-        embeddedPaneActions: (
-          <>
-            {renderPaneWidthPresetActions()}
-            {renderRemovePaneButton()}
-          </>
-        ),
+        embeddedPaneActions: renderRemovePaneButton(),
+        embeddedPaneLeadingActions: renderPaneWidthPresetControl(),
         onWorkspaceAiPaneThreadChange: (
           nextThreadKey: string | null,
           options?: { title?: string },
@@ -5581,7 +5587,8 @@ export default function ChatView(props: ChatViewProps) {
       <WorkspacePane
         key={pane.paneId}
         title={activeThread.title}
-        titleActions={renderPaneTitleActions(aiPaneHeaderActions)}
+        leadingActions={embeddedPaneLeadingActions ?? renderPaneWidthPresetControl()}
+        titleActions={aiPaneHeaderActions}
         titleControl={aiPaneTitleControl}
         titleInputLabel="Thread title"
         titleRenameLabel="Rename thread"
