@@ -222,6 +222,7 @@ import {
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
+  sanitizeUnavailableWorkspacePaneThreads,
   shouldRemoveTerminalPaneAfterClose,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
@@ -5158,47 +5159,30 @@ export default function ChatView(props: ChatViewProps) {
   ];
   const rawRenderedWorkspaceDockedPanes =
     workspaceDockedPanes.length > 0 ? workspaceDockedPanes : fallbackWorkspaceDockedPanes;
-  const isStaleAiPane = (pane: PersistedWorkspaceDockedPane) => {
-    if (pane.type !== "ai" || pane.metadata.threadId === null) {
-      return false;
-    }
-    const paneThreadKey = scopedThreadKey(
-      scopeThreadRef(pane.environmentId as EnvironmentId, pane.metadata.threadId as ThreadId),
-    );
-    return !serverThreadKeySet.has(paneThreadKey) && !draftIdByThreadKey.has(paneThreadKey);
-  };
-  const staleAiPaneCount = rawRenderedWorkspaceDockedPanes.filter(isStaleAiPane).length;
-  const renderedWorkspaceDockedPanes: PersistedWorkspaceDockedPane[] =
-    staleAiPaneCount > 0
-      ? rawRenderedWorkspaceDockedPanes.flatMap((pane): PersistedWorkspaceDockedPane[] => {
-          if (!isStaleAiPane(pane)) {
-            return [pane];
-          }
-          if (pane.type !== "ai") {
-            return [];
-          }
-          if (pane.paneId === "ai" || staleAiPaneCount === rawRenderedWorkspaceDockedPanes.length) {
-            return [
-              {
-                ...pane,
-                title: pane.title || "AI",
-                metadata: {
-                  threadId: null,
-                },
-              },
-            ];
-          }
-          return [];
-        })
-      : rawRenderedWorkspaceDockedPanes;
+  const renderedWorkspaceDockedPanes = sanitizeUnavailableWorkspacePaneThreads({
+    panes: rawRenderedWorkspaceDockedPanes,
+    isThreadAvailable: (pane) => {
+      const threadId = pane.metadata.threadId;
+      if (threadId === null) {
+        return true;
+      }
+      const paneThreadKey = scopedThreadKey(
+        scopeThreadRef(pane.environmentId as EnvironmentId, threadId as ThreadId),
+      );
+      return serverThreadKeySet.has(paneThreadKey) || draftIdByThreadKey.has(paneThreadKey);
+    },
+  });
   useEffect(() => {
-    if (staleAiPaneCount === 0 || workspaceDockedPanes.length === 0) {
+    if (
+      workspaceDockedPanes.length === 0 ||
+      renderedWorkspaceDockedPanes === rawRenderedWorkspaceDockedPanes
+    ) {
       return;
     }
     storeSetWorkspaceThreadDockedPanes(workspaceLayoutKey, renderedWorkspaceDockedPanes);
   }, [
+    rawRenderedWorkspaceDockedPanes,
     renderedWorkspaceDockedPanes,
-    staleAiPaneCount,
     storeSetWorkspaceThreadDockedPanes,
     workspaceDockedPanes.length,
     workspaceLayoutKey,

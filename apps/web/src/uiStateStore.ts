@@ -810,7 +810,7 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
   );
   const nextWorkspaceThreadLayoutById = Object.fromEntries(
     Object.entries(state.workspaceThreadLayoutById).filter(
-      ([threadId]) => threadId.startsWith("workspace:") || retainedThreadIds.has(threadId),
+      ([layoutId]) => isWorkspaceLayoutId(layoutId) || retainedThreadIds.has(layoutId),
     ),
   );
   if (
@@ -831,6 +831,10 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
   };
 }
 
+function isWorkspaceLayoutId(layoutId: string): boolean {
+  return layoutId.startsWith("workspace:");
+}
+
 export function migrateWorkspaceThreadLayout(
   state: UiState,
   sourceLayoutId: string,
@@ -838,6 +842,8 @@ export function migrateWorkspaceThreadLayout(
 ): UiState {
   if (
     sourceLayoutId === targetLayoutId ||
+    isWorkspaceLayoutId(sourceLayoutId) ||
+    !isWorkspaceLayoutId(targetLayoutId) ||
     state.workspaceThreadLayoutById[targetLayoutId] !== undefined
   ) {
     return state;

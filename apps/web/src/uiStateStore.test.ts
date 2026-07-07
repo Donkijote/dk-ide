@@ -481,6 +481,20 @@ describe("uiStateStore pure functions", () => {
     expect(unchanged).toBe(migrated);
   });
 
+  it("does not migrate one workspace-scoped pane layout over another", () => {
+    const sourceWorkspaceKey = "workspace:environment-local:project-1:%2Frepo";
+    const targetWorkspaceKey = "workspace:environment-local:project-2:%2Frepo-tools";
+    const initialState = makeUiState({
+      workspaceThreadLayoutById: {
+        [sourceWorkspaceKey]: { planSidebarOpen: true, lastActivePane: "terminal" },
+      },
+    });
+
+    const next = migrateWorkspaceThreadLayout(initialState, sourceWorkspaceKey, targetWorkspaceKey);
+
+    expect(next).toBe(initialState);
+  });
+
   it("clearThreadUi removes workspace pane layout state for deleted threads", () => {
     const thread1 = ThreadId.make("thread-1");
     const initialState = makeUiState({

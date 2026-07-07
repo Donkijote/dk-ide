@@ -12,6 +12,7 @@ import { type ChatMessage, type SessionPhase, type Thread, type ThreadSession } 
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
 import { selectThreadByRef, useStore } from "../store";
+import type { PersistedWorkspaceDockedPane } from "../uiStateStore";
 import {
   filterTerminalContextsWithText,
   stripInlineTerminalContextPlaceholders,
@@ -59,6 +60,55 @@ export function resolveEditorPaneDefaultTitle(
     (workspaceRoot ? `${basenameOfPanePath(workspaceRoot) ?? "Workspace"} Editor` : null) ??
     "Editor"
   );
+}
+
+function paneHasThreadBinding(
+  pane: PersistedWorkspaceDockedPane,
+): pane is Extract<PersistedWorkspaceDockedPane, { type: "ai" | "terminal" }> {
+  return pane.type !== "editor" && pane.metadata.threadId !== null;
+}
+
+export function sanitizeUnavailableWorkspacePaneThreads(input: {
+  panes: readonly PersistedWorkspaceDockedPane[];
+  isThreadAvailable: (
+    pane: Extract<PersistedWorkspaceDockedPane, { type: "ai" | "terminal" }>,
+  ) => boolean;
+}): readonly PersistedWorkspaceDockedPane[] {
+  let changed = false;
+  const unavailablePaneCount = input.panes.filter(
+    (pane) => paneHasThreadBinding(pane) && !input.isThreadAvailable(pane),
+  ).length;
+  const panes = input.panes.flatMap((pane): PersistedWorkspaceDockedPane[] => {
+    if (!paneHasThreadBinding(pane) || input.isThreadAvailable(pane)) {
+      return [pane];
+    }
+    changed = true;
+    if (pane.type === "ai") {
+      return pane.paneId === "ai" || unavailablePaneCount === input.panes.length
+        ? [
+            {
+              ...pane,
+              metadata: {
+                threadId: null,
+              },
+            },
+          ]
+        : [];
+    }
+    return pane.paneId === "terminal" || unavailablePaneCount === input.panes.length
+      ? [
+          {
+            ...pane,
+            metadata: {
+              threadId: null,
+              terminalId: null,
+              terminalGroupId: null,
+            },
+          },
+        ]
+      : [];
+  });
+  return changed ? panes : input.panes;
 }
 
 export function shouldRemoveTerminalPaneAfterClose(
