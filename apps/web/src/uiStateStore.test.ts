@@ -725,6 +725,12 @@ describe("uiStateStore pure functions", () => {
     expect(next.workspaceThreadLayoutById[thread1]).toMatchObject({
       activePaneId: "terminal:secondary",
     });
+    expect(next.workspaceThreadLayoutById[thread1]?.panes?.map((pane) => pane.paneId)).toEqual([
+      "editor",
+      "ai",
+      "terminal:secondary",
+      "terminal",
+    ]);
     expect(
       next.workspaceThreadLayoutById[thread1]?.panes?.find(
         (pane) => pane.paneId === "terminal:secondary",
@@ -735,7 +741,7 @@ describe("uiStateStore pure functions", () => {
       title: "Tools Terminal",
       environmentId: "env-1",
       cwd: "/repo/tools",
-      order: 1.5,
+      order: 2,
       size: 1,
       widthPreset: "medium",
       metadata: {
@@ -1183,9 +1189,17 @@ describe("uiStateStore pure functions", () => {
     ]);
     expect(next.workspaceThreadLayoutById[thread1]?.panes?.[3]).toMatchObject({
       paneId: "editor:docs",
-      order: 1.5,
+      order: 3,
       size: 1,
       widthPreset: "large",
+    });
+    expect(next.workspaceThreadLayoutById[thread1]?.panes?.[1]).toMatchObject({
+      paneId: "editor:notes",
+      size: 0.8,
+    });
+    expect(next.workspaceThreadLayoutById[thread1]?.panes?.[4]).toMatchObject({
+      paneId: "terminal",
+      size: 0.65,
     });
   });
 

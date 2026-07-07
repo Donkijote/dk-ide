@@ -1169,6 +1169,13 @@ function getWorkspacePaneWidths(): number[] {
   });
 }
 
+function getWorkspacePaneIdOrder(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>("[data-workspace-pane-id]"),
+    (pane) => pane.dataset.workspacePaneId,
+  ).filter((paneId): paneId is string => typeof paneId === "string");
+}
+
 function getWorkspacePane(paneId: string): HTMLElement {
   const pane = document.querySelector<HTMLElement>(`[data-workspace-pane-id="${paneId}"]`);
   expect(pane).not.toBeNull();
@@ -2105,6 +2112,58 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.setViewport(WIDE_FOOTER_VIEWPORT);
 
       expect(getWorkspacePaneWidths()).toEqual(initialWidths);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("adds a workspace pane after the active pane without resizing existing panes", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-nondestructive-pane-insertion" as MessageId,
+        targetText: "non-destructive pane insertion",
+      }),
+    });
+
+    try {
+      const before = {
+        editor: getWorkspacePane("editor").getBoundingClientRect(),
+        ai: getWorkspacePane("ai").getBoundingClientRect(),
+        terminal: getWorkspacePane("terminal").getBoundingClientRect(),
+      };
+
+      await page.getByRole("button", { name: "Add pane" }).click();
+      await expect.element(page.getByRole("button", { name: "Terminal" })).toBeInTheDocument();
+      await page.getByRole("button", { name: "Terminal" }).click();
+      await page.getByRole("button", { name: "Add Pane" }).click();
+
+      await vi.waitFor(
+        () => {
+          expect(countWorkspaceTerminalPanes()).toBe(2);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const paneOrder = getWorkspacePaneIdOrder();
+      const insertedPaneId = paneOrder.find(
+        (paneId) => paneId.startsWith("terminal:") && paneId !== "terminal",
+      );
+      expect(insertedPaneId).toBeDefined();
+      expect(paneOrder).toEqual(["editor", "ai", insertedPaneId, "terminal"]);
+      expect(useUiStateStore.getState().workspaceThreadLayoutById[THREAD_KEY]?.activePaneId).toBe(
+        insertedPaneId,
+      );
+
+      const after = {
+        editor: getWorkspacePane("editor").getBoundingClientRect(),
+        ai: getWorkspacePane("ai").getBoundingClientRect(),
+        terminal: getWorkspacePane("terminal").getBoundingClientRect(),
+      };
+      expect(after.editor.width).toBe(before.editor.width);
+      expect(after.ai.width).toBe(before.ai.width);
+      expect(after.terminal.width).toBe(before.terminal.width);
+      expect(after.ai.left).toBe(before.ai.left);
     } finally {
       await mounted.cleanup();
     }
