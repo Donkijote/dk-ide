@@ -126,12 +126,16 @@ import {
   DiffIcon,
   FileCode2Icon,
   FolderIcon,
+  Maximize2Icon,
   PlusIcon,
+  RectangleHorizontalIcon,
+  RectangleVerticalIcon,
   SquarePenIcon,
   TerminalIcon,
   TerminalSquareIcon,
   Trash2Icon,
   TriangleAlertIcon,
+  type LucideIcon,
   WifiOffIcon,
   XIcon,
 } from "lucide-react";
@@ -894,6 +898,20 @@ function formatOutgoingPrompt(params: {
 }
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
+
+function workspacePaneWidthPresetIcon(widthPreset: WorkspaceDockedPaneWidthPreset): LucideIcon {
+  switch (widthPreset) {
+    case "narrow":
+      return RectangleVerticalIcon;
+    case "medium":
+      return Columns2Icon;
+    case "wide":
+      return Maximize2Icon;
+    case "large":
+    default:
+      return RectangleHorizontalIcon;
+  }
+}
 
 type AiPaneDraftOrigin = {
   threadRef: ScopedThreadRef;
@@ -5239,6 +5257,7 @@ export default function ChatView(props: ChatViewProps) {
     const renderPaneWidthPresetControl = () => {
       const currentPreset = workspacePaneWidthPreset(pane);
       const presetLabel = currentPreset[0]!.toUpperCase() + currentPreset.slice(1);
+      const CurrentPresetIcon = workspacePaneWidthPresetIcon(currentPreset);
       return (
         <Popover>
           <PopoverTrigger
@@ -5248,7 +5267,7 @@ export default function ChatView(props: ChatViewProps) {
             className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-popup-open:bg-accent data-popup-open:text-foreground"
             aria-label={`${paneTitle} width preset: ${presetLabel}`}
           >
-            <Columns2Icon className="size-3.5" />
+            <CurrentPresetIcon className="size-3.5" />
           </PopoverTrigger>
           <PopoverPopup
             tooltipStyle
@@ -5258,25 +5277,33 @@ export default function ChatView(props: ChatViewProps) {
             className="w-max max-w-none p-1"
             viewportClassName="p-0"
           >
-            <div className="grid min-w-34 gap-0.5" aria-label={`${paneTitle} width presets`}>
+            <div className="grid grid-cols-4 gap-0.5" aria-label={`${paneTitle} width presets`}>
               {WORKSPACE_PANE_WIDTH_PRESETS.map((widthPreset) => {
                 const label = widthPreset[0]!.toUpperCase() + widthPreset.slice(1);
                 const isSelected = widthPreset === currentPreset;
+                const PresetIcon = workspacePaneWidthPresetIcon(widthPreset);
                 return (
                   <PopoverClose
                     key={widthPreset}
                     type="button"
                     className={cn(
-                      "flex h-7 cursor-pointer items-center justify-between rounded-sm px-2 text-left font-medium text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+                      "relative inline-flex size-8 cursor-pointer items-center justify-center rounded-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
                       isSelected ? "bg-accent text-accent-foreground" : "text-popover-foreground",
                     )}
+                    aria-label={`Set ${paneTitle} pane width to ${label}`}
                     aria-pressed={isSelected}
+                    title={label}
                     onClick={() => setWorkspacePaneWidth(pane.paneId, widthPreset)}
                   >
-                    <span>{label}</span>
-                    <span className="ml-3 text-[0.65rem] text-muted-foreground tabular-nums">
-                      {isSelected ? "On" : ""}
-                    </span>
+                    <PresetIcon className="size-4" />
+                    <span className="sr-only">{label}</span>
+                    <span
+                      className={cn(
+                        "absolute right-1 bottom-1 size-1 rounded-full transition-opacity",
+                        isSelected ? "bg-current opacity-100" : "opacity-0",
+                      )}
+                      aria-hidden="true"
+                    />
                   </PopoverClose>
                 );
               })}
