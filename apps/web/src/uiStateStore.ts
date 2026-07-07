@@ -1279,6 +1279,25 @@ function workspaceDockedPaneWithRuntimeContext(
   return pane;
 }
 
+function insertWorkspaceDockedPaneAfterActive(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  pane: PersistedWorkspaceDockedPane,
+  activePaneId: string | null | undefined,
+): PersistedWorkspaceDockedPane[] {
+  const orderedPanes = sanitizeWorkspaceDockedPanes(panes);
+  const activeIndex =
+    activePaneId === null || activePaneId === undefined
+      ? -1
+      : orderedPanes.findIndex((existingPane) => existingPane.paneId === activePaneId);
+  const insertionIndex = activeIndex >= 0 ? activeIndex + 1 : orderedPanes.length;
+  const nextPanes = [...orderedPanes];
+  nextPanes.splice(insertionIndex, 0, pane);
+  return nextPanes.map((nextPane, order) => ({
+    ...nextPane,
+    order,
+  }));
+}
+
 export function ensureWorkspaceThreadDockedPaneLayout(
   state: UiState,
   threadId: string,
@@ -1414,34 +1433,7 @@ export function addWorkspaceThreadDockedPane(
         activePaneId: pane.paneId,
       };
     }
-    const sortedPanes = sanitizeWorkspaceDockedPanes(existingPanes);
-    const placementAnchor =
-      (layout.activePaneId
-        ? sortedPanes.find((existingPane) => existingPane.paneId === layout.activePaneId)
-        : null) ??
-      sortedPanes.at(-1) ??
-      null;
-    const anchorIndex = placementAnchor
-      ? sortedPanes.findIndex((existingPane) => existingPane.paneId === placementAnchor.paneId)
-      : -1;
-    const nextPane = anchorIndex >= 0 ? (sortedPanes[anchorIndex + 1] ?? null) : null;
-    const maxOrder = sortedPanes.reduce(
-      (order, existingPane) => Math.max(order, existingPane.order),
-      -1,
-    );
-    const order =
-      placementAnchor === null
-        ? maxOrder + 1
-        : nextPane
-          ? placementAnchor.order + (nextPane.order - placementAnchor.order) / 2
-          : placementAnchor.order + 1;
-    const panes = sanitizeWorkspaceDockedPanes([
-      ...existingPanes,
-      {
-        ...pane,
-        order,
-      },
-    ]);
+    const panes = insertWorkspaceDockedPaneAfterActive(existingPanes, pane, layout.activePaneId);
     return {
       ...layout,
       activePaneId: pane.paneId,

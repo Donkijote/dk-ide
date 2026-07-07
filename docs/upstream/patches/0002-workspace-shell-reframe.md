@@ -101,6 +101,9 @@ composition, which are likely to continue evolving upstream.
 - `feature/ghi#64`: workspace pane host replaced the two-dimensional docked
   grid behavior with an ordered horizontal column strip, role-based pane width
   presets, active-pane viewport alignment, and persisted strip scroll position
+- `improvement/ghi#66`: pane creation now inserts immediately after the active
+  pane, preserves existing pane sizing, and focuses the newly created pane
+  without forcing the current workspace strip to fit inside the viewport
 
 ## Sync Notes
 
@@ -177,6 +180,10 @@ composition, which are likely to continue evolving upstream.
   compatible while normalizing stale dock coordinates into one ordered strip,
   inserting new panes after the active pane, preserving terminal splits inside
   terminal panes, and persisting the active pane plus horizontal scroll offset
+- new pane insertion now normalizes the ordered strip directly instead of
+  relying on fractional order values, so AI, terminal, and editor creation share
+  the same non-destructive placement rule while preserving existing pane width
+  and size fields
 - keep selected-file commit choices in the commit dialog and pass selected paths
   into the existing stacked Git action API, leaving server commit-context
   generation and default-branch confirmation behavior unchanged
