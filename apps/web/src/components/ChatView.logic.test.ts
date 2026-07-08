@@ -21,6 +21,7 @@ import {
   reconcileMountedTerminalThreadIds,
   resolveEditorPaneDefaultTitle,
   resolveSendEnvMode,
+  sanitizeUnavailableWorkspacePaneThreads,
   shouldRemoveTerminalPaneAfterClose,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
@@ -65,6 +66,174 @@ describe("resolveEditorPaneDefaultTitle", () => {
   it("normalizes workspace paths when deriving the fallback title", () => {
     expect(basenameOfPanePath("C:\\repos\\dk-ide\\")).toBe("dk-ide");
     expect(resolveEditorPaneDefaultTitle(null, "/")).toBe("Workspace Editor");
+  });
+});
+
+describe("sanitizeUnavailableWorkspacePaneThreads", () => {
+  it("unbinds default panes and removes custom panes whose threads are unavailable", () => {
+    const panes = [
+      {
+        paneId: "editor",
+        type: "editor",
+        title: "Editor",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 0,
+        size: 1,
+        metadata: {},
+      },
+      {
+        paneId: "ai",
+        type: "ai",
+        title: "Main AI",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 1,
+        size: 1,
+        metadata: {
+          threadId: "missing-main",
+        },
+      },
+      {
+        paneId: "ai:draft",
+        type: "ai",
+        title: "Draft AI",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 2,
+        size: 1,
+        metadata: {
+          threadId: "draft-thread",
+        },
+      },
+      {
+        paneId: "ai:missing",
+        type: "ai",
+        title: "Missing AI",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 3,
+        size: 1,
+        metadata: {
+          threadId: "missing-secondary",
+        },
+      },
+      {
+        paneId: "terminal",
+        type: "terminal",
+        title: "Terminal",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 4,
+        size: 1,
+        metadata: {
+          threadId: "missing-main",
+          terminalId: "terminal-missing",
+          terminalGroupId: "group-terminal-missing",
+        },
+      },
+      {
+        paneId: "terminal:tools",
+        type: "terminal",
+        title: "Tools",
+        environmentId: "env-1",
+        cwd: "/repo/tools",
+        order: 5,
+        size: 1,
+        metadata: {
+          threadId: "missing-tools",
+          terminalId: "terminal-tools",
+          terminalGroupId: "group-terminal-tools",
+        },
+      },
+    ] as const;
+
+    const next = sanitizeUnavailableWorkspacePaneThreads({
+      panes,
+      isThreadAvailable: (pane) => pane.metadata.threadId === "draft-thread",
+    });
+
+    expect(next.map((pane) => pane.paneId)).toEqual(["editor", "ai", "ai:draft", "terminal"]);
+    expect(next.find((pane) => pane.paneId === "ai")).toMatchObject({
+      metadata: {
+        threadId: null,
+      },
+    });
+    expect(next.find((pane) => pane.paneId === "ai:draft")).toBe(panes[2]);
+    expect(next.find((pane) => pane.paneId === "terminal")).toMatchObject({
+      metadata: {
+        threadId: null,
+        terminalId: null,
+        terminalGroupId: null,
+      },
+    });
+  });
+
+  it("returns the original pane array when every bound thread is available", () => {
+    const panes = [
+      {
+        paneId: "ai",
+        type: "ai",
+        title: "Main AI",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 0,
+        size: 1,
+        metadata: {
+          threadId: "thread-1",
+        },
+      },
+    ] as const;
+
+    expect(
+      sanitizeUnavailableWorkspacePaneThreads({
+        panes,
+        isThreadAvailable: () => true,
+      }),
+    ).toBe(panes);
+  });
+
+  it("keeps an all-unavailable strip recoverable by unbinding custom panes", () => {
+    const panes = [
+      {
+        paneId: "ai:solo",
+        type: "ai",
+        title: "Solo AI",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 0,
+        size: 1,
+        metadata: {
+          threadId: "missing-ai",
+        },
+      },
+      {
+        paneId: "terminal:solo",
+        type: "terminal",
+        title: "Solo Terminal",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 1,
+        size: 1,
+        metadata: {
+          threadId: "missing-terminal",
+          terminalId: "terminal-missing",
+          terminalGroupId: "group-terminal-missing",
+        },
+      },
+    ] as const;
+
+    const next = sanitizeUnavailableWorkspacePaneThreads({
+      panes,
+      isThreadAvailable: () => false,
+    });
+
+    expect(next).toHaveLength(2);
+    expect(next[0]).toMatchObject({ paneId: "ai:solo", metadata: { threadId: null } });
+    expect(next[1]).toMatchObject({
+      paneId: "terminal:solo",
+      metadata: { threadId: null, terminalId: null, terminalGroupId: null },
+    });
   });
 });
 
