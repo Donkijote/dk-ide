@@ -195,6 +195,7 @@ import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import {
   WorkspaceEditorPane,
+  type EditorWorkspaceStateChange,
   type WorkspaceEditorOpenFileRequest,
 } from "./workspace/WorkspaceEditorPane";
 import { WorkspaceEditorActions } from "./workspace/WorkspaceEditorActions";
@@ -203,6 +204,7 @@ import { WorkspacePaneHost } from "./workspace/WorkspacePaneHost";
 import { TerminalPaneHeaderActions, TerminalPanePath } from "./workspace/TerminalPaneHeader";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
+  applyWorkspaceEditorPaneState,
   basenameOfPanePath,
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
@@ -3183,25 +3185,20 @@ export default function ChatView(props: ChatViewProps) {
     [markEditorActive],
   );
   const persistWorkspaceEditorPaneState = useCallback(
-    (state: { activePath: string | null; openPaths: readonly string[] }) => {
+    (state: EditorWorkspaceStateChange) => {
       const layout = useUiStateStore.getState().workspaceThreadLayoutById[workspaceLayoutKey];
       if (!layout?.panes) {
         return;
       }
-      const openPaths = Array.from(new Set(state.openPaths));
-      storeSetWorkspaceThreadDockedPanes(
-        workspaceLayoutKey,
-        layout.panes.map((pane) =>
-          pane.paneId === "editor" && pane.type === "editor"
-            ? Object.assign({}, pane, {
-                metadata: {
-                  activePath: state.activePath,
-                  ...(openPaths.length > 0 ? { openPaths } : {}),
-                },
-              })
-            : pane,
-        ),
-      );
+      const panes = applyWorkspaceEditorPaneState({
+        panes: layout.panes,
+        environmentId: state.environmentId,
+        workspaceRoot: state.workspaceRoot,
+        state,
+      });
+      if (panes !== layout.panes) {
+        storeSetWorkspaceThreadDockedPanes(workspaceLayoutKey, panes);
+      }
     },
     [storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
   );

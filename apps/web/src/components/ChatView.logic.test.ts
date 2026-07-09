@@ -10,9 +10,11 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type EnvironmentState, useStore } from "../store";
 import { type Thread } from "../types";
+import type { PersistedWorkspaceDockedPane } from "../uiStateStore";
 
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
+  applyWorkspaceEditorPaneState,
   basenameOfPanePath,
   buildExpiredTerminalContextToastCopy,
   createLocalDispatchSnapshot,
@@ -29,6 +31,17 @@ import {
 } from "./ChatView.logic";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+
+const editorPane: PersistedWorkspaceDockedPane = {
+  paneId: "editor",
+  type: "editor",
+  title: "Editor",
+  environmentId: localEnvironmentId,
+  cwd: "/repo/project",
+  order: 0,
+  size: 1,
+  metadata: {},
+};
 
 describe("workspacePaneLayoutKey", () => {
   it("keeps projects and worktrees in separate pane scopes", () => {
@@ -66,6 +79,92 @@ describe("resolveEditorPaneDefaultTitle", () => {
   it("normalizes workspace paths when deriving the fallback title", () => {
     expect(basenameOfPanePath("C:\\repos\\dk-ide\\")).toBe("dk-ide");
     expect(resolveEditorPaneDefaultTitle(null, "/")).toBe("Workspace Editor");
+  });
+});
+
+describe("applyWorkspaceEditorPaneState", () => {
+  it("persists editor file state only for the matching workspace context", () => {
+    const panes: PersistedWorkspaceDockedPane[] = [
+      editorPane,
+      {
+        paneId: "ai",
+        type: "ai",
+        title: "AI",
+        environmentId: localEnvironmentId,
+        cwd: "/repo/project",
+        order: 1,
+        size: 1,
+        metadata: {
+          threadId: "thread-1",
+        },
+      },
+    ];
+
+    expect(
+      applyWorkspaceEditorPaneState({
+        panes,
+        environmentId: localEnvironmentId,
+        workspaceRoot: "/repo/project/",
+        state: {
+          activePath: "src/main.ts",
+          openPaths: ["README.md", "src/main.ts", "src/main.ts"],
+        },
+      }),
+    ).toMatchObject([
+      {
+        paneId: "editor",
+        metadata: {
+          activePath: "src/main.ts",
+          openPaths: ["README.md", "src/main.ts"],
+        },
+      },
+      {
+        paneId: "ai",
+        metadata: {
+          threadId: "thread-1",
+        },
+      },
+    ]);
+  });
+
+  it("ignores editor state from a different workspace root", () => {
+    const panes: PersistedWorkspaceDockedPane[] = [
+      {
+        ...editorPane,
+        metadata: {
+          activePath: "src/current.ts",
+          openPaths: ["src/current.ts"],
+        },
+      },
+    ];
+
+    expect(
+      applyWorkspaceEditorPaneState({
+        panes,
+        environmentId: localEnvironmentId,
+        workspaceRoot: "/repo/other-workspace",
+        state: {
+          activePath: "src/other.ts",
+          openPaths: ["src/other.ts"],
+        },
+      }),
+    ).toBe(panes);
+  });
+
+  it("ignores editor state from a different environment", () => {
+    const panes: PersistedWorkspaceDockedPane[] = [editorPane];
+
+    expect(
+      applyWorkspaceEditorPaneState({
+        panes,
+        environmentId: EnvironmentId.make("environment-remote"),
+        workspaceRoot: "/repo/project",
+        state: {
+          activePath: "src/remote.ts",
+          openPaths: ["src/remote.ts"],
+        },
+      }),
+    ).toBe(panes);
   });
 });
 
