@@ -61,6 +61,7 @@ export function WorkspacePane({
       ref={rootRef}
       className={cn(
         "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] border border-border/70 bg-background shadow-[0_20px_50px_-32px_rgba(15,23,42,0.35)]",
+        isActive && "border-ring/70 ring-1 ring-ring/45 shadow-lg",
         className,
       )}
       data-workspace-pane-frame-active={isActive ? "true" : undefined}

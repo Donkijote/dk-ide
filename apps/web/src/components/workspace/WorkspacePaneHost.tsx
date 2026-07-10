@@ -465,7 +465,10 @@ export function WorkspacePaneHost({
               {paneRects.map(({ height, pane, width, x, y }) => (
                 <div
                   key={pane.paneId}
-                  className="absolute rounded-[1.75rem]"
+                  className={cn(
+                    "absolute rounded-[1.75rem] transition-shadow",
+                    activePaneId === pane.paneId && "ring-2 ring-ring/70 shadow-lg",
+                  )}
                   data-workspace-pane-active={activePaneId === pane.paneId ? "true" : undefined}
                   style={{
                     left: `${x}px`,
