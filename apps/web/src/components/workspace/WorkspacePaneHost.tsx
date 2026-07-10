@@ -549,10 +549,7 @@ function HorizontalResizeHandle({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      <div
-        className="mx-auto h-full w-px bg-border/60 transition-colors hover:bg-ring/70"
-        data-workspace-resize-divider="horizontal"
-      />
+      <div className="mx-auto h-full w-px opacity-0" data-workspace-resize-divider="horizontal" />
     </div>
   );
 }
