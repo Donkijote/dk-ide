@@ -75,6 +75,36 @@ export function workspacePaneDefaultWidth(
   }
 }
 
+export function workspacePaneWidthPresetForWidth(
+  pane: Pick<PersistedWorkspaceDockedPane, "paneId"> & {
+    readonly type?: WorkspaceDockedPaneType;
+  },
+  width: number,
+  hostWidth: number,
+): WorkspaceDockedPaneWidthPreset {
+  if (!Number.isFinite(width)) {
+    return workspacePaneWidthPreset(pane);
+  }
+
+  const targetWidth = clamp(width, MIN_CUSTOM_WORKSPACE_PANE_WIDTH, MAX_WORKSPACE_PANE_WIDTH);
+  return WORKSPACE_PANE_WIDTH_PRESETS.reduce<WorkspaceDockedPaneWidthPreset>(
+    (closestPreset, candidatePreset) => {
+      const closestWidth = workspacePaneDefaultWidth(
+        { ...pane, widthPreset: closestPreset },
+        hostWidth,
+      );
+      const candidateWidth = workspacePaneDefaultWidth(
+        { ...pane, widthPreset: candidatePreset },
+        hostWidth,
+      );
+      return Math.abs(candidateWidth - targetWidth) < Math.abs(closestWidth - targetWidth)
+        ? candidatePreset
+        : closestPreset;
+    },
+    workspacePaneWidthPreset(pane),
+  );
+}
+
 export function workspacePaneWidth(
   pane: Pick<PersistedWorkspaceDockedPane, "paneId" | "size"> & {
     readonly type?: WorkspaceDockedPaneType;
@@ -264,15 +294,18 @@ export function resizeWorkspacePaneWidth(
   if (!Number.isFinite(width)) {
     return normalizePaneOrder(panes);
   }
-  return normalizePaneOrder(panes).map((pane) =>
-    pane.paneId === paneId
-      ? {
-          ...pane,
-          width: clamp(width, MIN_CUSTOM_WORKSPACE_PANE_WIDTH, MAX_WORKSPACE_PANE_WIDTH),
-          size: 1,
-        }
-      : pane,
-  );
+  return normalizePaneOrder(panes).map((pane) => {
+    if (pane.paneId !== paneId) {
+      return pane;
+    }
+
+    const { width: _width, ...paneWithoutCustomWidth } = pane;
+    return {
+      ...paneWithoutCustomWidth,
+      widthPreset: workspacePaneWidthPresetForWidth(pane, width, _hostWidth),
+      size: 1,
+    };
+  });
 }
 
 export function cycleWorkspacePaneWidthPreset(

@@ -18,6 +18,7 @@ import {
   workspacePaneHeight,
   workspacePaneRects,
   workspacePaneWidth,
+  workspacePaneWidthPresetForWidth,
   workspaceTerminalRowHeight,
 } from "./workspacePaneLayout";
 
@@ -135,18 +136,32 @@ describe("workspace pane layout", () => {
     );
   });
 
-  it("clamps custom widths while preserving strip order", () => {
+  it("snaps pointer resize widths to presets while preserving strip order", () => {
     const resized = resizeWorkspacePaneWidth(panes, "ai", 1_800, 1_280);
     const rects = workspacePaneRects(resized, 1_280);
     const ai = rects.find((rect) => rect.pane.paneId === "ai")!;
     const terminal = rects.find((rect) => rect.pane.paneId === "terminal")!;
 
-    expect(ai.width).toBe(1_400);
+    expect(resized.find((pane) => pane.paneId === "ai")).toMatchObject({
+      widthPreset: "wide",
+      size: 1,
+    });
+    expect(resized.find((pane) => pane.paneId === "ai")?.width).toBeUndefined();
+    expect(ai.width).toBe(workspacePaneDefaultWidth({ ...panes[1]!, widthPreset: "wide" }, 1_280));
     expect(terminal.x).toBeCloseTo(ai.x + ai.width + WORKSPACE_PANE_GAP);
   });
 
+  it("resolves direct width requests to the nearest column preset", () => {
+    expect(workspacePaneWidthPresetForWidth(panes[1]!, 320, 1_280)).toBe("narrow");
+    expect(workspacePaneWidthPresetForWidth(panes[1]!, 520, 1_280)).toBe("medium");
+    expect(workspacePaneWidthPresetForWidth(panes[1]!, 760, 1_280)).toBe("large");
+    expect(workspacePaneWidthPresetForWidth(panes[1]!, 1_120, 1_280)).toBe("wide");
+  });
+
   it("cycles width presets without changing sibling pane widths", () => {
-    const resized = resizeWorkspacePaneWidth(panes, "ai", 1_100, 1_280);
+    const resized = panes.map((pane) =>
+      pane.paneId === "ai" ? { ...pane, width: 1_100 } : pane,
+    );
     const cycled = cycleWorkspacePaneWidthPreset(resized, "ai", "next");
     const terminalBefore = workspacePaneWidth(resized[2]!, 1_280);
     const terminalAfter = workspacePaneWidth(cycled[2]!, 1_280);

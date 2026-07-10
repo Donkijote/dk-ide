@@ -480,7 +480,7 @@ export function WorkspacePaneHost({
                 >
                   <SortableWorkspacePane pane={pane}>{renderPane(pane)}</SortableWorkspacePane>
                   <HorizontalResizeHandle
-                    label={`Resize ${pane.title} pane`}
+                    label={`Adjust ${pane.title} pane width preset`}
                     onPointerDown={(event) => handleHorizontalResizePointerDown(event, pane)}
                     onPointerMove={handleHorizontalResizePointerMove}
                     onPointerUp={finishHorizontalResize}
