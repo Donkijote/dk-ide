@@ -138,12 +138,18 @@ describe("workspacePaneScrollTarget", () => {
 });
 
 describe("workspacePaneHostLayoutSize", () => {
-  it("uses the current host width so full-width panes can follow window resizes", () => {
+  it("uses the current host width minus strip inset so full-width panes can follow window resizes", () => {
     expect(workspacePaneHostLayoutSize({ clientWidth: 1_280, clientHeight: 768 })).toMatchObject({
       width: 1_280,
     });
-    expect(workspacePaneHostLayoutSize({ clientWidth: 1_920, clientHeight: 768 })).toMatchObject({
-      width: 1_920,
+    expect(
+      workspacePaneHostLayoutSize({
+        clientWidth: 1_920,
+        clientHeight: 768,
+        horizontalInset: 32,
+      }),
+    ).toMatchObject({
+      width: 1_888,
     });
   });
 

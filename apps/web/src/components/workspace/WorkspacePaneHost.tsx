@@ -148,6 +148,7 @@ export function WorkspacePaneHost({
   terminalRowHeight,
 }: WorkspacePaneHostProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const stripPaddingRef = useRef<HTMLDivElement>(null);
   const horizontalResizeStateRef = useRef<{
     pointerId: number;
     paneId: string;
@@ -201,9 +202,18 @@ export function WorkspacePaneHost({
     }
 
     const updateLayoutSize = () => {
+      const stripPadding = stripPaddingRef.current;
+      const stripPaddingStyle =
+        stripPadding && typeof window !== "undefined"
+          ? window.getComputedStyle(stripPadding)
+          : null;
+      const horizontalInset =
+        (Number.parseFloat(stripPaddingStyle?.paddingLeft ?? "0") || 0) +
+        (Number.parseFloat(stripPaddingStyle?.paddingRight ?? "0") || 0);
       const nextSize = workspacePaneHostLayoutSize({
         clientWidth: host.clientWidth,
         clientHeight: host.clientHeight,
+        horizontalInset,
       });
       setLayoutWidth((currentWidth) => {
         return currentWidth === nextSize.width ? currentWidth : nextSize.width;
@@ -476,7 +486,7 @@ export function WorkspacePaneHost({
         onDragStart={handleDragStart}
       >
         <SortableContext items={paneIds} strategy={horizontalListSortingStrategy}>
-          <div className="w-max p-3 sm:p-4">
+          <div ref={stripPaddingRef} className="w-max p-3 sm:p-4">
             <div
               className="relative"
               style={{ width: `${contentWidth}px`, height: `${contentHeight}px` }}
