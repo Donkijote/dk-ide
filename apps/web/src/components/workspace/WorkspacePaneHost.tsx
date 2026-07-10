@@ -15,6 +15,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   createContext,
   type ReactNode,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useContext,
@@ -36,7 +37,11 @@ import {
   workspaceTerminalRowHeight,
 } from "~/workspacePaneLayout";
 import { cn } from "~/lib/utils";
-import { workspacePaneDropDirection } from "./WorkspacePaneHost.logic";
+import {
+  workspacePaneDropDirection,
+  workspacePaneKeyboardFocusTarget,
+  workspacePaneScrollTarget,
+} from "./WorkspacePaneHost.logic";
 
 const WORKSPACE_PANE_MEASURING = {
   droppable: {
@@ -48,6 +53,7 @@ const WORKSPACE_PANE_COLLISION_DETECTION: CollisionDetection = (args) => {
   const pointerCollisions = pointerWithin(args);
   return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
 };
+const WORKSPACE_PANE_NAVIGATION_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End"]);
 
 function disableWorkspacePaneLayoutAnimation(): false {
   return false;
@@ -239,20 +245,54 @@ export function WorkspacePaneHost({
       return;
     }
 
-    const viewportLeft = host.scrollLeft;
-    const viewportRight = viewportLeft + host.clientWidth;
-    const paneLeft = activeRect.x;
-    const paneRight = activeRect.x + activeRect.width;
-    if (paneLeft >= viewportLeft && paneRight <= viewportRight) {
+    const nextScrollLeft = workspacePaneScrollTarget({
+      paneLeft: activeRect.x,
+      paneWidth: activeRect.width,
+      viewportLeft: host.scrollLeft,
+      viewportWidth: host.clientWidth,
+    });
+    if (nextScrollLeft === null) {
       return;
     }
 
-    const nextScrollLeft =
-      activeRect.width > host.clientWidth || paneLeft < viewportLeft
-        ? paneLeft
-        : paneRight - host.clientWidth;
-    host.scrollTo({ left: Math.max(0, nextScrollLeft), behavior: "smooth" });
+    host.scrollTo({ left: nextScrollLeft, behavior: "smooth" });
   }, [activePaneId, paneRects]);
+
+  const handleHostKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (
+        event.target !== event.currentTarget ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        !WORKSPACE_PANE_NAVIGATION_KEYS.has(event.key)
+      ) {
+        return;
+      }
+
+      const navigation =
+        event.key === "ArrowLeft"
+          ? "previous"
+          : event.key === "ArrowRight"
+            ? "next"
+            : event.key === "Home"
+              ? "first"
+              : "last";
+      const nextActivePaneId = workspacePaneKeyboardFocusTarget(
+        normalizedRenderedPanes,
+        activePaneId,
+        navigation,
+      );
+      if (!nextActivePaneId || nextActivePaneId === activePaneId) {
+        return;
+      }
+
+      event.preventDefault();
+      onActivePaneChange?.(nextActivePaneId);
+    },
+    [activePaneId, normalizedRenderedPanes, onActivePaneChange],
+  );
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -392,7 +432,11 @@ export function WorkspacePaneHost({
     <div
       ref={hostRef}
       className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      role="region"
+      tabIndex={0}
+      aria-label="Workspace pane strip"
       data-testid="workspace-pane-host"
+      onKeyDown={handleHostKeyDown}
       onScroll={(event) => {
         const nextScrollLeft = Math.round(event.currentTarget.scrollLeft);
         if (lastReportedScrollLeftRef.current === nextScrollLeft) {
@@ -423,8 +467,9 @@ export function WorkspacePaneHost({
                   key={pane.paneId}
                   className={cn(
                     "absolute rounded-[1.75rem] transition-shadow",
-                    activePaneId === pane.paneId && "shadow-[0_0_0_1px_hsl(var(--ring))]",
+                    activePaneId === pane.paneId && "ring-2 ring-ring/70 shadow-lg",
                   )}
+                  data-workspace-pane-active={activePaneId === pane.paneId ? "true" : undefined}
                   style={{
                     left: `${x}px`,
                     top: `${y}px`,

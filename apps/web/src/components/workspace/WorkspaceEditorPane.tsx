@@ -157,7 +157,7 @@ interface WorkspaceEditorPaneProps {
   readonly workspaceRoot: string | undefined;
   readonly onActive?: () => void;
   readonly onActivePathChange?: (path: string | null) => void;
-  readonly onWorkspaceStateChange?: (state: EditorWorkspaceState) => void;
+  readonly onWorkspaceStateChange?: (state: EditorWorkspaceStateChange) => void;
 }
 
 export interface WorkspaceEditorOpenFileRequest {
@@ -168,6 +168,11 @@ export interface WorkspaceEditorOpenFileRequest {
 type EditorWorkspaceState = {
   readonly activePath: string | null;
   readonly openPaths: readonly string[];
+};
+
+export type EditorWorkspaceStateChange = EditorWorkspaceState & {
+  readonly environmentId: EnvironmentId;
+  readonly workspaceRoot: string | null;
 };
 
 const EMPTY_EDITOR_WORKSPACE_STATE: EditorWorkspaceState = {
@@ -267,8 +272,19 @@ export function WorkspaceEditorPane({
 
   useEffect(() => {
     onActivePathChange?.(activePath);
-    onWorkspaceStateChange?.(workspaceEditorState);
-  }, [activePath, onActivePathChange, onWorkspaceStateChange, workspaceEditorState]);
+    onWorkspaceStateChange?.({
+      ...workspaceEditorState,
+      environmentId,
+      workspaceRoot: workspaceRoot ?? null,
+    });
+  }, [
+    activePath,
+    environmentId,
+    onActivePathChange,
+    onWorkspaceStateChange,
+    workspaceEditorState,
+    workspaceRoot,
+  ]);
 
   const activeFileChangesQuery = useQuery(
     gitWorkingTreeFileChangesQueryOptions({

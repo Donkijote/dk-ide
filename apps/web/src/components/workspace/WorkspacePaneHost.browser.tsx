@@ -91,6 +91,37 @@ function StreamingPaneFixture({
   );
 }
 
+function KeyboardNavigationFixture({
+  onActivePaneChange,
+  onPanesChange,
+}: {
+  onActivePaneChange: (paneId: string) => void;
+  onPanesChange: (panes: readonly PersistedWorkspaceDockedPane[]) => void;
+}) {
+  const [activePaneId, setActivePaneId] = useState("ai");
+  const handleActivePaneChange = (paneId: string) => {
+    setActivePaneId(paneId);
+    onActivePaneChange(paneId);
+  };
+
+  return (
+    <div className="relative flex h-[768px] w-[1280px]">
+      <WorkspacePaneHost
+        activePaneId={activePaneId}
+        panes={PANES}
+        terminalRowHeight={280}
+        onActivePaneChange={handleActivePaneChange}
+        onPanesChange={onPanesChange}
+        renderPane={(pane) => (
+          <div className="h-full w-full" data-testid={`${pane.paneId}-content`}>
+            {pane.title}
+          </div>
+        )}
+      />
+    </div>
+  );
+}
+
 describe("WorkspacePaneHost", () => {
   it("keeps the AI pane mounted and stationary across streamed content updates", async () => {
     const onPanesChange = vi.fn();
@@ -111,4 +142,56 @@ describe("WorkspacePaneHost", () => {
     expect(onPanesChange).not.toHaveBeenCalled();
     await screen.unmount();
   });
+
+  it("moves focus across panes from the focusable pane strip", async () => {
+    const onActivePaneChange = vi.fn();
+    const onPanesChange = vi.fn();
+    const screen = await render(
+      <KeyboardNavigationFixture
+        onActivePaneChange={onActivePaneChange}
+        onPanesChange={onPanesChange}
+      />,
+    );
+    const host = document.querySelector<HTMLElement>('[data-testid="workspace-pane-host"]');
+    expect(host).not.toBeNull();
+
+    host!.focus();
+    host!.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "ArrowRight",
+      }),
+    );
+    expect(onActivePaneChange).toHaveBeenLastCalledWith("terminal");
+    await vi.waitFor(() => {
+      expect(document.querySelector('[data-workspace-pane-active="true"]')).toBe(
+        getPaneContainer("terminal"),
+      );
+    });
+
+    host!.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "ArrowLeft",
+      }),
+    );
+    expect(onActivePaneChange).toHaveBeenLastCalledWith("ai");
+    await vi.waitFor(() => {
+      expect(document.querySelector('[data-workspace-pane-active="true"]')).toBe(
+        getPaneContainer("ai"),
+      );
+    });
+
+    await screen.unmount();
+  });
 });
+
+function getPaneContainer(paneId: string): HTMLElement | null {
+  return (
+    document
+      .querySelector<HTMLElement>(`[data-workspace-pane-id="${paneId}"]`)
+      ?.closest<HTMLElement>("[data-workspace-pane-active]") ?? null
+  );
+}

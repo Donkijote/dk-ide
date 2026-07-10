@@ -62,6 +62,59 @@ export function resolveEditorPaneDefaultTitle(
   );
 }
 
+function normalizeWorkspaceEditorContextPath(path: string | null | undefined): string | null {
+  if (!path) {
+    return null;
+  }
+  return path.replace(/\\/g, "/").replace(/\/+$/g, "") || "/";
+}
+
+function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+export function applyWorkspaceEditorPaneState(input: {
+  readonly panes: readonly PersistedWorkspaceDockedPane[];
+  readonly environmentId: EnvironmentId;
+  readonly workspaceRoot: string | null | undefined;
+  readonly state: {
+    readonly activePath: string | null;
+    readonly openPaths: readonly string[];
+  };
+}): readonly PersistedWorkspaceDockedPane[] {
+  const openPaths = Array.from(new Set(input.state.openPaths));
+  const workspaceRoot = normalizeWorkspaceEditorContextPath(input.workspaceRoot);
+  let changed = false;
+  const panes = input.panes.map((pane) => {
+    if (
+      pane.paneId !== "editor" ||
+      pane.type !== "editor" ||
+      pane.environmentId !== input.environmentId ||
+      normalizeWorkspaceEditorContextPath(pane.cwd) !== workspaceRoot
+    ) {
+      return pane;
+    }
+
+    const metadata = {
+      activePath: input.state.activePath,
+      ...(openPaths.length > 0 ? { openPaths } : {}),
+    };
+    if (
+      pane.metadata.activePath === metadata.activePath &&
+      stringArraysEqual(pane.metadata.openPaths ?? [], metadata.openPaths ?? [])
+    ) {
+      return pane;
+    }
+
+    changed = true;
+    return {
+      ...pane,
+      metadata,
+    };
+  });
+  return changed ? panes : input.panes;
+}
+
 function paneHasThreadBinding(
   pane: PersistedWorkspaceDockedPane,
 ): pane is Extract<PersistedWorkspaceDockedPane, { type: "ai" | "terminal" }> {
