@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { PersistedWorkspaceDockedPane } from "~/uiStateStore";
 import {
   workspacePaneDropDirection,
+  workspacePaneHostLayoutSize,
   workspacePaneKeyboardFocusTarget,
   workspacePaneScrollTarget,
 } from "./WorkspacePaneHost.logic";
@@ -133,5 +134,23 @@ describe("workspacePaneScrollTarget", () => {
         viewportWidth: 800,
       }),
     ).toBe(480);
+  });
+});
+
+describe("workspacePaneHostLayoutSize", () => {
+  it("uses the current host width so full-width panes can follow window resizes", () => {
+    expect(workspacePaneHostLayoutSize({ clientWidth: 1_280, clientHeight: 768 })).toMatchObject({
+      width: 1_280,
+    });
+    expect(workspacePaneHostLayoutSize({ clientWidth: 1_920, clientHeight: 768 })).toMatchObject({
+      width: 1_920,
+    });
+  });
+
+  it("keeps pane height at the workspace minimum when the host is short", () => {
+    expect(workspacePaneHostLayoutSize({ clientWidth: 0, clientHeight: 400 })).toEqual({
+      width: 1,
+      height: 736,
+    });
   });
 });

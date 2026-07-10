@@ -39,6 +39,7 @@ import {
 import { cn } from "~/lib/utils";
 import {
   workspacePaneDropDirection,
+  workspacePaneHostLayoutSize,
   workspacePaneKeyboardFocusTarget,
   workspacePaneScrollTarget,
 } from "./WorkspacePaneHost.logic";
@@ -198,10 +199,28 @@ export function WorkspacePaneHost({
     if (!host) {
       return;
     }
-    if (host.clientWidth > 0) {
-      setLayoutWidth(host.clientWidth);
+
+    const updateLayoutSize = () => {
+      const nextSize = workspacePaneHostLayoutSize({
+        clientWidth: host.clientWidth,
+        clientHeight: host.clientHeight,
+      });
+      setLayoutWidth((currentWidth) => {
+        return currentWidth === nextSize.width ? currentWidth : nextSize.width;
+      });
+      setLayoutHeight((currentHeight) => {
+        return currentHeight === nextSize.height ? currentHeight : nextSize.height;
+      });
+    };
+
+    updateLayoutSize();
+    if (typeof ResizeObserver === "undefined") {
+      return;
     }
-    setLayoutHeight(Math.max(MIN_WORKSPACE_PANE_HEIGHT, host.clientHeight - 32));
+
+    const resizeObserver = new ResizeObserver(updateLayoutSize);
+    resizeObserver.observe(host);
+    return () => resizeObserver.disconnect();
   }, []);
 
   useEffect(() => {
