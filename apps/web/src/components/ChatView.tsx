@@ -121,11 +121,14 @@ import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
   BotIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   Columns2Icon,
   CornerLeftUpIcon,
   DiffIcon,
   FileCode2Icon,
   FolderIcon,
+  GitBranchIcon,
   Maximize2Icon,
   PlusIcon,
   RectangleHorizontalIcon,
@@ -314,6 +317,18 @@ function paneTypeIcon(type: WorkspaceDockedPaneType, className: string) {
   if (type === "ai") return <BotIcon className={className} />;
   if (type === "terminal") return <TerminalSquareIcon className={className} />;
   return <FileCode2Icon className={className} />;
+}
+
+function paneTypeLabel(type: WorkspaceDockedPaneType): string {
+  if (type === "ai") return "AI";
+  if (type === "terminal") return "Terminal";
+  return "Editor";
+}
+
+function orderedWorkspacePanes(
+  panes: readonly PersistedWorkspaceDockedPane[],
+): readonly PersistedWorkspaceDockedPane[] {
+  return [...panes].sort((left, right) => left.order - right.order);
 }
 
 type WorkspacePaneDirectoryTarget = "current" | "other";
@@ -771,6 +786,150 @@ const WorkspaceHeaderPaneActions = memo(function WorkspaceHeaderPaneActions({
         </TooltipPopup>
       </Tooltip>
       <WorkspaceRunningTerminalIndicator threadRefs={runningTerminalThreadRefs} />
+    </div>
+  );
+});
+
+interface WorkspaceNavigationChromeProps {
+  readonly activePaneCwd: string | null;
+  readonly activePaneIndex: number;
+  readonly activePaneTitle: string;
+  readonly activePaneType: WorkspaceDockedPaneType;
+  readonly activeThreadTitle: string;
+  readonly gitBranchLabel: string | null;
+  readonly hasNextPane: boolean;
+  readonly hasPreviousPane: boolean;
+  readonly changedFileCount: number | null;
+  readonly isGitRepo: boolean;
+  readonly paneCount: number;
+  readonly workspaceName: string | null;
+  readonly onNextPane: () => void;
+  readonly onPreviousPane: () => void;
+}
+
+const WorkspaceNavigationChrome = memo(function WorkspaceNavigationChrome({
+  activePaneCwd,
+  activePaneIndex,
+  activePaneTitle,
+  activePaneType,
+  activeThreadTitle,
+  changedFileCount,
+  gitBranchLabel,
+  hasNextPane,
+  hasPreviousPane,
+  isGitRepo,
+  paneCount,
+  workspaceName,
+  onNextPane,
+  onPreviousPane,
+}: WorkspaceNavigationChromeProps) {
+  const panePositionLabel =
+    paneCount > 0 ? `${Math.max(1, activePaneIndex + 1)} / ${paneCount}` : "0 / 0";
+  const gitStatusLabel = isGitRepo
+    ? changedFileCount && changedFileCount > 0
+      ? `${changedFileCount} changed`
+      : "Clean"
+    : "No repo";
+
+  return (
+    <div
+      className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border/70 bg-muted/20 px-3 py-1.5 text-xs sm:px-4"
+      data-testid="workspace-navigation-chrome"
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-xs"
+                  disabled={!hasPreviousPane}
+                  aria-label="Focus previous pane"
+                  onClick={onPreviousPane}
+                >
+                  <ChevronLeftIcon />
+                </Button>
+              }
+            />
+            <TooltipPopup side="bottom">Previous pane</TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-xs"
+                  disabled={!hasNextPane}
+                  aria-label="Focus next pane"
+                  onClick={onNextPane}
+                >
+                  <ChevronRightIcon />
+                </Button>
+              }
+            />
+            <TooltipPopup side="bottom">Next pane</TooltipPopup>
+          </Tooltip>
+        </div>
+
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-background px-2 py-1 font-medium text-muted-foreground tabular-nums">
+            {panePositionLabel}
+          </span>
+          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-border/70 bg-background px-2 py-1">
+            {paneTypeIcon(activePaneType, "size-3.5 shrink-0 text-muted-foreground")}
+            <span className="min-w-0 truncate font-medium text-foreground" title={activePaneTitle}>
+              {activePaneTitle}
+            </span>
+            <span className="hidden shrink-0 text-muted-foreground sm:inline">
+              {paneTypeLabel(activePaneType)}
+            </span>
+          </span>
+        </div>
+
+        <div className="hidden min-w-0 items-center gap-1.5 text-muted-foreground md:flex">
+          <span className="truncate" title={workspaceName ?? "Workspace"}>
+            {workspaceName ?? "Workspace"}
+          </span>
+          <span aria-hidden="true">/</span>
+          <span className="truncate" title={activeThreadTitle}>
+            {activeThreadTitle}
+          </span>
+        </div>
+      </div>
+
+      <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1.5 text-muted-foreground">
+        {activePaneCwd ? (
+          <span
+            className="hidden max-w-52 items-center gap-1 rounded-md border border-transparent px-1.5 py-1 lg:inline-flex"
+            title={activePaneCwd}
+          >
+            <FolderIcon className="size-3.5 shrink-0" />
+            <span className="min-w-0 truncate">{basenameOfPanePath(activePaneCwd)}</span>
+          </span>
+        ) : null}
+        <span
+          className="inline-flex max-w-44 items-center gap-1 rounded-md border border-transparent px-1.5 py-1"
+          title={gitBranchLabel ?? gitStatusLabel}
+        >
+          <GitBranchIcon className="size-3.5 shrink-0" />
+          <span className="hidden min-w-0 truncate sm:inline">{gitBranchLabel ?? "Detached"}</span>
+          <span
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              isGitRepo && changedFileCount && changedFileCount > 0
+                ? "bg-amber-500"
+                : isGitRepo
+                  ? "bg-emerald-500"
+                  : "bg-muted-foreground/40",
+            )}
+            aria-hidden="true"
+          />
+          <span className="sr-only">{gitStatusLabel}</span>
+        </span>
+      </div>
     </div>
   );
 });
@@ -2720,7 +2879,6 @@ export default function ChatView(props: ChatViewProps) {
         : // Spread only fires for the few messages that actually changed;
           // unchanged ones early-return their original reference.
           // In-place mutation would break React's immutable state contract.
-          // oxlint-disable-next-line no-map-spread
           messages.map((message) => {
             if (
               message.role !== "user" ||
@@ -5239,6 +5397,45 @@ export default function ChatView(props: ChatViewProps) {
     },
     [renderedWorkspaceDockedPanes, storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
   );
+  const workspaceNavigationPanes = useMemo(
+    () => orderedWorkspacePanes(renderedWorkspaceDockedPanes),
+    [renderedWorkspaceDockedPanes],
+  );
+  const activeWorkspaceNavigationPane =
+    workspaceNavigationPanes.find((pane) => pane.paneId === activeWorkspaceDockedPaneId) ??
+    workspaceNavigationPanes[0] ??
+    null;
+  const activeWorkspaceNavigationPaneIndex = activeWorkspaceNavigationPane
+    ? workspaceNavigationPanes.findIndex(
+        (pane) => pane.paneId === activeWorkspaceNavigationPane.paneId,
+      )
+    : -1;
+  const focusWorkspaceNavigationPaneAtIndex = useCallback(
+    (index: number) => {
+      const nextPane = workspaceNavigationPanes[index];
+      if (!nextPane) {
+        return;
+      }
+      storeSetWorkspaceThreadActiveDockedPane(workspaceLayoutKey, nextPane.paneId);
+    },
+    [storeSetWorkspaceThreadActiveDockedPane, workspaceLayoutKey, workspaceNavigationPanes],
+  );
+  const focusPreviousWorkspacePane = useCallback(() => {
+    focusWorkspaceNavigationPaneAtIndex(activeWorkspaceNavigationPaneIndex - 1);
+  }, [activeWorkspaceNavigationPaneIndex, focusWorkspaceNavigationPaneAtIndex]);
+  const focusNextWorkspacePane = useCallback(() => {
+    focusWorkspaceNavigationPaneAtIndex(activeWorkspaceNavigationPaneIndex + 1);
+  }, [activeWorkspaceNavigationPaneIndex, focusWorkspaceNavigationPaneAtIndex]);
+  const activeWorkspaceNavigationPaneTitle = activeWorkspaceNavigationPane
+    ? (paneTitleOverrideById[activeWorkspaceNavigationPane.paneId] ??
+      (activeWorkspaceNavigationPane.paneId === "ai"
+        ? activeThread.title
+        : activeWorkspaceNavigationPane.title))
+    : "Workspace";
+  const activeWorkspaceNavigationPaneCwd =
+    activeWorkspaceNavigationPane?.cwd ?? activeWorkspaceRoot ?? null;
+  const workspaceChromeGitBranchLabel = gitStatusQuery.data?.refName ?? activeThreadBranch ?? null;
+  const workspaceChromeChangedFileCount = gitStatusQuery.data?.workingTree.files.length ?? null;
   const terminalPaneDeckHeight = workspaceTerminalRowHeight(terminalState.terminalHeight);
   const terminalRuntimeEnv = useMemo(
     () =>
@@ -5856,6 +6053,24 @@ export default function ChatView(props: ChatViewProps) {
         error={activeThread.error}
         onDismiss={() => setThreadError(activeThread.id, null)}
       />
+      {activeWorkspaceNavigationPane ? (
+        <WorkspaceNavigationChrome
+          activePaneCwd={activeWorkspaceNavigationPaneCwd}
+          activePaneIndex={activeWorkspaceNavigationPaneIndex}
+          activePaneTitle={activeWorkspaceNavigationPaneTitle}
+          activePaneType={activeWorkspaceNavigationPane.type}
+          activeThreadTitle={activeThread.title}
+          changedFileCount={workspaceChromeChangedFileCount}
+          gitBranchLabel={workspaceChromeGitBranchLabel}
+          hasNextPane={activeWorkspaceNavigationPaneIndex < workspaceNavigationPanes.length - 1}
+          hasPreviousPane={activeWorkspaceNavigationPaneIndex > 0}
+          isGitRepo={isGitRepo}
+          paneCount={workspaceNavigationPanes.length}
+          workspaceName={workspaceName}
+          onNextPane={focusNextWorkspacePane}
+          onPreviousPane={focusPreviousWorkspacePane}
+        />
+      ) : null}
       <AddWorkspacePaneDialog
         environmentId={activeThread.environmentId}
         currentWorkspaceRoot={activeWorkspaceRoot}
