@@ -6,6 +6,7 @@ import { SidebarTrigger } from "../ui/sidebar";
 interface ChatHeaderProps {
   actions?: ReactNode;
   activeThreadTitle: string;
+  workspaceControls?: ReactNode;
   workspaceName: string | null;
   showWorkspaceContext?: boolean;
   showThreadTitle?: boolean;
@@ -14,6 +15,7 @@ interface ChatHeaderProps {
 export const ChatHeader = memo(function ChatHeader({
   actions,
   activeThreadTitle,
+  workspaceControls,
   workspaceName,
   showWorkspaceContext = true,
   showThreadTitle = true,
@@ -27,6 +29,9 @@ export const ChatHeader = memo(function ChatHeader({
             <span className="min-w-0 shrink truncate text-sm text-muted-foreground">
               {workspaceName}
             </span>
+          ) : null}
+          {workspaceControls ? (
+            <div className="flex min-w-0 shrink-0 items-center gap-1">{workspaceControls}</div>
           ) : null}
           {showThreadTitle ? (
             <h2

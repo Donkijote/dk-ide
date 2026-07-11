@@ -6,6 +6,7 @@ Related direction docs:
 - [Workspace Pre-Alpha Plan](./WORKSPACE_PRE_ALPHA_PLAN.md)
 - [Workspace Pre-Alpha Validation](./WORKSPACE_PRE_ALPHA_VALIDATION.md)
 - [Workspace Scrollable Columns](./WORKSPACE_SCROLLABLE_COLUMNS.md)
+- [Workspace Alpha Chrome](./WORKSPACE_ALPHA_CHROME.md)
 
 ## Goal
 
@@ -208,6 +209,7 @@ Closed alpha issues completed so far:
 - [x] Persist and restore workspace pane sessions.
 - [x] Commit selected editor files.
 - [x] Roll back selected editor file changes.
+- [x] Add compact workspace navigation and status chrome.
 
 Remaining alpha layout work after the scrollable-column direction:
 

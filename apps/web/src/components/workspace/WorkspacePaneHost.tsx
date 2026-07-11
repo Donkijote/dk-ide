@@ -460,7 +460,7 @@ export function WorkspacePaneHost({
   return (
     <div
       ref={hostRef}
-      className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain outline-none focus:outline-none focus-visible:outline-none [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       role="region"
       tabIndex={0}
       aria-label="Workspace pane strip"

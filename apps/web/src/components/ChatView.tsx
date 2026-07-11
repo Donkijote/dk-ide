@@ -121,6 +121,8 @@ import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
   BotIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   Columns2Icon,
   CornerLeftUpIcon,
   DiffIcon,
@@ -314,6 +316,12 @@ function paneTypeIcon(type: WorkspaceDockedPaneType, className: string) {
   if (type === "ai") return <BotIcon className={className} />;
   if (type === "terminal") return <TerminalSquareIcon className={className} />;
   return <FileCode2Icon className={className} />;
+}
+
+function orderedWorkspacePanes(
+  panes: readonly PersistedWorkspaceDockedPane[],
+): readonly PersistedWorkspaceDockedPane[] {
+  return [...panes].sort((left, right) => left.order - right.order);
 }
 
 type WorkspacePaneDirectoryTarget = "current" | "other";
@@ -771,6 +779,80 @@ const WorkspaceHeaderPaneActions = memo(function WorkspaceHeaderPaneActions({
         </TooltipPopup>
       </Tooltip>
       <WorkspaceRunningTerminalIndicator threadRefs={runningTerminalThreadRefs} />
+    </div>
+  );
+});
+
+interface WorkspacePaneHeaderNavigationProps {
+  readonly activePaneIndex: number;
+  readonly activePaneTitle: string;
+  readonly activePaneType: WorkspaceDockedPaneType;
+  readonly hasNextPane: boolean;
+  readonly hasPreviousPane: boolean;
+  readonly paneCount: number;
+  readonly onNextPane: () => void;
+  readonly onPreviousPane: () => void;
+}
+
+const WorkspacePaneHeaderNavigation = memo(function WorkspacePaneHeaderNavigation({
+  activePaneIndex,
+  activePaneTitle,
+  activePaneType,
+  hasNextPane,
+  hasPreviousPane,
+  paneCount,
+  onNextPane,
+  onPreviousPane,
+}: WorkspacePaneHeaderNavigationProps) {
+  const panePositionLabel =
+    paneCount > 0 ? `${Math.max(1, activePaneIndex + 1)} / ${paneCount}` : "0 / 0";
+
+  return (
+    <div className="flex min-w-0 items-center gap-1" data-testid="workspace-pane-navigation">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              disabled={!hasPreviousPane}
+              aria-label="Focus previous pane"
+              onClick={onPreviousPane}
+            >
+              <ChevronLeftIcon />
+            </Button>
+          }
+        />
+        <TooltipPopup side="bottom">Previous pane</TooltipPopup>
+      </Tooltip>
+      <span className="inline-flex h-7 shrink-0 items-center rounded-md border border-border/70 bg-background px-2 font-medium text-muted-foreground text-xs tabular-nums">
+        {panePositionLabel}
+      </span>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              disabled={!hasNextPane}
+              aria-label="Focus next pane"
+              onClick={onNextPane}
+            >
+              <ChevronRightIcon />
+            </Button>
+          }
+        />
+        <TooltipPopup side="bottom">Next pane</TooltipPopup>
+      </Tooltip>
+      <span
+        className="hidden min-w-0 max-w-44 items-center gap-1 rounded-md border border-border/70 bg-background px-2 py-1 text-xs sm:inline-flex"
+        title={activePaneTitle}
+      >
+        {paneTypeIcon(activePaneType, "size-3.5 shrink-0 text-muted-foreground")}
+        <span className="min-w-0 truncate font-medium text-foreground">{activePaneTitle}</span>
+      </span>
     </div>
   );
 });
@@ -2720,7 +2802,6 @@ export default function ChatView(props: ChatViewProps) {
         : // Spread only fires for the few messages that actually changed;
           // unchanged ones early-return their original reference.
           // In-place mutation would break React's immutable state contract.
-          // oxlint-disable-next-line no-map-spread
           messages.map((message) => {
             if (
               message.role !== "user" ||
@@ -5239,6 +5320,41 @@ export default function ChatView(props: ChatViewProps) {
     },
     [renderedWorkspaceDockedPanes, storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
   );
+  const workspaceNavigationPanes = useMemo(
+    () => orderedWorkspacePanes(renderedWorkspaceDockedPanes),
+    [renderedWorkspaceDockedPanes],
+  );
+  const activeWorkspaceNavigationPane =
+    workspaceNavigationPanes.find((pane) => pane.paneId === activeWorkspaceDockedPaneId) ??
+    workspaceNavigationPanes[0] ??
+    null;
+  const activeWorkspaceNavigationPaneIndex = activeWorkspaceNavigationPane
+    ? workspaceNavigationPanes.findIndex(
+        (pane) => pane.paneId === activeWorkspaceNavigationPane.paneId,
+      )
+    : -1;
+  const focusWorkspaceNavigationPaneAtIndex = useCallback(
+    (index: number) => {
+      const nextPane = workspaceNavigationPanes[index];
+      if (!nextPane) {
+        return;
+      }
+      storeSetWorkspaceThreadActiveDockedPane(workspaceLayoutKey, nextPane.paneId);
+    },
+    [storeSetWorkspaceThreadActiveDockedPane, workspaceLayoutKey, workspaceNavigationPanes],
+  );
+  const focusPreviousWorkspacePane = useCallback(() => {
+    focusWorkspaceNavigationPaneAtIndex(activeWorkspaceNavigationPaneIndex - 1);
+  }, [activeWorkspaceNavigationPaneIndex, focusWorkspaceNavigationPaneAtIndex]);
+  const focusNextWorkspacePane = useCallback(() => {
+    focusWorkspaceNavigationPaneAtIndex(activeWorkspaceNavigationPaneIndex + 1);
+  }, [activeWorkspaceNavigationPaneIndex, focusWorkspaceNavigationPaneAtIndex]);
+  const activeWorkspaceNavigationPaneTitle = activeWorkspaceNavigationPane
+    ? (paneTitleOverrideById[activeWorkspaceNavigationPane.paneId] ??
+      (activeWorkspaceNavigationPane.paneId === "ai"
+        ? activeThread.title
+        : activeWorkspaceNavigationPane.title))
+    : "Workspace";
   const terminalPaneDeckHeight = workspaceTerminalRowHeight(terminalState.terminalHeight);
   const terminalRuntimeEnv = useMemo(
     () =>
@@ -5846,6 +5962,22 @@ export default function ChatView(props: ChatViewProps) {
             />
           }
           activeThreadTitle={activeThread.title}
+          workspaceControls={
+            activeWorkspaceNavigationPane ? (
+              <WorkspacePaneHeaderNavigation
+                activePaneIndex={activeWorkspaceNavigationPaneIndex}
+                activePaneTitle={activeWorkspaceNavigationPaneTitle}
+                activePaneType={activeWorkspaceNavigationPane.type}
+                hasNextPane={
+                  activeWorkspaceNavigationPaneIndex < workspaceNavigationPanes.length - 1
+                }
+                hasPreviousPane={activeWorkspaceNavigationPaneIndex > 0}
+                paneCount={workspaceNavigationPanes.length}
+                onNextPane={focusNextWorkspacePane}
+                onPreviousPane={focusPreviousWorkspacePane}
+              />
+            ) : null
+          }
           workspaceName={workspaceName}
           showThreadTitle={false}
         />
