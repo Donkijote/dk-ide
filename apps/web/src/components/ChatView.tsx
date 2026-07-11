@@ -83,6 +83,7 @@ import {
 import { createProjectSelectorByRef, createThreadSelectorByRef } from "../storeSelectors";
 import {
   type PersistedWorkspaceDockedPane,
+  type WorkspaceDockedPaneHeightPreset,
   type WorkspaceDockedPaneType,
   type WorkspaceDockedPaneWidthPreset,
   useUiStateStore,
@@ -244,8 +245,12 @@ import { retainThreadDetailSubscription } from "../environments/runtime/service"
 import { RightPanelSheet } from "./RightPanelSheet";
 import {
   mergeVisibleWorkspacePaneUpdates,
+  setWorkspacePaneHeightPreset,
   setWorkspacePaneWidthPreset,
+  WORKSPACE_PANE_HEIGHT_PRESETS,
   WORKSPACE_PANE_WIDTH_PRESETS,
+  workspacePaneColumns,
+  workspacePaneHeightPreset,
   workspacePaneWidthPreset,
   workspaceTerminalRowHeight,
 } from "../workspacePaneLayout";
@@ -1008,6 +1013,32 @@ function workspacePaneWidthPresetLabel(widthPreset: WorkspaceDockedPaneWidthPres
       return "Medium";
     case "large":
       return "Large";
+  }
+}
+
+function workspacePaneHeightPresetIcon(heightPreset: WorkspaceDockedPaneHeightPreset): LucideIcon {
+  switch (heightPreset) {
+    case "top-heavy":
+      return RectangleHorizontalIcon;
+    case "bottom-heavy":
+      return RectangleVerticalIcon;
+    case "half":
+    case "full":
+    default:
+      return Columns2Icon;
+  }
+}
+
+function workspacePaneHeightPresetLabel(heightPreset: WorkspaceDockedPaneHeightPreset): string {
+  switch (heightPreset) {
+    case "top-heavy":
+      return "75 / 25";
+    case "bottom-heavy":
+      return "25 / 75";
+    case "full":
+      return "Full";
+    case "half":
+      return "Half / half";
   }
 }
 
@@ -5320,6 +5351,16 @@ export default function ChatView(props: ChatViewProps) {
     },
     [renderedWorkspaceDockedPanes, storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
   );
+  const setWorkspacePaneHeight = useCallback(
+    (paneId: string, heightPreset: WorkspaceDockedPaneHeightPreset) => {
+      storeSetWorkspaceThreadDockedPanes(
+        workspaceLayoutKey,
+        setWorkspacePaneHeightPreset(renderedWorkspaceDockedPanes, paneId, heightPreset),
+        paneId,
+      );
+    },
+    [renderedWorkspaceDockedPanes, storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
+  );
   const workspaceNavigationPanes = useMemo(
     () => orderedWorkspacePanes(renderedWorkspaceDockedPanes),
     [renderedWorkspaceDockedPanes],
@@ -5427,6 +5468,76 @@ export default function ChatView(props: ChatViewProps) {
         </Popover>
       );
     };
+    const renderPaneHeightPresetControl = () => {
+      const currentColumn = workspacePaneColumns(renderedWorkspaceDockedPanes).find((column) =>
+        column.panes.some((columnPane) => columnPane.paneId === pane.paneId),
+      );
+      if (!currentColumn || currentColumn.panes.length !== 2) {
+        return null;
+      }
+      const currentPreset = workspacePaneHeightPreset(currentColumn.panes);
+      const presetLabel = workspacePaneHeightPresetLabel(currentPreset);
+      const CurrentPresetIcon = workspacePaneHeightPresetIcon(currentPreset);
+      return (
+        <Popover>
+          <PopoverTrigger
+            openOnHover
+            delay={120}
+            closeDelay={180}
+            className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-popup-open:bg-accent data-popup-open:text-foreground"
+            aria-label={`${paneTitle} stack height preset: ${presetLabel}`}
+          >
+            <CurrentPresetIcon className="size-3.5" />
+          </PopoverTrigger>
+          <PopoverPopup
+            tooltipStyle
+            side="bottom"
+            align="start"
+            sideOffset={6}
+            className="w-max max-w-none p-1"
+            viewportClassName="p-0"
+          >
+            <div className="grid grid-cols-3 gap-0.5" aria-label={`${paneTitle} height presets`}>
+              {WORKSPACE_PANE_HEIGHT_PRESETS.map((heightPreset) => {
+                const label = workspacePaneHeightPresetLabel(heightPreset);
+                const isSelected = heightPreset === currentPreset;
+                const PresetIcon = workspacePaneHeightPresetIcon(heightPreset);
+                return (
+                  <PopoverClose
+                    key={heightPreset}
+                    type="button"
+                    className={cn(
+                      "relative inline-flex size-8 cursor-pointer items-center justify-center rounded-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+                      isSelected ? "bg-accent text-accent-foreground" : "text-popover-foreground",
+                    )}
+                    aria-label={`Set ${paneTitle} stack height to ${label}`}
+                    aria-pressed={isSelected}
+                    title={label}
+                    onClick={() => setWorkspacePaneHeight(pane.paneId, heightPreset)}
+                  >
+                    <PresetIcon className="size-4" />
+                    <span className="sr-only">{label}</span>
+                    <span
+                      className={cn(
+                        "absolute right-1 bottom-1 size-1 rounded-full transition-opacity",
+                        isSelected ? "bg-current opacity-100" : "opacity-0",
+                      )}
+                      aria-hidden="true"
+                    />
+                  </PopoverClose>
+                );
+              })}
+            </div>
+          </PopoverPopup>
+        </Popover>
+      );
+    };
+    const paneLayoutControls = (
+      <>
+        {renderPaneWidthPresetControl()}
+        {renderPaneHeightPresetControl()}
+      </>
+    );
     const renderRemovePaneButton = () => (
       <Tooltip>
         <TooltipTrigger
@@ -5454,7 +5565,7 @@ export default function ChatView(props: ChatViewProps) {
           title={isDefaultEditorPane ? editorPaneTitle : paneTitle}
           onTitleRename={(nextTitle) => renameWorkspacePane(pane.paneId, nextTitle)}
           isActive={isPaneActive}
-          leadingActions={renderPaneWidthPresetControl()}
+          leadingActions={paneLayoutControls}
           actions={
             isDefaultEditorPane ? (
               <WorkspaceEditorActions {...workspaceEditorActionProps} />
@@ -5563,7 +5674,7 @@ export default function ChatView(props: ChatViewProps) {
           title={paneTitle}
           onTitleRename={(nextTitle) => renameWorkspacePane(pane.paneId, nextTitle)}
           isActive={isPaneActive}
-          leadingActions={renderPaneWidthPresetControl()}
+          leadingActions={paneLayoutControls}
           titleActions={
             <TerminalPaneHeaderActions
               splitCount={terminalGroup.terminalIds.length}
@@ -5632,7 +5743,7 @@ export default function ChatView(props: ChatViewProps) {
           key={`${pane.paneId}:unbound`}
           title={aiPaneTitle}
           isActive={isPaneActive}
-          leadingActions={renderPaneWidthPresetControl()}
+          leadingActions={paneLayoutControls}
           titleActions={
             <Tooltip>
               <TooltipTrigger
@@ -5673,7 +5784,7 @@ export default function ChatView(props: ChatViewProps) {
           key={`${pane.paneId}:missing-thread`}
           title={aiPaneTitle}
           isActive={isPaneActive}
-          leadingActions={renderPaneWidthPresetControl()}
+          leadingActions={paneLayoutControls}
           titleActions={
             <Tooltip>
               <TooltipTrigger
@@ -5708,7 +5819,7 @@ export default function ChatView(props: ChatViewProps) {
         workspaceMode: "ai-pane" as const,
         embeddedPaneActions: renderRemovePaneButton(),
         embeddedPaneActive: isPaneActive,
-        embeddedPaneLeadingActions: renderPaneWidthPresetControl(),
+        embeddedPaneLeadingActions: paneLayoutControls,
         onWorkspaceAiPaneThreadChange: (
           nextThreadKey: string | null,
           options?: { title?: string },
@@ -5735,7 +5846,7 @@ export default function ChatView(props: ChatViewProps) {
         key={pane.paneId}
         title={activeThread.title}
         isActive={isPaneActive || embeddedPaneActive}
-        leadingActions={embeddedPaneLeadingActions ?? renderPaneWidthPresetControl()}
+        leadingActions={embeddedPaneLeadingActions ?? paneLayoutControls}
         titleActions={aiPaneHeaderActions}
         titleControl={aiPaneTitleControl}
         titleInputLabel="Thread title"

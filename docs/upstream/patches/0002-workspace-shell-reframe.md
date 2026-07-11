@@ -104,6 +104,9 @@ composition, which are likely to continue evolving upstream.
 - `improvement/ghi#66`: pane creation now inserts immediately after the active
   pane, preserves existing pane sizing, and focuses the newly created pane
   without forcing the current workspace strip to fit inside the viewport
+- `feature/ghi#79`: scrollable workspace columns can now contain bounded
+  vertical pane stacks with persisted stack membership, height presets, stack
+  focus navigation, and recovery for invalid oversized persisted stacks
 
 ## Sync Notes
 
@@ -184,6 +187,11 @@ composition, which are likely to continue evolving upstream.
   relying on fractional order values, so AI, terminal, and editor creation share
   the same non-destructive placement rule while preserving existing pane width
   and size fields
+- stacked columns extend the horizontal strip model without reintroducing the
+  old two-dimensional docked grid: vertical drops create bounded column stacks,
+  horizontal drops move panes back out into neighboring columns, two-pane stacks
+  expose equal and dominant/minor height presets, and three-pane stacks use an
+  implicit even distribution with no arbitrary pixel height persistence
 - keep selected-file commit choices in the commit dialog and pass selected paths
   into the existing stacked Git action API, leaving server commit-context
   generation and default-branch confirmation behavior unchanged

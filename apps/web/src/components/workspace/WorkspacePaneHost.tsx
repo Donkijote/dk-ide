@@ -54,7 +54,14 @@ const WORKSPACE_PANE_COLLISION_DETECTION: CollisionDetection = (args) => {
   const pointerCollisions = pointerWithin(args);
   return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
 };
-const WORKSPACE_PANE_NAVIGATION_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End"]);
+const WORKSPACE_PANE_NAVIGATION_KEYS = new Set([
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "Home",
+  "End",
+]);
 
 function disableWorkspacePaneLayoutAnimation(): false {
   return false;
@@ -244,6 +251,9 @@ export function WorkspacePaneHost({
         pane.paneId !== normalizedPane.paneId ||
         pane.order !== normalizedPane.order ||
         pane.widthPreset !== normalizedPane.widthPreset ||
+        pane.heightPreset !== normalizedPane.heightPreset ||
+        pane.stackId !== normalizedPane.stackId ||
+        pane.stackOrder !== normalizedPane.stackOrder ||
         pane.dockColumn !== normalizedPane.dockColumn ||
         pane.dockRow !== normalizedPane.dockRow ||
         pane.dockX !== normalizedPane.dockX ||
@@ -305,9 +315,13 @@ export function WorkspacePaneHost({
           ? "previous"
           : event.key === "ArrowRight"
             ? "next"
-            : event.key === "Home"
-              ? "first"
-              : "last";
+            : event.key === "ArrowUp"
+              ? "up"
+              : event.key === "ArrowDown"
+                ? "down"
+                : event.key === "Home"
+                  ? "first"
+                  : "last";
       const nextActivePaneId = workspacePaneKeyboardFocusTarget(
         normalizedRenderedPanes,
         activePaneId,

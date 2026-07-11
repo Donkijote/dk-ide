@@ -1338,6 +1338,72 @@ describe("uiStateStore pure functions", () => {
     ]);
   });
 
+  it("sanitizes persisted workspace pane stacks with the alpha cap", () => {
+    const stackedPanes = sanitizeWorkspaceDockedPanes([
+      {
+        paneId: "editor",
+        type: "editor",
+        title: "Editor",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 0,
+        size: 1,
+        stackId: "stack:tools",
+        stackOrder: 0,
+        heightPreset: "top-heavy",
+        metadata: {},
+      },
+      {
+        paneId: "terminal",
+        type: "terminal",
+        title: "Terminal",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 1,
+        size: 1,
+        stackId: "stack:tools",
+        stackOrder: 1,
+        metadata: { threadId: "thread-1" },
+      },
+      {
+        paneId: "ai",
+        type: "ai",
+        title: "AI",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 2,
+        size: 1,
+        stackId: "stack:tools",
+        stackOrder: 2,
+        metadata: { threadId: "thread-1" },
+      },
+      {
+        paneId: "terminal:overflow",
+        type: "terminal",
+        title: "Overflow",
+        environmentId: "env-1",
+        cwd: "/repo",
+        order: 3,
+        size: 1,
+        stackId: "stack:tools",
+        stackOrder: 3,
+        metadata: { threadId: "thread-1" },
+      },
+    ]);
+
+    expect(stackedPanes.slice(0, 3).map((pane) => pane.stackId)).toEqual([
+      "stack:tools",
+      "stack:tools",
+      "stack:tools",
+    ]);
+    expect(stackedPanes.slice(0, 3).map((pane) => pane.stackOrder)).toEqual([0, 1, 2]);
+    expect(stackedPanes[0]?.heightPreset).toBeUndefined();
+    expect(stackedPanes[3]?.paneId).toBe("terminal:overflow");
+    expect(stackedPanes[3]?.stackId).toBeUndefined();
+    expect(stackedPanes[3]?.stackOrder).toBeUndefined();
+    expect(stackedPanes[3]?.heightPreset).toBeUndefined();
+  });
+
   it("stores sanitized docked panes for follow-up add close reorder and resize work", () => {
     const thread1 = ThreadId.make("thread-1");
     const panes: PersistedWorkspaceDockedPane[] = [

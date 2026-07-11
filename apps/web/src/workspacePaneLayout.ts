@@ -1,6 +1,7 @@
 import type {
   PersistedWorkspaceDockedPane,
   WorkspaceDockedPaneType,
+  WorkspaceDockedPaneHeightPreset,
   WorkspaceDockedPaneWidthPreset,
   WorkspaceDockedPaneSlot,
 } from "./uiStateStore";
@@ -8,16 +9,26 @@ import type {
 export const MIN_WORKSPACE_TERMINAL_ROW_HEIGHT = 280;
 export const MIN_WORKSPACE_PANE_HEIGHT = 736;
 export const WORKSPACE_PANE_GAP = 12;
+export const MAX_WORKSPACE_PANE_STACK_SIZE = 3;
 
 const MAX_WORKSPACE_PANE_WIDTH = 1_400;
 const MAX_WORKSPACE_PANE_HEIGHT = 4_000;
 const MIN_CUSTOM_WORKSPACE_PANE_WIDTH = 280;
 export const WORKSPACE_PANE_WIDTH_PRESETS = ["narrow", "medium", "large", "wide"] as const;
+export const WORKSPACE_PANE_HEIGHT_PRESETS = ["half", "top-heavy", "bottom-heavy"] as const;
 const WORKSPACE_PANE_WIDTH_PRESET_RATIOS: Record<WorkspaceDockedPaneWidthPreset, number> = {
   narrow: 0.25,
   medium: 0.5,
   large: 0.75,
   wide: 1,
+};
+const TWO_PANE_HEIGHT_PRESET_RATIOS: Record<
+  Extract<WorkspaceDockedPaneHeightPreset, "half" | "top-heavy" | "bottom-heavy">,
+  readonly [number, number]
+> = {
+  half: [0.5, 0.5],
+  "top-heavy": [0.75, 0.25],
+  "bottom-heavy": [0.25, 0.75],
 };
 
 export type WorkspacePaneDropDirection = "above" | "below" | "before" | "after" | "swap";
@@ -58,6 +69,18 @@ export function workspacePaneWidthPreset(
     return "medium";
   }
   return "large";
+}
+
+export function workspacePaneHeightPreset(
+  columnPanes: readonly Pick<PersistedWorkspaceDockedPane, "heightPreset">[],
+): WorkspaceDockedPaneHeightPreset {
+  if (columnPanes.length <= 1 || columnPanes.length >= 3) {
+    return "full";
+  }
+  const preset = columnPanes.find(
+    (pane) => pane.heightPreset && pane.heightPreset !== "full",
+  )?.heightPreset;
+  return preset === "top-heavy" || preset === "bottom-heavy" || preset === "half" ? preset : "half";
 }
 
 export function workspacePaneDefaultWidth(
@@ -139,10 +162,92 @@ function orderedWorkspacePanes(
   });
 }
 
+function orderedColumnPanes(
+  panes: readonly PersistedWorkspaceDockedPane[],
+): PersistedWorkspaceDockedPane[] {
+  return panes.toSorted((left, right) => {
+    const byStackOrder = (left.stackOrder ?? left.order) - (right.stackOrder ?? right.order);
+    return byStackOrder !== 0 ? byStackOrder : left.paneId.localeCompare(right.paneId);
+  });
+}
+
+function normalizeStackId(stackId: string | undefined, fallbackPaneId: string): string {
+  return stackId && stackId.length > 0 ? stackId : `stack:${fallbackPaneId}`;
+}
+
+function paneColumnId(pane: PersistedWorkspaceDockedPane): string {
+  return pane.stackId ?? `pane:${pane.paneId}`;
+}
+
+function workspacePaneWithoutStackFields(
+  pane: PersistedWorkspaceDockedPane,
+): PersistedWorkspaceDockedPane {
+  const {
+    heightPreset: _heightPreset,
+    stackId: _stackId,
+    stackOrder: _stackOrder,
+    ...paneWithoutStack
+  } = pane;
+  return paneWithoutStack as PersistedWorkspaceDockedPane;
+}
+
+function workspacePaneColumnWidth(
+  columnPanes: readonly PersistedWorkspaceDockedPane[],
+  hostWidth: number,
+): number {
+  return Math.max(...columnPanes.map((pane) => workspacePaneWidth(pane, hostWidth)), 0);
+}
+
+function workspacePaneHeightRatios(
+  columnPanes: readonly PersistedWorkspaceDockedPane[],
+): readonly number[] {
+  if (columnPanes.length <= 1) {
+    return [1];
+  }
+  if (columnPanes.length === 2) {
+    return TWO_PANE_HEIGHT_PRESET_RATIOS[
+      workspacePaneHeightPreset(columnPanes) as keyof typeof TWO_PANE_HEIGHT_PRESET_RATIOS
+    ];
+  }
+  return [1 / 3, 1 / 3, 1 / 3];
+}
+
 function normalizePaneOrder(
   panes: readonly PersistedWorkspaceDockedPane[],
 ): PersistedWorkspaceDockedPane[] {
-  return orderedWorkspacePanes(panes).map((pane, order) => ({ ...pane, order }));
+  const columns = workspacePaneColumns(panes);
+  let order = 0;
+  return columns.flatMap((column) =>
+    column.panes.map((pane, stackOrder) => {
+      const nextPane = {
+        ...pane,
+        order: order++,
+      };
+      if (column.panes.length <= 1) {
+        const {
+          heightPreset: _heightPreset,
+          stackId: _stackId,
+          stackOrder: _stackOrder,
+          ...nextPaneWithoutStack
+        } = nextPane;
+        return {
+          ...nextPaneWithoutStack,
+        };
+      }
+      const nextStackPane = {
+        ...nextPane,
+        stackId: normalizeStackId(pane.stackId, column.panes[0]?.paneId ?? pane.paneId),
+        stackOrder,
+      };
+      if (column.panes.length >= 3) {
+        return nextStackPane;
+      }
+      return {
+        ...nextStackPane,
+        heightPreset: workspacePaneHeightPreset(column.panes),
+      };
+    }),
+  );
 }
 
 export function reorderWorkspacePanes(
@@ -169,18 +274,40 @@ export function reorderWorkspacePanes(
 export function workspacePaneColumns(
   panes: readonly PersistedWorkspaceDockedPane[],
 ): readonly WorkspacePaneColumn[] {
-  return normalizePaneOrder(panes).map((pane, column) => ({
-    column,
-    panes: [pane],
-  }));
+  const columnById = new Map<
+    string,
+    { firstOrder: number; panes: PersistedWorkspaceDockedPane[] }
+  >();
+  for (const pane of orderedWorkspacePanes(panes)) {
+    const columnId = paneColumnId(pane);
+    const column = columnById.get(columnId);
+    if (column) {
+      column.firstOrder = Math.min(column.firstOrder, pane.order);
+      column.panes.push(pane);
+    } else {
+      columnById.set(columnId, { firstOrder: pane.order, panes: [pane] });
+    }
+  }
+
+  return Array.from(columnById.values())
+    .toSorted((left, right) => {
+      const byOrder = left.firstOrder - right.firstOrder;
+      return byOrder !== 0 ? byOrder : left.panes[0]!.paneId.localeCompare(right.panes[0]!.paneId);
+    })
+    .map((column, index) => ({
+      column: index,
+      panes: orderedColumnPanes(column.panes).slice(0, MAX_WORKSPACE_PANE_STACK_SIZE),
+    }));
 }
 
 export function workspacePanePlacements(
   panes: readonly PersistedWorkspaceDockedPane[],
 ): ReadonlyMap<string, WorkspacePanePlacement> {
   const placements = new Map<string, WorkspacePanePlacement>();
-  normalizePaneOrder(panes).forEach((pane, column) => {
-    placements.set(pane.paneId, { slot: "grid", column, row: 0 });
+  workspacePaneColumns(normalizePaneOrder(panes)).forEach((column, columnIndex) => {
+    column.panes.forEach((pane, row) => {
+      placements.set(pane.paneId, { slot: "grid", column: columnIndex, row });
+    });
   });
   return placements;
 }
@@ -192,13 +319,25 @@ export function workspacePaneRects(
   _terminalRowHeight: number = 320,
 ): readonly WorkspacePaneRect[] {
   let x = 0;
-  return normalizePaneOrder(panes).map((pane) => {
-    const width = workspacePaneWidth(pane, hostWidth);
-    const height = workspacePaneHeight(pane, paneHeight);
-    const rect = { pane, x, y: 0, width, height };
+  const rects: WorkspacePaneRect[] = [];
+  for (const column of workspacePaneColumns(normalizePaneOrder(panes))) {
+    const columnHeight = workspacePaneHeight({}, paneHeight);
+    const width = workspacePaneColumnWidth(column.panes, hostWidth);
+    const ratios = workspacePaneHeightRatios(column.panes);
+    const verticalGapTotal = WORKSPACE_PANE_GAP * Math.max(0, column.panes.length - 1);
+    const availableHeight = Math.max(1, columnHeight - verticalGapTotal);
+    let y = 0;
+    column.panes.forEach((pane, row) => {
+      const height =
+        row === column.panes.length - 1
+          ? Math.max(1, columnHeight - y)
+          : Math.max(1, Math.round(availableHeight * (ratios[row] ?? 1)));
+      rects.push({ pane, x, y, width, height });
+      y += height + WORKSPACE_PANE_GAP;
+    });
     x += width + WORKSPACE_PANE_GAP;
-    return rect;
-  });
+  }
+  return rects;
 }
 
 function withWorkspacePaneRects(
@@ -206,17 +345,19 @@ function withWorkspacePaneRects(
   rects: readonly WorkspacePaneRect[],
 ): PersistedWorkspaceDockedPane[] {
   const rectByPaneId = new Map(rects.map((rect) => [rect.pane.paneId, rect]));
+  const placementByPaneId = workspacePanePlacements(panes);
   return normalizePaneOrder(panes).map((pane, order) => {
     const rect = rectByPaneId.get(pane.paneId);
+    const placement = placementByPaneId.get(pane.paneId);
     return {
       ...pane,
       order,
       widthPreset: pane.widthPreset ?? workspacePaneWidthPreset(pane),
       dockSlot: "grid",
-      dockColumn: order,
-      dockRow: 0,
+      dockColumn: placement?.column ?? order,
+      dockRow: placement?.row ?? 0,
       dockX: Math.round(rect?.x ?? 0),
-      dockY: 0,
+      dockY: Math.round(rect?.y ?? 0),
     };
   });
 }
@@ -265,9 +406,71 @@ export function placeWorkspacePane(
   if (targetIndex < 0) {
     return orderedPanes;
   }
-  const shouldInsertAfter = direction === "after" || direction === "below";
-  reordered.splice(targetIndex + (shouldInsertAfter ? 1 : 0), 0, activePane);
-  return reordered.map((pane, order) => ({ ...pane, order }));
+  if (direction === "above" || direction === "below") {
+    const overPane = reordered[targetIndex];
+    if (!overPane) {
+      return orderedPanes;
+    }
+    const targetColumn = workspacePaneColumns(reordered).find((column) =>
+      column.panes.some((pane) => pane.paneId === overPaneId),
+    );
+    if (!targetColumn || targetColumn.panes.length >= MAX_WORKSPACE_PANE_STACK_SIZE) {
+      reordered.splice(
+        targetIndex + (direction === "below" ? 1 : 0),
+        0,
+        workspacePaneWithoutStackFields(activePane),
+      );
+      return normalizePaneOrder(reordered);
+    }
+    const stackId = normalizeStackId(overPane.stackId, targetColumn.panes[0]?.paneId ?? overPaneId);
+    const stackPanes = orderedColumnPanes([
+      ...targetColumn.panes.map((pane) => ({ ...pane, stackId })),
+      { ...activePane, stackId },
+    ]);
+    const overStackIndex = stackPanes.findIndex((pane) => pane.paneId === overPaneId);
+    const activeStackIndex = stackPanes.findIndex((pane) => pane.paneId === activePaneId);
+    if (overStackIndex < 0 || activeStackIndex < 0) {
+      return orderedPanes;
+    }
+    const [stackedActivePane] = stackPanes.splice(activeStackIndex, 1);
+    if (!stackedActivePane) {
+      return orderedPanes;
+    }
+    const nextOverStackIndex =
+      activeStackIndex < overStackIndex ? overStackIndex - 1 : overStackIndex;
+    stackPanes.splice(nextOverStackIndex + (direction === "below" ? 1 : 0), 0, stackedActivePane);
+    const stackPaneById = new Map(
+      stackPanes.map((pane, stackOrder) => {
+        const stackPane = { ...pane, stackId, stackOrder };
+        const { heightPreset: _heightPreset, ...stackPaneWithoutHeightPreset } = stackPane;
+        return [
+          pane.paneId,
+          stackPanes.length === 2
+            ? { ...stackPane, heightPreset: workspacePaneHeightPreset(stackPanes) }
+            : stackPaneWithoutHeightPreset,
+        ] as const;
+      }),
+    );
+    const nextPanes = reordered.map((pane) => {
+      const stackPane = stackPaneById.get(pane.paneId);
+      return stackPane ?? pane;
+    });
+    const retainedPaneIds = new Set(nextPanes.map((pane) => pane.paneId));
+    for (const stackPane of stackPaneById.values()) {
+      if (!retainedPaneIds.has(stackPane.paneId)) {
+        nextPanes.push(stackPane);
+      }
+    }
+    return normalizePaneOrder(nextPanes);
+  }
+
+  const shouldInsertAfter = direction === "after";
+  reordered.splice(
+    targetIndex + (shouldInsertAfter ? 1 : 0),
+    0,
+    workspacePaneWithoutStackFields(activePane),
+  );
+  return normalizePaneOrder(reordered);
 }
 
 export function pushWorkspacePaneCollisions(
@@ -290,8 +493,9 @@ export function resizeWorkspacePaneWidth(
   if (!Number.isFinite(width)) {
     return normalizePaneOrder(panes);
   }
+  const targetPane = panes.find((candidate) => candidate.paneId === paneId);
   return normalizePaneOrder(panes).map((pane) => {
-    if (pane.paneId !== paneId) {
+    if (pane.paneId !== paneId && (!targetPane?.stackId || pane.stackId !== targetPane.stackId)) {
       return pane;
     }
 
@@ -310,12 +514,13 @@ export function cycleWorkspacePaneWidthPreset(
   direction: "previous" | "next",
 ): PersistedWorkspaceDockedPane[] {
   const orderedPanes = normalizePaneOrder(panes);
-  if (!orderedPanes.some((pane) => pane.paneId === paneId)) {
+  const targetPane = orderedPanes.find((pane) => pane.paneId === paneId);
+  if (!targetPane) {
     return orderedPanes;
   }
 
   return orderedPanes.map((pane) => {
-    if (pane.paneId !== paneId) {
+    if (pane.paneId !== paneId && (!targetPane.stackId || pane.stackId !== targetPane.stackId)) {
       return pane;
     }
 
@@ -344,8 +549,12 @@ export function setWorkspacePaneWidthPreset(
   if (!WORKSPACE_PANE_WIDTH_PRESETS.includes(widthPreset)) {
     return orderedPanes;
   }
+  const targetPane = orderedPanes.find((pane) => pane.paneId === paneId);
+  if (!targetPane) {
+    return orderedPanes;
+  }
   return orderedPanes.map((pane) => {
-    if (pane.paneId !== paneId) {
+    if (pane.paneId !== paneId && (!targetPane.stackId || pane.stackId !== targetPane.stackId)) {
       return pane;
     }
 
@@ -356,6 +565,30 @@ export function setWorkspacePaneWidthPreset(
       size: 1,
     };
   });
+}
+
+export function setWorkspacePaneHeightPreset(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  paneId: string,
+  heightPreset: WorkspaceDockedPaneHeightPreset,
+): PersistedWorkspaceDockedPane[] {
+  const orderedPanes = normalizePaneOrder(panes);
+  const targetPane = orderedPanes.find((pane) => pane.paneId === paneId);
+  if (
+    !targetPane?.stackId ||
+    !WORKSPACE_PANE_HEIGHT_PRESETS.includes(
+      heightPreset as (typeof WORKSPACE_PANE_HEIGHT_PRESETS)[number],
+    )
+  ) {
+    return orderedPanes;
+  }
+  const stackPaneCount = orderedPanes.filter((pane) => pane.stackId === targetPane.stackId).length;
+  if (stackPaneCount !== 2) {
+    return orderedPanes;
+  }
+  return orderedPanes.map((pane) =>
+    pane.stackId === targetPane.stackId ? { ...pane, heightPreset } : pane,
+  );
 }
 
 export function resizeWorkspacePaneHeight(
