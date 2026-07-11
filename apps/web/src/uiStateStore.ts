@@ -31,6 +31,7 @@ export type WorkspaceDockedPaneType = "ai" | "editor" | "terminal";
 export type WorkspaceDockedPaneId = string;
 export type WorkspaceDockedPaneSlot = "primary" | "upper" | "grid";
 export type WorkspaceDockedPaneWidthPreset = "narrow" | "medium" | "large" | "wide";
+export type WorkspaceDockedPaneHeightPreset = "full" | "half" | "top-heavy" | "bottom-heavy";
 
 export interface PersistedWorkspaceDockedPaneBase {
   paneId: WorkspaceDockedPaneId;
@@ -41,6 +42,9 @@ export interface PersistedWorkspaceDockedPaneBase {
   order: number;
   size: number;
   widthPreset?: WorkspaceDockedPaneWidthPreset;
+  heightPreset?: WorkspaceDockedPaneHeightPreset;
+  stackId?: string;
+  stackOrder?: number;
   width?: number;
   height?: number;
   dockSlot?: WorkspaceDockedPaneSlot;
@@ -354,6 +358,14 @@ function sanitizeWorkspacePaneWidthPreset(
     : undefined;
 }
 
+function sanitizeWorkspacePaneHeightPreset(
+  value: unknown,
+): WorkspaceDockedPaneHeightPreset | undefined {
+  return value === "full" || value === "half" || value === "top-heavy" || value === "bottom-heavy"
+    ? value
+    : undefined;
+}
+
 function defaultWorkspacePaneWidthPreset(
   type: WorkspaceDockedPaneType,
 ): WorkspaceDockedPaneWidthPreset {
@@ -370,6 +382,10 @@ function sanitizeWorkspacePaneSlot(value: unknown): WorkspaceDockedPaneSlot | un
 
 function sanitizeWorkspacePaneCoordinate(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+function sanitizeWorkspacePaneStackOrder(value: unknown, fallbackOrder: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallbackOrder;
 }
 
 function sanitizeOptionalString(value: unknown): string | null {
@@ -445,6 +461,8 @@ function sanitizeWorkspaceDockedPane(
   const dockY = sanitizeWorkspacePaneCoordinate(pane.dockY);
   const height = sanitizeWorkspacePaneHeight(pane.height);
   const width = sanitizeWorkspacePaneWidth(pane.width);
+  const stackId = sanitizeWorkspacePaneTitle(pane.stackId);
+  const heightPreset = sanitizeWorkspacePaneHeightPreset(pane.heightPreset);
   const base = {
     paneId,
     type,
@@ -455,6 +473,10 @@ function sanitizeWorkspaceDockedPane(
     size: sanitizeWorkspacePaneSize(pane.size),
     widthPreset:
       sanitizeWorkspacePaneWidthPreset(pane.widthPreset) ?? defaultWorkspacePaneWidthPreset(type),
+    ...(heightPreset ? { heightPreset } : {}),
+    ...(stackId
+      ? { stackId, stackOrder: sanitizeWorkspacePaneStackOrder(pane.stackOrder, fallbackOrder) }
+      : {}),
     ...(width !== undefined ? { width } : {}),
     ...(height !== undefined ? { height } : {}),
     ...(dockSlot ? { dockSlot } : {}),
@@ -467,13 +489,80 @@ function sanitizeWorkspaceDockedPane(
   return { ...base, metadata } as PersistedWorkspaceDockedPane;
 }
 
+function sanitizeWorkspacePaneStackMembership(
+  panes: readonly PersistedWorkspaceDockedPane[],
+): PersistedWorkspaceDockedPane[] {
+  const orderedPanes = panes.toSorted((left, right) => {
+    const byOrder = left.order - right.order;
+    return byOrder !== 0 ? byOrder : left.paneId.localeCompare(right.paneId);
+  });
+  const panesByStackId = new Map<string, PersistedWorkspaceDockedPane[]>();
+  for (const pane of orderedPanes) {
+    if (!pane.stackId) {
+      continue;
+    }
+    const stack = panesByStackId.get(pane.stackId);
+    if (stack) {
+      stack.push(pane);
+    } else {
+      panesByStackId.set(pane.stackId, [pane]);
+    }
+  }
+  const retainedStackPaneIds = new Set<string>();
+  const retainedStackByPaneId = new Map<
+    string,
+    { heightPreset?: WorkspaceDockedPaneHeightPreset; stackId: string; stackOrder: number }
+  >();
+
+  for (const [stackId, stackPanes] of panesByStackId) {
+    const orderedStackPanes = stackPanes.toSorted((left, right) => {
+      const byStackOrder = (left.stackOrder ?? left.order) - (right.stackOrder ?? right.order);
+      return byStackOrder !== 0 ? byStackOrder : left.paneId.localeCompare(right.paneId);
+    });
+    if (orderedStackPanes.length < 2) {
+      continue;
+    }
+    const retainedPanes = orderedStackPanes.slice(0, 3);
+    const heightPreset =
+      retainedPanes.length === 2
+        ? (retainedPanes.find((pane) => pane.heightPreset && pane.heightPreset !== "full")
+            ?.heightPreset ?? "half")
+        : undefined;
+    retainedPanes.forEach((pane, stackOrder) => {
+      retainedStackPaneIds.add(pane.paneId);
+      retainedStackByPaneId.set(pane.paneId, {
+        ...(heightPreset ? { heightPreset } : {}),
+        stackId,
+        stackOrder,
+      });
+    });
+  }
+
+  return orderedPanes.map((pane) => {
+    const retainedStack = retainedStackByPaneId.get(pane.paneId);
+    const {
+      heightPreset: _heightPreset,
+      stackId: _stackId,
+      stackOrder: _stackOrder,
+      ...paneWithoutStack
+    } = pane;
+    if (!retainedStackPaneIds.has(pane.paneId) || !retainedStack) {
+      return paneWithoutStack as PersistedWorkspaceDockedPane;
+    }
+    return {
+      ...paneWithoutStack,
+      ...retainedStack,
+    } as PersistedWorkspaceDockedPane;
+  });
+}
+
 export function sanitizeWorkspaceDockedPanes(value: unknown): PersistedWorkspaceDockedPane[] {
   if (!Array.isArray(value)) {
     return [];
   }
 
   const seenPaneIds = new Set<string>();
-  return value
+  const panes = value
     .flatMap((pane, index) => {
       const sanitizedPane = sanitizeWorkspaceDockedPane(pane, index);
       if (sanitizedPane === null || seenPaneIds.has(sanitizedPane.paneId)) {
@@ -486,6 +575,7 @@ export function sanitizeWorkspaceDockedPanes(value: unknown): PersistedWorkspace
       const byOrder = left.order - right.order;
       return byOrder !== 0 ? byOrder : left.paneId.localeCompare(right.paneId);
     });
+  return sanitizeWorkspacePaneStackMembership(panes);
 }
 
 function sanitizeWorkspacePaneTitleOverrides(value: unknown): Record<string, string> {
@@ -1154,6 +1244,9 @@ function workspaceDockedPaneEqual(
     left.order === right.order &&
     left.size === right.size &&
     left.widthPreset === right.widthPreset &&
+    left.heightPreset === right.heightPreset &&
+    left.stackId === right.stackId &&
+    left.stackOrder === right.stackOrder &&
     left.width === right.width &&
     left.height === right.height &&
     left.dockSlot === right.dockSlot &&

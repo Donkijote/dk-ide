@@ -1,4 +1,8 @@
-import { MIN_WORKSPACE_PANE_HEIGHT, type WorkspacePaneDropDirection } from "~/workspacePaneLayout";
+import {
+  MIN_WORKSPACE_PANE_HEIGHT,
+  type WorkspacePaneDropDirection,
+  workspacePaneColumns,
+} from "~/workspacePaneLayout";
 import type { PersistedWorkspaceDockedPane } from "~/uiStateStore";
 
 interface WorkspacePanePoint {
@@ -42,15 +46,10 @@ export function workspacePaneDropDirection({
   return horizontalOffset < 0 ? "before" : "after";
 }
 
-export type WorkspacePaneFocusNavigation = "previous" | "next" | "first" | "last";
+export type WorkspacePaneFocusNavigation = "previous" | "next" | "first" | "last" | "up" | "down";
 
-function orderedWorkspacePaneIds(panes: readonly PersistedWorkspaceDockedPane[]): string[] {
-  return panes
-    .toSorted((left, right) => {
-      const byOrder = left.order - right.order;
-      return byOrder !== 0 ? byOrder : left.paneId.localeCompare(right.paneId);
-    })
-    .map((pane) => pane.paneId);
+function orderedWorkspacePaneColumns(panes: readonly PersistedWorkspaceDockedPane[]) {
+  return workspacePaneColumns(panes);
 }
 
 export function workspacePaneKeyboardFocusTarget(
@@ -58,7 +57,8 @@ export function workspacePaneKeyboardFocusTarget(
   activePaneId: string | null | undefined,
   navigation: WorkspacePaneFocusNavigation,
 ): string | null {
-  const paneIds = orderedWorkspacePaneIds(panes);
+  const columns = orderedWorkspacePaneColumns(panes);
+  const paneIds = columns.flatMap((column) => column.panes.map((pane) => pane.paneId));
   if (paneIds.length === 0) {
     return null;
   }
@@ -71,9 +71,42 @@ export function workspacePaneKeyboardFocusTarget(
   }
 
   const activeIndex = activePaneId ? paneIds.indexOf(activePaneId) : -1;
+  const activeColumnIndex = activePaneId
+    ? columns.findIndex((column) => column.panes.some((pane) => pane.paneId === activePaneId))
+    : -1;
+  const activeColumn =
+    activeColumnIndex >= 0 && activeColumnIndex < columns.length
+      ? columns[activeColumnIndex]
+      : null;
+  const activeStackIndex =
+    activeColumn?.panes.findIndex((pane) => pane.paneId === activePaneId) ?? -1;
+
+  if ((navigation === "up" || navigation === "down") && activeColumn) {
+    const nextStackIndex =
+      navigation === "up"
+        ? Math.max(activeStackIndex - 1, 0)
+        : Math.min(activeStackIndex + 1, activeColumn.panes.length - 1);
+    return activeColumn.panes[nextStackIndex]?.paneId ?? activePaneId ?? null;
+  }
+
+  if ((navigation === "up" || navigation === "down") && !activeColumn) {
+    return paneIds[navigation === "down" ? 0 : paneIds.length - 1] ?? null;
+  }
+
   const fallbackIndex = navigation === "next" ? 0 : paneIds.length - 1;
   if (activeIndex < 0) {
     return paneIds[fallbackIndex] ?? null;
+  }
+
+  if (activeColumn && (navigation === "next" || navigation === "previous")) {
+    const nextColumnIndex =
+      navigation === "next"
+        ? Math.min(activeColumnIndex + 1, columns.length - 1)
+        : Math.max(activeColumnIndex - 1, 0);
+    const nextColumn = columns[nextColumnIndex];
+    return (
+      nextColumn?.panes[Math.min(activeStackIndex, nextColumn.panes.length - 1)]?.paneId ?? null
+    );
   }
 
   const nextIndex =

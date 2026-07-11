@@ -13,8 +13,11 @@ import {
   reorderWorkspacePanes,
   resizeWorkspacePaneHeight,
   resizeWorkspacePaneWidth,
+  setWorkspacePaneHeightPreset,
   setWorkspacePaneWidthPreset,
+  workspacePaneColumns,
   workspacePaneDefaultWidth,
+  workspacePaneHeightPreset,
   workspacePaneHeight,
   workspacePaneRects,
   workspacePaneWidth,
@@ -78,15 +81,68 @@ describe("workspace pane layout", () => {
     expect(terminal.height).toBe(MIN_WORKSPACE_PANE_HEIGHT);
   });
 
-  it("treats vertical drops as strip insertion instead of rows", () => {
+  it("stacks vertical drops inside the target column", () => {
     const placed = placeWorkspacePane(panes, "terminal", "editor", "below");
     const rects = workspacePaneRects(placed, 1_280);
     const editor = rects.find((rect) => rect.pane.paneId === "editor")!;
     const terminal = rects.find((rect) => rect.pane.paneId === "terminal")!;
 
     expect(placed.map((pane) => pane.paneId)).toEqual(["editor", "terminal", "ai"]);
+    expect(placed.find((pane) => pane.paneId === "editor")).toMatchObject({
+      stackId: "stack:editor",
+      stackOrder: 0,
+      heightPreset: "half",
+    });
+    expect(placed.find((pane) => pane.paneId === "terminal")).toMatchObject({
+      stackId: "stack:editor",
+      stackOrder: 1,
+      heightPreset: "half",
+    });
+    expect(terminal.x).toBeCloseTo(editor.x);
+    expect(terminal.y).toBeGreaterThan(editor.y);
+  });
+
+  it("moves a stacked pane out into a neighboring column on horizontal drop", () => {
+    const stacked = placeWorkspacePane(panes, "terminal", "editor", "below");
+    const movedOut = placeWorkspacePane(stacked, "terminal", "editor", "after");
+    const rects = workspacePaneRects(movedOut, 1_280);
+    const editor = rects.find((rect) => rect.pane.paneId === "editor")!;
+    const terminal = rects.find((rect) => rect.pane.paneId === "terminal")!;
+
+    expect(movedOut.find((pane) => pane.paneId === "terminal")?.stackId).toBeUndefined();
+    expect(movedOut.find((pane) => pane.paneId === "editor")?.stackId).toBeUndefined();
     expect(terminal.x).toBeCloseTo(editor.x + editor.width + WORKSPACE_PANE_GAP);
     expect(terminal.y).toBe(0);
+  });
+
+  it("caps stacked columns at three panes and falls back to neighboring insertion", () => {
+    const fourthPane: PersistedWorkspaceDockedPane = {
+      ...panes[0]!,
+      paneId: "ai:second",
+      type: "ai",
+      title: "Second AI",
+      order: 3,
+      metadata: { threadId: "thread-2" },
+    };
+    const twoStack = placeWorkspacePane(panes, "terminal", "editor", "below");
+    const threeStack = placeWorkspacePane([...twoStack, fourthPane], "ai", "terminal", "below");
+    const capped = placeWorkspacePane(threeStack, "ai:second", "terminal", "below");
+
+    expect(
+      workspacePaneColumns(threeStack).find((column) => column.panes.length === 3),
+    ).toBeTruthy();
+    expect(capped.find((pane) => pane.paneId === "ai:second")?.stackId).toBeUndefined();
+  });
+
+  it("supports two-pane stack height presets", () => {
+    const stacked = placeWorkspacePane(panes, "terminal", "editor", "below");
+    const dominantTop = setWorkspacePaneHeightPreset(stacked, "editor", "top-heavy");
+    const rects = workspacePaneRects(dominantTop, 1_280);
+    const editor = rects.find((rect) => rect.pane.paneId === "editor")!;
+    const terminal = rects.find((rect) => rect.pane.paneId === "terminal")!;
+
+    expect(workspacePaneHeightPreset([dominantTop[0]!, dominantTop[1]!])).toBe("top-heavy");
+    expect(editor.height).toBeGreaterThan(terminal.height);
   });
 
   it("places a horizontal drop directly beside the target", () => {

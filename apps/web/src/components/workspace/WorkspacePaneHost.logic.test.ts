@@ -100,6 +100,33 @@ describe("workspacePaneKeyboardFocusTarget", () => {
     expect(workspacePaneKeyboardFocusTarget(panes, "missing", "last")).toBe("terminal");
     expect(workspacePaneKeyboardFocusTarget([], "missing", "next")).toBeNull();
   });
+
+  it("moves vertically within a stacked column and horizontally across columns", () => {
+    const stackedPanes: PersistedWorkspaceDockedPane[] = [
+      {
+        ...panes[0]!,
+        stackId: "stack:editor",
+        stackOrder: 0,
+        heightPreset: "half",
+      },
+      {
+        ...panes[2]!,
+        order: 1,
+        stackId: "stack:editor",
+        stackOrder: 1,
+        heightPreset: "half",
+      },
+      {
+        ...panes[1]!,
+        order: 2,
+      },
+    ];
+
+    expect(workspacePaneKeyboardFocusTarget(stackedPanes, "editor", "down")).toBe("terminal");
+    expect(workspacePaneKeyboardFocusTarget(stackedPanes, "terminal", "up")).toBe("editor");
+    expect(workspacePaneKeyboardFocusTarget(stackedPanes, "terminal", "next")).toBe("ai");
+    expect(workspacePaneKeyboardFocusTarget(stackedPanes, "ai", "previous")).toBe("editor");
+  });
 });
 
 describe("workspacePaneScrollTarget", () => {
