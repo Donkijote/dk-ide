@@ -916,6 +916,19 @@ function workspacePaneWidthPresetIcon(widthPreset: WorkspaceDockedPaneWidthPrese
   }
 }
 
+function workspacePaneWidthPresetLabel(widthPreset: WorkspaceDockedPaneWidthPreset): string {
+  switch (widthPreset) {
+    case "narrow":
+      return "Small";
+    case "wide":
+      return "Full";
+    case "medium":
+      return "Medium";
+    case "large":
+      return "Large";
+  }
+}
+
 type AiPaneDraftOrigin = {
   threadRef: ScopedThreadRef;
   title: string;
@@ -5242,7 +5255,7 @@ export default function ChatView(props: ChatViewProps) {
     const isPaneActive = activeWorkspaceDockedPaneId === pane.paneId;
     const renderPaneWidthPresetControl = () => {
       const currentPreset = workspacePaneWidthPreset(pane);
-      const presetLabel = currentPreset[0]!.toUpperCase() + currentPreset.slice(1);
+      const presetLabel = workspacePaneWidthPresetLabel(currentPreset);
       const CurrentPresetIcon = workspacePaneWidthPresetIcon(currentPreset);
       return (
         <Popover>
@@ -5265,7 +5278,7 @@ export default function ChatView(props: ChatViewProps) {
           >
             <div className="grid grid-cols-4 gap-0.5" aria-label={`${paneTitle} width presets`}>
               {WORKSPACE_PANE_WIDTH_PRESETS.map((widthPreset) => {
-                const label = widthPreset[0]!.toUpperCase() + widthPreset.slice(1);
+                const label = workspacePaneWidthPresetLabel(widthPreset);
                 const isSelected = widthPreset === currentPreset;
                 const PresetIcon = workspacePaneWidthPresetIcon(widthPreset);
                 return (

@@ -1,4 +1,4 @@
-import type { WorkspacePaneDropDirection } from "~/workspacePaneLayout";
+import { MIN_WORKSPACE_PANE_HEIGHT, type WorkspacePaneDropDirection } from "~/workspacePaneLayout";
 import type { PersistedWorkspaceDockedPane } from "~/uiStateStore";
 
 interface WorkspacePanePoint {
@@ -106,4 +106,19 @@ export function workspacePaneScrollTarget({
   }
   const centeredLeft = paneLeft - (viewportWidth - paneWidth) / 2;
   return Math.max(0, centeredLeft);
+}
+
+export function workspacePaneHostLayoutSize(input: {
+  readonly clientWidth: number;
+  readonly clientHeight: number;
+  readonly horizontalInset?: number;
+}): { readonly width: number; readonly height: number } {
+  const horizontalInset =
+    typeof input.horizontalInset === "number" && Number.isFinite(input.horizontalInset)
+      ? input.horizontalInset
+      : 0;
+  return {
+    width: Math.max(1, Math.round(input.clientWidth - horizontalInset)),
+    height: Math.max(MIN_WORKSPACE_PANE_HEIGHT, Math.round(input.clientHeight - 32)),
+  };
 }

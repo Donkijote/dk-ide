@@ -2687,7 +2687,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const ai = getWorkspacePane("ai").getBoundingClientRect();
       const firstTerminal = getWorkspacePane("terminal").getBoundingClientRect();
       const secondTerminal = getWorkspacePane("terminal:upper-2").getBoundingClientRect();
-      const rightAiDivider = getWorkspaceDividerRect("Resize AI pane", "horizontal");
+      const rightAiDivider = getWorkspaceDividerRect("Adjust AI pane width preset", "horizontal");
 
       expect(firstTerminal.left).toBeGreaterThan(ai.right);
       expect(firstTerminal.left - ai.right).toBeCloseTo(ai.left - editor.right, 1);

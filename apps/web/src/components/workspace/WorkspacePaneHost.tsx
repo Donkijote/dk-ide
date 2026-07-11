@@ -39,6 +39,7 @@ import {
 import { cn } from "~/lib/utils";
 import {
   workspacePaneDropDirection,
+  workspacePaneHostLayoutSize,
   workspacePaneKeyboardFocusTarget,
   workspacePaneScrollTarget,
 } from "./WorkspacePaneHost.logic";
@@ -147,6 +148,7 @@ export function WorkspacePaneHost({
   terminalRowHeight,
 }: WorkspacePaneHostProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const stripPaddingRef = useRef<HTMLDivElement>(null);
   const horizontalResizeStateRef = useRef<{
     pointerId: number;
     paneId: string;
@@ -198,10 +200,37 @@ export function WorkspacePaneHost({
     if (!host) {
       return;
     }
-    if (host.clientWidth > 0) {
-      setLayoutWidth(host.clientWidth);
+
+    const updateLayoutSize = () => {
+      const stripPadding = stripPaddingRef.current;
+      const stripPaddingStyle =
+        stripPadding && typeof window !== "undefined"
+          ? window.getComputedStyle(stripPadding)
+          : null;
+      const horizontalInset =
+        (Number.parseFloat(stripPaddingStyle?.paddingLeft ?? "0") || 0) +
+        (Number.parseFloat(stripPaddingStyle?.paddingRight ?? "0") || 0);
+      const nextSize = workspacePaneHostLayoutSize({
+        clientWidth: host.clientWidth,
+        clientHeight: host.clientHeight,
+        horizontalInset,
+      });
+      setLayoutWidth((currentWidth) => {
+        return currentWidth === nextSize.width ? currentWidth : nextSize.width;
+      });
+      setLayoutHeight((currentHeight) => {
+        return currentHeight === nextSize.height ? currentHeight : nextSize.height;
+      });
+    };
+
+    updateLayoutSize();
+    if (typeof ResizeObserver === "undefined") {
+      return;
     }
-    setLayoutHeight(Math.max(MIN_WORKSPACE_PANE_HEIGHT, host.clientHeight - 32));
+
+    const resizeObserver = new ResizeObserver(updateLayoutSize);
+    resizeObserver.observe(host);
+    return () => resizeObserver.disconnect();
   }, []);
 
   useEffect(() => {
@@ -457,7 +486,7 @@ export function WorkspacePaneHost({
         onDragStart={handleDragStart}
       >
         <SortableContext items={paneIds} strategy={horizontalListSortingStrategy}>
-          <div className="w-max p-3 sm:p-4">
+          <div ref={stripPaddingRef} className="w-max p-3 sm:p-4">
             <div
               className="relative"
               style={{ width: `${contentWidth}px`, height: `${contentHeight}px` }}
@@ -480,7 +509,7 @@ export function WorkspacePaneHost({
                 >
                   <SortableWorkspacePane pane={pane}>{renderPane(pane)}</SortableWorkspacePane>
                   <HorizontalResizeHandle
-                    label={`Resize ${pane.title} pane`}
+                    label={`Adjust ${pane.title} pane width preset`}
                     onPointerDown={(event) => handleHorizontalResizePointerDown(event, pane)}
                     onPointerMove={handleHorizontalResizePointerMove}
                     onPointerUp={finishHorizontalResize}
@@ -520,10 +549,7 @@ function HorizontalResizeHandle({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      <div
-        className="mx-auto h-full w-px bg-border/60 transition-colors hover:bg-ring/70"
-        data-workspace-resize-divider="horizontal"
-      />
+      <div className="mx-auto h-full w-px opacity-0" data-workspace-resize-divider="horizontal" />
     </div>
   );
 }

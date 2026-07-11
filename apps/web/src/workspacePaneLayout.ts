@@ -13,6 +13,12 @@ const MAX_WORKSPACE_PANE_WIDTH = 1_400;
 const MAX_WORKSPACE_PANE_HEIGHT = 4_000;
 const MIN_CUSTOM_WORKSPACE_PANE_WIDTH = 280;
 export const WORKSPACE_PANE_WIDTH_PRESETS = ["narrow", "medium", "large", "wide"] as const;
+const WORKSPACE_PANE_WIDTH_PRESET_RATIOS: Record<WorkspaceDockedPaneWidthPreset, number> = {
+  narrow: 0.25,
+  medium: 0.5,
+  large: 0.75,
+  wide: 1,
+};
 
 export type WorkspacePaneDropDirection = "above" | "below" | "before" | "after" | "swap";
 
@@ -62,17 +68,38 @@ export function workspacePaneDefaultWidth(
   hostWidth: number,
 ): number {
   const safeHostWidth = Number.isFinite(hostWidth) && hostWidth > 0 ? hostWidth : 1_280;
-  switch (workspacePaneWidthPreset(pane)) {
-    case "narrow":
-      return clamp(safeHostWidth * 0.24, 280, 420);
-    case "medium":
-      return clamp(safeHostWidth * 0.38, 384, 680);
-    case "wide":
-      return clamp(safeHostWidth * 0.82, 760, MAX_WORKSPACE_PANE_WIDTH);
-    case "large":
-    default:
-      return clamp(safeHostWidth * 0.56, 560, 960);
+  return safeHostWidth * WORKSPACE_PANE_WIDTH_PRESET_RATIOS[workspacePaneWidthPreset(pane)];
+}
+
+export function workspacePaneWidthPresetForWidth(
+  pane: Pick<PersistedWorkspaceDockedPane, "paneId"> & {
+    readonly type?: WorkspaceDockedPaneType;
+  },
+  width: number,
+  hostWidth: number,
+): WorkspaceDockedPaneWidthPreset {
+  if (!Number.isFinite(width)) {
+    return workspacePaneWidthPreset(pane);
   }
+
+  const safeHostWidth = Number.isFinite(hostWidth) && hostWidth > 0 ? hostWidth : 1_280;
+  const targetWidth = clamp(width, 0, safeHostWidth);
+  return WORKSPACE_PANE_WIDTH_PRESETS.reduce<WorkspaceDockedPaneWidthPreset>(
+    (closestPreset, candidatePreset) => {
+      const closestWidth = workspacePaneDefaultWidth(
+        { ...pane, widthPreset: closestPreset },
+        hostWidth,
+      );
+      const candidateWidth = workspacePaneDefaultWidth(
+        { ...pane, widthPreset: candidatePreset },
+        hostWidth,
+      );
+      return Math.abs(candidateWidth - targetWidth) < Math.abs(closestWidth - targetWidth)
+        ? candidatePreset
+        : closestPreset;
+    },
+    workspacePaneWidthPreset(pane),
+  );
 }
 
 export function workspacePaneWidth(
@@ -87,8 +114,7 @@ export function workspacePaneWidth(
     return clamp(pane.width, MIN_CUSTOM_WORKSPACE_PANE_WIDTH, MAX_WORKSPACE_PANE_WIDTH);
   }
   const defaultWidth = workspacePaneDefaultWidth(pane, hostWidth);
-  const size = Number.isFinite(pane.size) && pane.size > 0 ? pane.size : 1;
-  return clamp(defaultWidth * size, defaultWidth, MAX_WORKSPACE_PANE_WIDTH);
+  return defaultWidth;
 }
 
 export function workspaceTerminalRowHeight(height: number): number {
@@ -264,15 +290,18 @@ export function resizeWorkspacePaneWidth(
   if (!Number.isFinite(width)) {
     return normalizePaneOrder(panes);
   }
-  return normalizePaneOrder(panes).map((pane) =>
-    pane.paneId === paneId
-      ? {
-          ...pane,
-          width: clamp(width, MIN_CUSTOM_WORKSPACE_PANE_WIDTH, MAX_WORKSPACE_PANE_WIDTH),
-          size: 1,
-        }
-      : pane,
-  );
+  return normalizePaneOrder(panes).map((pane) => {
+    if (pane.paneId !== paneId) {
+      return pane;
+    }
+
+    const { width: _width, ...paneWithoutCustomWidth } = pane;
+    return {
+      ...paneWithoutCustomWidth,
+      widthPreset: workspacePaneWidthPresetForWidth(pane, width, _hostWidth),
+      size: 1,
+    };
+  });
 }
 
 export function cycleWorkspacePaneWidthPreset(
