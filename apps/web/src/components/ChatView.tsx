@@ -5433,7 +5433,14 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      const activePaneId = activeWorkspaceDockedPaneId ?? renderedWorkspaceDockedPanes[0]?.paneId;
+      const currentActivePaneId =
+        useUiStateStore.getState().workspaceThreadLayoutById[workspaceLayoutKey]?.activePaneId ??
+        activeWorkspaceDockedPaneId;
+      const activePaneId =
+        currentActivePaneId &&
+        renderedWorkspaceDockedPanes.some((pane) => pane.paneId === currentActivePaneId)
+          ? currentActivePaneId
+          : renderedWorkspaceDockedPanes[0]?.paneId;
       if (!activePaneId) {
         return;
       }
