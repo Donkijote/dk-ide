@@ -82,6 +82,18 @@ it.effect("parses keybinding rules", () =>
       command: "thread.previous",
     });
     assert.strictEqual(parsedThreadPrevious.command, "thread.previous");
+
+    const parsedWorkspacePaneMove = yield* decode(KeybindingRule, {
+      key: "mod+alt+arrowleft",
+      command: "workspacePane.moveLeft",
+    });
+    assert.strictEqual(parsedWorkspacePaneMove.command, "workspacePane.moveLeft");
+
+    const parsedWorkspacePaneStack = yield* decode(KeybindingRule, {
+      key: "mod+alt+shift+arrowdown",
+      command: "workspacePane.stackBelow",
+    });
+    assert.strictEqual(parsedWorkspacePaneStack.command, "workspacePane.stackBelow");
   }),
 );
 

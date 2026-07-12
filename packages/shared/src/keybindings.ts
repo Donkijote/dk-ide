@@ -40,6 +40,36 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
   { key: "mod+shift+m", command: "modelPicker.toggle", when: "!terminalFocus" },
   { key: "mod+o", command: "editor.openFavorite" },
+  {
+    key: "mod+alt+arrowleft",
+    command: "workspacePane.moveLeft",
+    when: "!terminalFocus && !textInputFocus",
+  },
+  {
+    key: "mod+alt+arrowright",
+    command: "workspacePane.moveRight",
+    when: "!terminalFocus && !textInputFocus",
+  },
+  {
+    key: "mod+alt+arrowup",
+    command: "workspacePane.moveUp",
+    when: "!terminalFocus && !textInputFocus",
+  },
+  {
+    key: "mod+alt+arrowdown",
+    command: "workspacePane.moveDown",
+    when: "!terminalFocus && !textInputFocus",
+  },
+  {
+    key: "mod+alt+shift+arrowup",
+    command: "workspacePane.stackAbove",
+    when: "!terminalFocus && !textInputFocus",
+  },
+  {
+    key: "mod+alt+shift+arrowdown",
+    command: "workspacePane.stackBelow",
+    when: "!terminalFocus && !textInputFocus",
+  },
   { key: "mod+shift+[", command: "thread.previous" },
   { key: "mod+shift+]", command: "thread.next" },
   ...THREAD_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({

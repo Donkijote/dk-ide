@@ -245,10 +245,12 @@ import { retainThreadDetailSubscription } from "../environments/runtime/service"
 import { RightPanelSheet } from "./RightPanelSheet";
 import {
   mergeVisibleWorkspacePaneUpdates,
+  moveWorkspacePaneByKeyboard,
   setWorkspacePaneHeightPreset,
   setWorkspacePaneWidthPreset,
   WORKSPACE_PANE_HEIGHT_PRESETS,
   WORKSPACE_PANE_WIDTH_PRESETS,
+  type WorkspacePaneKeyboardMove,
   workspacePaneColumns,
   workspacePaneHeightPreset,
   workspacePaneWidthPreset,
@@ -301,6 +303,44 @@ const EMPTY_WORKSPACE_EDITOR_OPEN_PATHS: readonly string[] = [];
 const EMPTY_TERMINAL_RUNTIME_ENV: Record<string, string> = {};
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+const WORKSPACE_PANE_KEYBOARD_MOVE_BY_COMMAND: Partial<
+  Record<KeybindingCommand, WorkspacePaneKeyboardMove>
+> = {
+  "workspacePane.moveLeft": "left",
+  "workspacePane.moveRight": "right",
+  "workspacePane.moveUp": "up",
+  "workspacePane.moveDown": "down",
+  "workspacePane.stackAbove": "stack-above",
+  "workspacePane.stackBelow": "stack-below",
+};
+
+function workspacePaneKeyboardMoveFromCommand(
+  command: KeybindingCommand,
+): WorkspacePaneKeyboardMove | null {
+  return WORKSPACE_PANE_KEYBOARD_MOVE_BY_COMMAND[command] ?? null;
+}
+
+function isTextInputFocused(): boolean {
+  const activeElement = document.activeElement;
+  if (!(activeElement instanceof HTMLElement) || !activeElement.isConnected) {
+    return false;
+  }
+  if (activeElement.isContentEditable) {
+    return true;
+  }
+  if (
+    activeElement instanceof HTMLInputElement ||
+    activeElement instanceof HTMLTextAreaElement ||
+    activeElement instanceof HTMLSelectElement
+  ) {
+    return true;
+  }
+  return (
+    activeElement.closest(
+      "[contenteditable='true'], [role='textbox'], .monaco-editor, .cm-editor",
+    ) !== null
+  );
+}
 
 function resolvePaneDefaultTitle(
   type: WorkspaceDockedPaneType,
@@ -4020,6 +4060,7 @@ export default function ChatView(props: ChatViewProps) {
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
         terminalOpen: Boolean(terminalState.terminalOpen),
+        textInputFocus: isTextInputFocused(),
         modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
       };
 
@@ -5341,6 +5382,58 @@ export default function ChatView(props: ChatViewProps) {
     },
     [renderedWorkspaceDockedPanes, storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
   );
+  useEffect(() => {
+    const handler = (event: globalThis.KeyboardEvent) => {
+      if (!activeThreadId || useCommandPaletteStore.getState().open || event.defaultPrevented) {
+        return;
+      }
+
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          terminalFocus: isTerminalFocused(),
+          terminalOpen: Boolean(terminalState.terminalOpen),
+          textInputFocus: isTextInputFocused(),
+          modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
+        },
+      });
+      if (!command) {
+        return;
+      }
+
+      const move = workspacePaneKeyboardMoveFromCommand(command);
+      if (!move) {
+        return;
+      }
+
+      const activePaneId = activeWorkspaceDockedPaneId ?? renderedWorkspaceDockedPanes[0]?.paneId;
+      if (!activePaneId) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      const movedPanes = moveWorkspacePaneByKeyboard(
+        renderedWorkspaceDockedPanes,
+        activePaneId,
+        move,
+      );
+      storeSetWorkspaceThreadDockedPanes(
+        workspaceLayoutKey,
+        mergeVisibleWorkspacePaneUpdates(renderedWorkspaceDockedPanes, movedPanes),
+        activePaneId,
+      );
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [
+    activeThreadId,
+    activeWorkspaceDockedPaneId,
+    keybindings,
+    renderedWorkspaceDockedPanes,
+    storeSetWorkspaceThreadDockedPanes,
+    terminalState.terminalOpen,
+    workspaceLayoutKey,
+  ]);
   const setWorkspacePaneWidth = useCallback(
     (paneId: string, widthPreset: WorkspaceDockedPaneWidthPreset) => {
       storeSetWorkspaceThreadDockedPanes(

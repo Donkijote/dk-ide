@@ -66,6 +66,12 @@ const STATIC_KEYBINDING_COMMANDS = [
   "chat.new",
   "chat.newLocal",
   "editor.openFavorite",
+  "workspacePane.moveLeft",
+  "workspacePane.moveRight",
+  "workspacePane.moveUp",
+  "workspacePane.moveDown",
+  "workspacePane.stackAbove",
+  "workspacePane.stackBelow",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
 ] as const;

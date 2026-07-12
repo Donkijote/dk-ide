@@ -32,6 +32,13 @@ const TWO_PANE_HEIGHT_PRESET_RATIOS: Record<
 };
 
 export type WorkspacePaneDropDirection = "above" | "below" | "before" | "after" | "swap";
+export type WorkspacePaneKeyboardMove =
+  | "left"
+  | "right"
+  | "up"
+  | "down"
+  | "stack-above"
+  | "stack-below";
 
 export interface WorkspacePanePlacement {
   readonly slot: WorkspaceDockedPaneSlot;
@@ -471,6 +478,147 @@ export function placeWorkspacePane(
     workspacePaneWithoutStackFields(activePane),
   );
   return normalizePaneOrder(reordered);
+}
+
+function findWorkspacePaneColumnLocation(
+  columns: readonly WorkspacePaneColumn[],
+  paneId: string,
+): { columnIndex: number; rowIndex: number; column: WorkspacePaneColumn } | null {
+  for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+    const column = columns[columnIndex];
+    if (!column) {
+      continue;
+    }
+    const rowIndex = column.panes.findIndex((pane) => pane.paneId === paneId);
+    if (rowIndex >= 0) {
+      return { columnIndex, rowIndex, column };
+    }
+  }
+  return null;
+}
+
+function workspacePaneColumnTarget(
+  column: WorkspacePaneColumn,
+  preferredRowIndex: number,
+): PersistedWorkspaceDockedPane | null {
+  return column.panes[Math.min(preferredRowIndex, column.panes.length - 1)] ?? null;
+}
+
+function flattenWorkspacePaneColumns(
+  columns: readonly (readonly PersistedWorkspaceDockedPane[])[],
+): PersistedWorkspaceDockedPane[] {
+  let order = 0;
+  return normalizePaneOrder(
+    columns.flatMap((column) =>
+      column.map((pane) => ({
+        ...pane,
+        order: order++,
+      })),
+    ),
+  );
+}
+
+export function moveWorkspacePaneByKeyboard(
+  panes: readonly PersistedWorkspaceDockedPane[],
+  activePaneId: string | null | undefined,
+  move: WorkspacePaneKeyboardMove,
+): PersistedWorkspaceDockedPane[] {
+  const orderedPanes = normalizePaneOrder(panes);
+  if (!activePaneId) {
+    return orderedPanes;
+  }
+
+  const columns = workspacePaneColumns(orderedPanes);
+  const activeLocation = findWorkspacePaneColumnLocation(columns, activePaneId);
+  if (!activeLocation) {
+    return orderedPanes;
+  }
+
+  if (move === "left" || move === "right") {
+    const targetColumnIndex =
+      move === "left" ? activeLocation.columnIndex - 1 : activeLocation.columnIndex + 1;
+    const targetColumn = columns[targetColumnIndex];
+    if (!targetColumn) {
+      return orderedPanes;
+    }
+    const activePane = activeLocation.column.panes[activeLocation.rowIndex];
+    if (!activePane) {
+      return orderedPanes;
+    }
+
+    const nextColumns = columns
+      .map((column) =>
+        column.column === activeLocation.column.column
+          ? column.panes.filter((pane) => pane.paneId !== activePaneId)
+          : [...column.panes],
+      )
+      .filter((column) => column.length > 0);
+    const activeColumn = [workspacePaneWithoutStackFields(activePane)];
+    if (activeLocation.column.panes.length > 1) {
+      const sourceColumnIndex = nextColumns.findIndex((column) =>
+        column.some((pane) => pane.stackId === activeLocation.column.panes[0]?.stackId),
+      );
+      const fallbackSourceIndex = Math.min(activeLocation.columnIndex, nextColumns.length);
+      nextColumns.splice(
+        move === "left"
+          ? Math.max(0, sourceColumnIndex >= 0 ? sourceColumnIndex : fallbackSourceIndex)
+          : Math.min(
+              nextColumns.length,
+              (sourceColumnIndex >= 0 ? sourceColumnIndex : fallbackSourceIndex) + 1,
+            ),
+        0,
+        activeColumn,
+      );
+      return flattenWorkspacePaneColumns(nextColumns);
+    }
+
+    const targetIndex = nextColumns.findIndex((column) =>
+      column.some((pane) =>
+        targetColumn.panes.some((targetPane) => targetPane.paneId === pane.paneId),
+      ),
+    );
+    if (targetIndex < 0) {
+      return orderedPanes;
+    }
+    nextColumns.splice(targetIndex + (move === "right" ? 1 : 0), 0, activeColumn);
+    return flattenWorkspacePaneColumns(nextColumns);
+  }
+
+  if (move === "up" || move === "down") {
+    if (activeLocation.column.panes.length < 2) {
+      return orderedPanes;
+    }
+    const targetRowIndex =
+      move === "up" ? activeLocation.rowIndex - 1 : activeLocation.rowIndex + 1;
+    const targetPane = activeLocation.column.panes[targetRowIndex];
+    if (!targetPane) {
+      return orderedPanes;
+    }
+    return placeWorkspacePane(
+      orderedPanes,
+      activePaneId,
+      targetPane.paneId,
+      move === "up" ? "above" : "below",
+    );
+  }
+
+  const targetColumnIndex =
+    activeLocation.columnIndex < columns.length - 1
+      ? activeLocation.columnIndex + 1
+      : activeLocation.columnIndex - 1;
+  const targetColumn = columns[targetColumnIndex];
+  if (!targetColumn || targetColumn.panes.length >= MAX_WORKSPACE_PANE_STACK_SIZE) {
+    return orderedPanes;
+  }
+  const targetPane = workspacePaneColumnTarget(targetColumn, activeLocation.rowIndex);
+  return targetPane
+    ? placeWorkspacePane(
+        orderedPanes,
+        activePaneId,
+        targetPane.paneId,
+        move === "stack-above" ? "above" : "below",
+      )
+    : orderedPanes;
 }
 
 export function pushWorkspacePaneCollisions(
