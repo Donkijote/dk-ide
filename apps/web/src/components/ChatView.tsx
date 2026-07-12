@@ -175,6 +175,7 @@ import {
   type ComposerImageAttachment,
   DraftId,
   type DraftThreadEnvMode,
+  finalizePromotedDraftThreadByRef,
   useComposerDraftStore,
 } from "../composerDraftStore";
 import {
@@ -230,6 +231,7 @@ import {
   sanitizeUnavailableWorkspacePaneThreads,
   shouldRemoveTerminalPaneAfterClose,
   shouldWriteThreadErrorToCurrentServerThread,
+  threadHasStarted,
   waitForStartedServerThread,
   workspacePaneLayoutKey,
 } from "./ChatView.logic";
@@ -1615,6 +1617,10 @@ export default function ChatView(props: ChatViewProps) {
         ? store.getDraftSession(draftId)
         : null,
   );
+  const promotedDraftThreadRef = routeKind === "draft" ? (draftThread?.promotedTo ?? null) : null;
+  const promotedServerThread = useStore(
+    useMemo(() => createThreadSelectorByRef(promotedDraftThreadRef), [promotedDraftThreadRef]),
+  );
   const promptRef = useRef("");
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
@@ -2529,6 +2535,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const selectedProvider: ProviderDriverKind = lockedProvider ?? unlockedSelectedProvider;
   const phase = derivePhase(activeThread?.session ?? null);
+  const promotedServerThreadStarted = threadHasStarted(promotedServerThread);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
     () => deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined),
@@ -2629,6 +2636,27 @@ export default function ChatView(props: ChatViewProps) {
       aiPaneDraftOrigins.delete(props.draftId);
     }
   }, [draftThread?.promotedTo, props.draftId]);
+  useEffect(() => {
+    if (
+      routeKind !== "draft" ||
+      !onWorkspaceAiPaneThreadChange ||
+      !draftThread?.promotedTo ||
+      !promotedServerThreadStarted
+    ) {
+      return;
+    }
+    onWorkspaceAiPaneThreadChange(
+      scopedThreadKey(draftThread.promotedTo),
+      promotedServerThread?.title ? { title: promotedServerThread.title } : undefined,
+    );
+    finalizePromotedDraftThreadByRef(draftThread.promotedTo);
+  }, [
+    draftThread?.promotedTo,
+    onWorkspaceAiPaneThreadChange,
+    promotedServerThread?.title,
+    promotedServerThreadStarted,
+    routeKind,
+  ]);
   const canCancelCleanDraftThread = Boolean(
     isLocalDraftThread &&
     activeThread &&
@@ -5938,7 +5966,7 @@ export default function ChatView(props: ChatViewProps) {
       <WorkspacePane
         key={pane.paneId}
         title={activeThread.title}
-        isActive={isPaneActive || embeddedPaneActive}
+        isActive={workspaceMode === "ai-pane" ? embeddedPaneActive : isPaneActive}
         leadingActions={embeddedPaneLeadingActions ?? paneLayoutControls}
         titleActions={aiPaneHeaderActions}
         titleControl={aiPaneTitleControl}
