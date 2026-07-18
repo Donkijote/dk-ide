@@ -278,7 +278,7 @@ import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from "./ui/popove
 import { useSidebar } from "./ui/sidebar";
 import { Toggle } from "./ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { resolveThreadStatusPill } from "./Sidebar.logic";
+import { resolveThreadStatusPill, resolveWorkspaceStatusIndicator } from "./Sidebar.logic";
 import { ThreadStatusLabel } from "./ThreadStatusIndicators";
 import {
   appendBrowsePathSegment,
@@ -2000,6 +2000,28 @@ export default function ChatView(props: ChatViewProps) {
           return left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
         }),
     [activeWorkspaceThreads],
+  );
+  const activeWorkspaceThreadLastVisitedAts = useUiStateStore(
+    useShallow((state) =>
+      activeWorkspaceThreadOptions.map(
+        (thread) =>
+          state.threadLastVisitedAtById[
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))
+          ] ?? null,
+      ),
+    ),
+  );
+  const activeWorkspaceStatus = useMemo(
+    () =>
+      resolveWorkspaceStatusIndicator(
+        activeWorkspaceThreadOptions.map((thread, index) => ({
+          ...thread,
+          ...(activeWorkspaceThreadLastVisitedAts[index] !== null
+            ? { lastVisitedAt: activeWorkspaceThreadLastVisitedAts[index] }
+            : {}),
+        })),
+      ),
+    [activeWorkspaceThreadLastVisitedAts, activeWorkspaceThreadOptions],
   );
   const fallbackWorkspaceThread = useMemo(() => {
     if (activeWorkspaceThreadOptions.length === 0) {
@@ -6261,6 +6283,11 @@ export default function ChatView(props: ChatViewProps) {
                 onNextPane={focusNextWorkspacePane}
                 onPreviousPane={focusPreviousWorkspacePane}
               />
+            ) : null
+          }
+          workspaceStatus={
+            activeWorkspaceStatus ? (
+              <ThreadStatusLabel status={activeWorkspaceStatus} compact />
             ) : null
           }
           workspaceName={workspaceName}

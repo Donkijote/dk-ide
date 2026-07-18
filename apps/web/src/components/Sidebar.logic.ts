@@ -47,7 +47,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Completed: 1,
 };
 
-type ThreadStatusInput = Pick<
+export type ThreadStatusInput = Pick<
   SidebarThreadSummary,
   | "hasActionableProposedPlan"
   | "hasPendingApprovals"
@@ -421,6 +421,18 @@ export function resolveProjectStatusIndicator(
   }
 
   return highestPriorityStatus;
+}
+
+export function resolveWorkspaceStatusIndicator(
+  threads: ReadonlyArray<ThreadStatusInput>,
+): ThreadStatusPill | null {
+  return resolveProjectStatusIndicator(
+    threads.map((thread) =>
+      resolveThreadStatusPill({
+        thread,
+      }),
+    ),
+  );
 }
 
 export function getVisibleThreadsForProject<T extends Pick<Thread, "id">>(input: {

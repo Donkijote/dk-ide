@@ -163,11 +163,11 @@ import {
   getSidebarThreadIdsToPrewarm,
   resolveAdjacentSidebarItemId,
   isContextMenuPointerDown,
-  resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
+  resolveWorkspaceStatusIndicator,
   formatSidebarWorkspaceThreadCount,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
@@ -1100,23 +1100,20 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         threadLastVisitedAts[index] ?? null,
       ]),
     );
-    const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
-      const lastVisitedAt = lastVisitedAtByThreadKey.get(
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      );
-      return resolveThreadStatusPill({
-        thread: {
-          ...thread,
-          ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
-        },
-      });
-    };
     const visibleProjectThreads = sortThreads(
       projectThreads.filter((thread) => thread.archivedAt === null),
       threadSortOrder,
     );
-    const projectStatus = resolveProjectStatusIndicator(
-      visibleProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
+    const projectStatus = resolveWorkspaceStatusIndicator(
+      visibleProjectThreads.map((thread) => {
+        const lastVisitedAt = lastVisitedAtByThreadKey.get(
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        );
+        return {
+          ...thread,
+          ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
+        };
+      }),
     );
     return {
       orderedProjectThreadKeys: visibleProjectThreads.map((thread) =>
@@ -1153,17 +1150,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         threadLastVisitedAts[index] ?? null,
       ]),
     );
-    const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
-      const lastVisitedAt = lastVisitedAtByThreadKey.get(
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      );
-      return resolveThreadStatusPill({
-        thread: {
-          ...thread,
-          ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
-        },
-      });
-    };
     const hasOverflowingThreads = visibleProjectThreads.length > sidebarThreadPreviewCount;
     const previewThreads =
       isThreadListExpanded || !hasOverflowingThreads
@@ -1185,8 +1171,16 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     );
     return {
       hasOverflowingThreads,
-      hiddenThreadStatus: resolveProjectStatusIndicator(
-        hiddenThreads.map((thread) => resolveProjectThreadStatus(thread)),
+      hiddenThreadStatus: resolveWorkspaceStatusIndicator(
+        hiddenThreads.map((thread) => {
+          const lastVisitedAt = lastVisitedAtByThreadKey.get(
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          );
+          return {
+            ...thread,
+            ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
+          };
+        }),
       ),
       renderedThreads,
       showEmptyThreadState: projectExpanded && visibleProjectThreads.length === 0,
