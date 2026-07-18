@@ -240,7 +240,7 @@ export function WorkspacePaneHost({
     return () => resizeObserver.disconnect();
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (previewPanes !== null) {
       return;
     }

@@ -65,6 +65,7 @@ import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { renameThreadTitle } from "../lib/threadTitleRename";
 import { isMacPlatform, newCommandId } from "../lib/utils";
+import { isWorkspaceAiPaneFocused } from "../lib/workspacePaneFocus";
 import {
   selectProjectByRef,
   selectProjectsAcrossEnvironments,
@@ -79,10 +80,10 @@ import { useUiStateStore } from "../uiStateStore";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
-  shouldShowThreadJumpHintsForModifiers,
-  threadJumpCommandForIndex,
-  threadJumpIndexFromCommand,
+  shouldShowWorkspaceJumpHintsForModifiers,
   threadTraversalDirectionFromCommand,
+  workspaceJumpCommandForIndex,
+  workspaceJumpIndexFromCommand,
 } from "../keybindings";
 import { useModelPickerOpen } from "../modelPickerOpenState";
 import { useShortcutModifierState } from "../shortcutModifierState";
@@ -162,11 +163,11 @@ import {
   getSidebarThreadIdsToPrewarm,
   resolveAdjacentSidebarItemId,
   isContextMenuPointerDown,
-  resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
+  resolveWorkspaceStatusIndicator,
   formatSidebarWorkspaceThreadCount,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
@@ -254,7 +255,10 @@ function buildSidebarJumpLabelMap(input: {
   keybindings: ReturnType<typeof useServerKeybindings>;
   platform: string;
   terminalOpen: boolean;
-  jumpCommandByKey: ReadonlyMap<string, NonNullable<ReturnType<typeof threadJumpCommandForIndex>>>;
+  jumpCommandByKey: ReadonlyMap<
+    string,
+    NonNullable<ReturnType<typeof workspaceJumpCommandForIndex>>
+  >;
 }): ReadonlyMap<string, string> {
   if (input.jumpCommandByKey.size === 0) {
     return EMPTY_THREAD_JUMP_LABELS;
@@ -265,6 +269,8 @@ function buildSidebarJumpLabelMap(input: {
     context: {
       terminalFocus: false,
       terminalOpen: input.terminalOpen,
+      aiPaneFocus: false,
+      modelPickerOpen: false,
     },
   } as const;
   const mapping = new Map<string, string>();
@@ -1094,23 +1100,20 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         threadLastVisitedAts[index] ?? null,
       ]),
     );
-    const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
-      const lastVisitedAt = lastVisitedAtByThreadKey.get(
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      );
-      return resolveThreadStatusPill({
-        thread: {
-          ...thread,
-          ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
-        },
-      });
-    };
     const visibleProjectThreads = sortThreads(
       projectThreads.filter((thread) => thread.archivedAt === null),
       threadSortOrder,
     );
-    const projectStatus = resolveProjectStatusIndicator(
-      visibleProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
+    const projectStatus = resolveWorkspaceStatusIndicator(
+      visibleProjectThreads.map((thread) => {
+        const lastVisitedAt = lastVisitedAtByThreadKey.get(
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        );
+        return {
+          ...thread,
+          ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
+        };
+      }),
     );
     return {
       orderedProjectThreadKeys: visibleProjectThreads.map((thread) =>
@@ -1147,17 +1150,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         threadLastVisitedAts[index] ?? null,
       ]),
     );
-    const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
-      const lastVisitedAt = lastVisitedAtByThreadKey.get(
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      );
-      return resolveThreadStatusPill({
-        thread: {
-          ...thread,
-          ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
-        },
-      });
-    };
     const hasOverflowingThreads = visibleProjectThreads.length > sidebarThreadPreviewCount;
     const previewThreads =
       isThreadListExpanded || !hasOverflowingThreads
@@ -1179,8 +1171,16 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     );
     return {
       hasOverflowingThreads,
-      hiddenThreadStatus: resolveProjectStatusIndicator(
-        hiddenThreads.map((thread) => resolveProjectThreadStatus(thread)),
+      hiddenThreadStatus: resolveWorkspaceStatusIndicator(
+        hiddenThreads.map((thread) => {
+          const lastVisitedAt = lastVisitedAtByThreadKey.get(
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          );
+          return {
+            ...thread,
+            ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
+          };
+        }),
       ),
       renderedThreads,
       showEmptyThreadState: projectExpanded && visibleProjectThreads.length === 0,
@@ -3144,9 +3144,9 @@ export default function Sidebar() {
   );
   const visibleSidebarThreadKeys = EMPTY_VISIBLE_SIDEBAR_THREAD_KEYS;
   const projectJumpCommandByKey = useMemo(() => {
-    const mapping = new Map<string, NonNullable<ReturnType<typeof threadJumpCommandForIndex>>>();
+    const mapping = new Map<string, NonNullable<ReturnType<typeof workspaceJumpCommandForIndex>>>();
     for (const [visibleProjectIndex, projectKey] of visibleSidebarProjectKeys.entries()) {
-      const jumpCommand = threadJumpCommandForIndex(visibleProjectIndex);
+      const jumpCommand = workspaceJumpCommandForIndex(visibleProjectIndex);
       if (!jumpCommand) {
         return mapping;
       }
@@ -3169,6 +3169,7 @@ export default function Sidebar() {
           ).terminalOpen
         : false,
       modelPickerOpen,
+      aiPaneFocus: false,
     }),
     [modelPickerOpen, routeThreadRef],
   );
@@ -3182,7 +3183,7 @@ export default function Sidebar() {
       }),
     [keybindings, platform, sidebarShortcutContext.terminalOpen, projectJumpCommandByKey],
   );
-  const shouldShowThreadJumpHintsNow = shouldShowThreadJumpHintsForModifiers(
+  const shouldShowThreadJumpHintsNow = shouldShowWorkspaceJumpHintsForModifiers(
     shortcutModifiers,
     keybindings,
     {
@@ -3225,7 +3226,10 @@ export default function Sidebar() {
 
   useEffect(() => {
     const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
-      const shortcutContext = getCurrentSidebarShortcutContext();
+      const shortcutContext = {
+        ...getCurrentSidebarShortcutContext(),
+        aiPaneFocus: isWorkspaceAiPaneFocused(),
+      };
 
       if (event.defaultPrevented || event.repeat) {
         return;
@@ -3252,7 +3256,7 @@ export default function Sidebar() {
         return;
       }
 
-      const jumpIndex = threadJumpIndexFromCommand(command ?? "");
+      const jumpIndex = workspaceJumpIndexFromCommand(command ?? "");
       if (jumpIndex === null) {
         return;
       }

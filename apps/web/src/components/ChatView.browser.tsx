@@ -1182,6 +1182,25 @@ function getWorkspacePane(paneId: string): HTMLElement {
   return pane!;
 }
 
+async function dispatchWorkspacePaneShortcut(
+  key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
+  options: { shiftKey?: boolean } = {},
+): Promise<void> {
+  const useMetaForMod = isMacPlatform(navigator.platform);
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key,
+      altKey: true,
+      shiftKey: options.shiftKey ?? false,
+      metaKey: useMetaForMod,
+      ctrlKey: !useMetaForMod,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  await waitForLayout();
+}
+
 function countWorkspaceTerminalPanes(): number {
   return document.querySelectorAll('[data-workspace-pane-id^="terminal"]').length;
 }
@@ -2367,6 +2386,40 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  it("moves the active workspace pane on the first keyboard shortcut press", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-keyboard-move-workspace-pane" as MessageId,
+        targetText: "keyboard move workspace pane",
+      }),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(getWorkspacePaneIdOrder()).toEqual(["editor", "ai", "terminal"]);
+      });
+
+      getWorkspacePane("terminal").dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await dispatchWorkspacePaneShortcut("ArrowLeft");
+
+      await vi.waitFor(() => {
+        expect(getWorkspacePaneIdOrder()).toEqual(["editor", "terminal", "ai"]);
+        expect(document.querySelector('[data-workspace-pane-active="true"]')).toBe(
+          getWorkspacePane("terminal").parentElement,
+        );
+      });
+    } finally {
+      await mounted.cleanup();
+      useUiStateStore.setState({ workspaceThreadLayoutById: {} });
     }
   });
 
@@ -5694,7 +5747,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
               },
             },
             {
-              command: "thread.jump.1",
+              command: "workspace.jump.1",
               shortcut: {
                 key: "1",
                 metaKey: true,
@@ -7447,7 +7500,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
               },
             },
             {
-              command: "thread.jump.1",
+              command: "workspace.jump.1",
               shortcut: {
                 key: "1",
                 metaKey: false,

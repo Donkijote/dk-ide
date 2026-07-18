@@ -7,6 +7,7 @@ import {
   MIN_WORKSPACE_TERMINAL_ROW_HEIGHT,
   WORKSPACE_PANE_GAP,
   mergeVisibleWorkspacePaneUpdates,
+  moveWorkspacePaneByKeyboard,
   normalizeWorkspacePaneLayout,
   placeWorkspacePane,
   pushWorkspacePaneCollisions,
@@ -113,6 +114,69 @@ describe("workspace pane layout", () => {
     expect(movedOut.find((pane) => pane.paneId === "editor")?.stackId).toBeUndefined();
     expect(terminal.x).toBeCloseTo(editor.x + editor.width + WORKSPACE_PANE_GAP);
     expect(terminal.y).toBe(0);
+  });
+
+  it("moves panes horizontally by keyboard while preserving pane metadata", () => {
+    const moved = moveWorkspacePaneByKeyboard(panes, "terminal", "left");
+
+    expect(moved.map((pane) => pane.paneId)).toEqual(["editor", "terminal", "ai"]);
+    expect(moved.find((pane) => pane.paneId === "terminal")?.metadata).toEqual({
+      threadId: "thread-1",
+    });
+  });
+
+  it("moves a stacked pane out into a neighboring column by keyboard", () => {
+    const stacked = placeWorkspacePane(panes, "terminal", "editor", "below");
+    const movedOut = moveWorkspacePaneByKeyboard(stacked, "terminal", "right");
+
+    expect(movedOut.map((pane) => pane.paneId)).toEqual(["editor", "terminal", "ai"]);
+    expect(movedOut.find((pane) => pane.paneId === "terminal")?.stackId).toBeUndefined();
+    expect(movedOut.find((pane) => pane.paneId === "editor")?.stackId).toBeUndefined();
+  });
+
+  it("moves panes vertically within a stack by keyboard", () => {
+    const stacked = placeWorkspacePane(panes, "terminal", "editor", "below");
+    const movedUp = moveWorkspacePaneByKeyboard(stacked, "terminal", "up");
+
+    expect(workspacePaneColumns(movedUp)[0]?.panes.map((pane) => pane.paneId)).toEqual([
+      "terminal",
+      "editor",
+    ]);
+    expect(movedUp.find((pane) => pane.paneId === "terminal")).toMatchObject({
+      stackId: "stack:editor",
+      stackOrder: 0,
+      heightPreset: "half",
+    });
+  });
+
+  it("stacks the active pane above or below a neighboring column by keyboard", () => {
+    const stackedAbove = moveWorkspacePaneByKeyboard(panes, "editor", "stack-above");
+    const stackedBelow = moveWorkspacePaneByKeyboard(panes, "editor", "stack-below");
+
+    expect(workspacePaneColumns(stackedAbove)[0]?.panes.map((pane) => pane.paneId)).toEqual([
+      "editor",
+      "ai",
+    ]);
+    expect(workspacePaneColumns(stackedBelow)[0]?.panes.map((pane) => pane.paneId)).toEqual([
+      "ai",
+      "editor",
+    ]);
+  });
+
+  it("keeps keyboard stacking unchanged when the target stack is full", () => {
+    const fourthPane: PersistedWorkspaceDockedPane = {
+      ...panes[0]!,
+      paneId: "ai:second",
+      type: "ai",
+      title: "Second AI",
+      order: 3,
+      metadata: { threadId: "thread-2" },
+    };
+    const twoStack = placeWorkspacePane(panes, "terminal", "editor", "below");
+    const threeStack = placeWorkspacePane([...twoStack, fourthPane], "ai", "terminal", "below");
+    const unchanged = moveWorkspacePaneByKeyboard(threeStack, "ai:second", "stack-below");
+
+    expect(unchanged).toEqual(threeStack);
   });
 
   it("caps stacked columns at three panes and falls back to neighboring insertion", () => {

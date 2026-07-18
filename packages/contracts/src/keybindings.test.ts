@@ -77,11 +77,35 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedModelPickerJump.command, "modelPicker.jump.1");
 
+    const parsedThreadJumpTen = yield* decode(KeybindingRule, {
+      key: "mod+0",
+      command: "thread.jump.0",
+    });
+    assert.strictEqual(parsedThreadJumpTen.command, "thread.jump.0");
+
+    const parsedWorkspaceJumpTen = yield* decode(KeybindingRule, {
+      key: "mod+0",
+      command: "workspace.jump.0",
+    });
+    assert.strictEqual(parsedWorkspaceJumpTen.command, "workspace.jump.0");
+
     const parsedThreadPrevious = yield* decode(KeybindingRule, {
       key: "mod+shift+[",
       command: "thread.previous",
     });
     assert.strictEqual(parsedThreadPrevious.command, "thread.previous");
+
+    const parsedWorkspacePaneMove = yield* decode(KeybindingRule, {
+      key: "mod+alt+arrowleft",
+      command: "workspacePane.moveLeft",
+    });
+    assert.strictEqual(parsedWorkspacePaneMove.command, "workspacePane.moveLeft");
+
+    const parsedWorkspacePaneStack = yield* decode(KeybindingRule, {
+      key: "mod+alt+shift+arrowdown",
+      command: "workspacePane.stackBelow",
+    });
+    assert.strictEqual(parsedWorkspacePaneStack.command, "workspacePane.stackBelow");
   }),
 );
 

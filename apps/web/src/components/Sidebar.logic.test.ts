@@ -18,6 +18,7 @@ import {
   resolveSidebarNewThreadEnvMode,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
+  resolveWorkspaceStatusIndicator,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
   THREAD_JUMP_HINT_SHOW_DELAY_MS,
@@ -648,6 +649,46 @@ describe("resolveProjectStatusIndicator", () => {
         },
       ]),
     ).toMatchObject({ label: "Plan Ready", dotClass: "bg-violet-500" });
+  });
+});
+
+describe("resolveWorkspaceStatusIndicator", () => {
+  const baseThread = {
+    hasActionableProposedPlan: false,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    interactionMode: "plan" as const,
+    latestTurn: null,
+    session: {
+      provider: ProviderDriverKind.make("codex"),
+      status: "ready" as const,
+      createdAt: "2026-03-09T10:00:00.000Z",
+      updatedAt: "2026-03-09T10:00:00.000Z",
+      orchestrationStatus: "ready" as const,
+    },
+  };
+
+  it("aggregates thread state using the same priority as the sidebar project row", () => {
+    expect(
+      resolveWorkspaceStatusIndicator([
+        {
+          ...baseThread,
+          latestTurn: makeLatestTurn(),
+        },
+        {
+          ...baseThread,
+          session: {
+            ...baseThread.session,
+            status: "running",
+            orchestrationStatus: "running",
+          },
+        },
+        {
+          ...baseThread,
+          hasPendingUserInput: true,
+        },
+      ]),
+    ).toMatchObject({ label: "Awaiting Input", pulse: false });
   });
 });
 

@@ -112,7 +112,11 @@ import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { BranchToolbar } from "./BranchToolbar";
-import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
+import {
+  resolveShortcutCommand,
+  shortcutLabelForCommand,
+  threadJumpIndexFromCommand,
+} from "../keybindings";
 import {
   resolveSidebarNewThreadEnvMode,
   resolveSidebarNewThreadSeedContext,
@@ -159,6 +163,7 @@ import {
   resolveAppModelSelectionForInstance,
 } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { isWorkspaceAiPaneFocused } from "../lib/workspacePaneFocus";
 import { renameThreadTitle } from "../lib/threadTitleRename";
 import { providerRuntimeStatusQueryOptions } from "~/lib/providerReactQuery";
 import {
@@ -175,6 +180,7 @@ import {
   type ComposerImageAttachment,
   DraftId,
   type DraftThreadEnvMode,
+  finalizePromotedDraftThreadByRef,
   useComposerDraftStore,
 } from "../composerDraftStore";
 import {
@@ -230,6 +236,7 @@ import {
   sanitizeUnavailableWorkspacePaneThreads,
   shouldRemoveTerminalPaneAfterClose,
   shouldWriteThreadErrorToCurrentServerThread,
+  threadHasStarted,
   waitForStartedServerThread,
   workspacePaneLayoutKey,
 } from "./ChatView.logic";
@@ -245,10 +252,12 @@ import { retainThreadDetailSubscription } from "../environments/runtime/service"
 import { RightPanelSheet } from "./RightPanelSheet";
 import {
   mergeVisibleWorkspacePaneUpdates,
+  moveWorkspacePaneByKeyboard,
   setWorkspacePaneHeightPreset,
   setWorkspacePaneWidthPreset,
   WORKSPACE_PANE_HEIGHT_PRESETS,
   WORKSPACE_PANE_WIDTH_PRESETS,
+  type WorkspacePaneKeyboardMove,
   workspacePaneColumns,
   workspacePaneHeightPreset,
   workspacePaneWidthPreset,
@@ -269,7 +278,7 @@ import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from "./ui/popove
 import { useSidebar } from "./ui/sidebar";
 import { Toggle } from "./ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { resolveThreadStatusPill } from "./Sidebar.logic";
+import { resolveThreadStatusPill, resolveWorkspaceStatusIndicator } from "./Sidebar.logic";
 import { ThreadStatusLabel } from "./ThreadStatusIndicators";
 import {
   appendBrowsePathSegment,
@@ -301,6 +310,44 @@ const EMPTY_WORKSPACE_EDITOR_OPEN_PATHS: readonly string[] = [];
 const EMPTY_TERMINAL_RUNTIME_ENV: Record<string, string> = {};
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+const WORKSPACE_PANE_KEYBOARD_MOVE_BY_COMMAND: Partial<
+  Record<KeybindingCommand, WorkspacePaneKeyboardMove>
+> = {
+  "workspacePane.moveLeft": "left",
+  "workspacePane.moveRight": "right",
+  "workspacePane.moveUp": "up",
+  "workspacePane.moveDown": "down",
+  "workspacePane.stackAbove": "stack-above",
+  "workspacePane.stackBelow": "stack-below",
+};
+
+function workspacePaneKeyboardMoveFromCommand(
+  command: KeybindingCommand,
+): WorkspacePaneKeyboardMove | null {
+  return WORKSPACE_PANE_KEYBOARD_MOVE_BY_COMMAND[command] ?? null;
+}
+
+function isTextInputFocused(): boolean {
+  const activeElement = document.activeElement;
+  if (!(activeElement instanceof HTMLElement) || !activeElement.isConnected) {
+    return false;
+  }
+  if (activeElement.isContentEditable) {
+    return true;
+  }
+  if (
+    activeElement instanceof HTMLInputElement ||
+    activeElement instanceof HTMLTextAreaElement ||
+    activeElement instanceof HTMLSelectElement
+  ) {
+    return true;
+  }
+  return (
+    activeElement.closest(
+      "[contenteditable='true'], [role='textbox'], .monaco-editor, .cm-editor",
+    ) !== null
+  );
+}
 
 function resolvePaneDefaultTitle(
   type: WorkspaceDockedPaneType,
@@ -1575,6 +1622,10 @@ export default function ChatView(props: ChatViewProps) {
         ? store.getDraftSession(draftId)
         : null,
   );
+  const promotedDraftThreadRef = routeKind === "draft" ? (draftThread?.promotedTo ?? null) : null;
+  const promotedServerThread = useStore(
+    useMemo(() => createThreadSelectorByRef(promotedDraftThreadRef), [promotedDraftThreadRef]),
+  );
   const promptRef = useRef("");
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
@@ -1949,6 +2000,28 @@ export default function ChatView(props: ChatViewProps) {
           return left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
         }),
     [activeWorkspaceThreads],
+  );
+  const activeWorkspaceThreadLastVisitedAts = useUiStateStore(
+    useShallow((state) =>
+      activeWorkspaceThreadOptions.map(
+        (thread) =>
+          state.threadLastVisitedAtById[
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))
+          ] ?? null,
+      ),
+    ),
+  );
+  const activeWorkspaceStatus = useMemo(
+    () =>
+      resolveWorkspaceStatusIndicator(
+        activeWorkspaceThreadOptions.map((thread, index) => ({
+          ...thread,
+          ...(activeWorkspaceThreadLastVisitedAts[index] !== null
+            ? { lastVisitedAt: activeWorkspaceThreadLastVisitedAts[index] }
+            : {}),
+        })),
+      ),
+    [activeWorkspaceThreadLastVisitedAts, activeWorkspaceThreadOptions],
   );
   const fallbackWorkspaceThread = useMemo(() => {
     if (activeWorkspaceThreadOptions.length === 0) {
@@ -2489,6 +2562,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const selectedProvider: ProviderDriverKind = lockedProvider ?? unlockedSelectedProvider;
   const phase = derivePhase(activeThread?.session ?? null);
+  const promotedServerThreadStarted = threadHasStarted(promotedServerThread);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
     () => deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined),
@@ -2589,6 +2663,27 @@ export default function ChatView(props: ChatViewProps) {
       aiPaneDraftOrigins.delete(props.draftId);
     }
   }, [draftThread?.promotedTo, props.draftId]);
+  useEffect(() => {
+    if (
+      routeKind !== "draft" ||
+      !onWorkspaceAiPaneThreadChange ||
+      !draftThread?.promotedTo ||
+      !promotedServerThreadStarted
+    ) {
+      return;
+    }
+    onWorkspaceAiPaneThreadChange(
+      scopedThreadKey(draftThread.promotedTo),
+      promotedServerThread?.title ? { title: promotedServerThread.title } : undefined,
+    );
+    finalizePromotedDraftThreadByRef(draftThread.promotedTo);
+  }, [
+    draftThread?.promotedTo,
+    onWorkspaceAiPaneThreadChange,
+    promotedServerThread?.title,
+    promotedServerThreadStarted,
+    routeKind,
+  ]);
   const canCancelCleanDraftThread = Boolean(
     isLocalDraftThread &&
     activeThread &&
@@ -4020,13 +4115,47 @@ export default function ChatView(props: ChatViewProps) {
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
         terminalOpen: Boolean(terminalState.terminalOpen),
+        textInputFocus: isTextInputFocused(),
         modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
+        aiPaneFocus: isWorkspaceAiPaneFocused(),
       };
 
       const command = resolveShortcutCommand(event, keybindings, {
         context: shortcutContext,
       });
       if (!command) return;
+
+      const threadJumpIndex = threadJumpIndexFromCommand(command);
+      if (threadJumpIndex !== null) {
+        const targetThread = activeWorkspaceThreadOptions[threadJumpIndex];
+        if (!targetThread) {
+          return;
+        }
+        const nextThreadKey = scopedThreadKey(
+          scopeThreadRef(targetThread.environmentId, targetThread.id),
+        );
+        const currentActivePaneId =
+          useUiStateStore.getState().workspaceThreadLayoutById[workspaceLayoutKey]?.activePaneId ??
+          activeWorkspaceDockedPaneId;
+        const activePane =
+          workspaceMode === "ai-pane"
+            ? null
+            : workspaceDockedPanes.find((pane) => pane.paneId === currentActivePaneId);
+        if (workspaceMode !== "ai-pane" && activePane?.type !== "ai") {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        if (workspaceMode === "ai-pane" || activePane?.paneId === "ai") {
+          handleAiPaneThreadChange(nextThreadKey);
+          return;
+        }
+        if (activePane) {
+          handleWorkspaceAiPaneThreadChange(activePane.paneId, nextThreadKey);
+        }
+        return;
+      }
 
       if (
         (command === "chat.new" || command === "chat.newLocal") &&
@@ -4099,12 +4228,19 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadId,
     closeActiveWorkspaceTerminal,
     createScopedAiPaneThread,
+    activeWorkspaceDockedPaneId,
+    activeWorkspaceThreadOptions,
+    handleAiPaneThreadChange,
+    handleWorkspaceAiPaneThreadChange,
     createNewTerminalPane,
     setTerminalOpen,
     runProjectScript,
     splitTerminal,
     keybindings,
     onToggleDiff,
+    workspaceDockedPanes,
+    workspaceLayoutKey,
+    workspaceMode,
   ]);
 
   const onRevertToTurnCount = useCallback(
@@ -5341,6 +5477,66 @@ export default function ChatView(props: ChatViewProps) {
     },
     [renderedWorkspaceDockedPanes, storeSetWorkspaceThreadDockedPanes, workspaceLayoutKey],
   );
+  useEffect(() => {
+    const handler = (event: globalThis.KeyboardEvent) => {
+      if (!activeThreadId || useCommandPaletteStore.getState().open || event.defaultPrevented) {
+        return;
+      }
+
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          terminalFocus: isTerminalFocused(),
+          terminalOpen: Boolean(terminalState.terminalOpen),
+          textInputFocus: isTextInputFocused(),
+          modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
+          aiPaneFocus: isWorkspaceAiPaneFocused(),
+        },
+      });
+      if (!command) {
+        return;
+      }
+
+      const move = workspacePaneKeyboardMoveFromCommand(command);
+      if (!move) {
+        return;
+      }
+
+      const currentActivePaneId =
+        useUiStateStore.getState().workspaceThreadLayoutById[workspaceLayoutKey]?.activePaneId ??
+        activeWorkspaceDockedPaneId;
+      const activePaneId =
+        currentActivePaneId &&
+        renderedWorkspaceDockedPanes.some((pane) => pane.paneId === currentActivePaneId)
+          ? currentActivePaneId
+          : renderedWorkspaceDockedPanes[0]?.paneId;
+      if (!activePaneId) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      const movedPanes = moveWorkspacePaneByKeyboard(
+        renderedWorkspaceDockedPanes,
+        activePaneId,
+        move,
+      );
+      storeSetWorkspaceThreadDockedPanes(
+        workspaceLayoutKey,
+        mergeVisibleWorkspacePaneUpdates(renderedWorkspaceDockedPanes, movedPanes),
+        activePaneId,
+      );
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [
+    activeThreadId,
+    activeWorkspaceDockedPaneId,
+    keybindings,
+    renderedWorkspaceDockedPanes,
+    storeSetWorkspaceThreadDockedPanes,
+    terminalState.terminalOpen,
+    workspaceLayoutKey,
+  ]);
   const setWorkspacePaneWidth = useCallback(
     (paneId: string, widthPreset: WorkspaceDockedPaneWidthPreset) => {
       storeSetWorkspaceThreadDockedPanes(
@@ -5845,7 +6041,7 @@ export default function ChatView(props: ChatViewProps) {
       <WorkspacePane
         key={pane.paneId}
         title={activeThread.title}
-        isActive={isPaneActive || embeddedPaneActive}
+        isActive={workspaceMode === "ai-pane" ? embeddedPaneActive : isPaneActive}
         leadingActions={embeddedPaneLeadingActions ?? paneLayoutControls}
         titleActions={aiPaneHeaderActions}
         titleControl={aiPaneTitleControl}
@@ -6087,6 +6283,11 @@ export default function ChatView(props: ChatViewProps) {
                 onNextPane={focusNextWorkspacePane}
                 onPreviousPane={focusPreviousWorkspacePane}
               />
+            ) : null
+          }
+          workspaceStatus={
+            activeWorkspaceStatus ? (
+              <ThreadStatusLabel status={activeWorkspaceStatus} compact />
             ) : null
           }
           workspaceName={workspaceName}

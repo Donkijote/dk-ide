@@ -22,12 +22,15 @@ import {
   resolveShortcutCommand,
   shouldShowModelPickerJumpHints,
   shouldShowThreadJumpHints,
+  shouldShowWorkspaceJumpHintsForModifiers,
   shortcutLabelForCommand,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
   threadJumpCommandForIndex,
   threadJumpIndexFromCommand,
   threadTraversalDirectionFromCommand,
+  workspaceJumpCommandForIndex,
+  workspaceJumpIndexFromCommand,
   type ShortcutEventLike,
 } from "./keybindings";
 
@@ -120,9 +123,30 @@ const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
   { shortcut: modShortcut("[", { shiftKey: true }), command: "thread.previous" },
   { shortcut: modShortcut("]", { shiftKey: true }), command: "thread.next" },
-  { shortcut: modShortcut("1"), command: "thread.jump.1" },
-  { shortcut: modShortcut("2"), command: "thread.jump.2" },
-  { shortcut: modShortcut("3"), command: "thread.jump.3" },
+  { shortcut: modShortcut("1"), command: "workspace.jump.1" },
+  { shortcut: modShortcut("2"), command: "workspace.jump.2" },
+  { shortcut: modShortcut("3"), command: "workspace.jump.3" },
+  { shortcut: modShortcut("0"), command: "workspace.jump.0" },
+  {
+    shortcut: modShortcut("1"),
+    command: "thread.jump.1",
+    whenAst: whenIdentifier("aiPaneFocus"),
+  },
+  {
+    shortcut: modShortcut("3"),
+    command: "thread.jump.3",
+    whenAst: whenIdentifier("aiPaneFocus"),
+  },
+  {
+    shortcut: modShortcut("2"),
+    command: "thread.jump.2",
+    whenAst: whenIdentifier("aiPaneFocus"),
+  },
+  {
+    shortcut: modShortcut("0"),
+    command: "thread.jump.0",
+    whenAst: whenIdentifier("aiPaneFocus"),
+  },
   {
     shortcut: modShortcut("1"),
     command: "modelPicker.jump.1",
@@ -300,7 +324,18 @@ describe("shortcutLabelForCommand", () => {
       "Ctrl+O",
     );
     assert.strictEqual(
-      shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.jump.3", "MacIntel"),
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "workspace.jump.3", "MacIntel"),
+      "⌘3",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "workspace.jump.0", "MacIntel"),
+      "⌘0",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.jump.3", {
+        platform: "MacIntel",
+        context: { aiPaneFocus: true },
+      }),
       "⌘3",
     );
     assert.strictEqual(
@@ -363,9 +398,11 @@ describe("thread navigation helpers", () => {
   it("maps jump commands to visible thread indices", () => {
     assert.strictEqual(threadJumpCommandForIndex(0), "thread.jump.1");
     assert.strictEqual(threadJumpCommandForIndex(2), "thread.jump.3");
-    assert.isNull(threadJumpCommandForIndex(9));
+    assert.strictEqual(threadJumpCommandForIndex(9), "thread.jump.0");
+    assert.isNull(threadJumpCommandForIndex(10));
     assert.strictEqual(threadJumpIndexFromCommand("thread.jump.1"), 0);
     assert.strictEqual(threadJumpIndexFromCommand("thread.jump.3"), 2);
+    assert.strictEqual(threadJumpIndexFromCommand("thread.jump.0"), 9);
     assert.isNull(threadJumpIndexFromCommand("thread.next"));
   });
 
@@ -377,19 +414,54 @@ describe("thread navigation helpers", () => {
   });
 
   it("shows jump hints only when configured modifiers match", () => {
+    assert.isFalse(
+      shouldShowThreadJumpHints(event({ metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+    );
     assert.isTrue(
       shouldShowThreadJumpHints(event({ metaKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
+        context: { aiPaneFocus: true },
       }),
     );
     assert.isFalse(
       shouldShowThreadJumpHints(event({ metaKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
+        context: { aiPaneFocus: true },
       }),
     );
     assert.isTrue(
       shouldShowThreadJumpHints(event({ ctrlKey: true }), DEFAULT_BINDINGS, {
         platform: "Linux",
+        context: { aiPaneFocus: true },
+      }),
+    );
+  });
+});
+
+describe("workspace navigation helpers", () => {
+  it("maps jump commands to visible workspace indices", () => {
+    assert.strictEqual(workspaceJumpCommandForIndex(0), "workspace.jump.1");
+    assert.strictEqual(workspaceJumpCommandForIndex(2), "workspace.jump.3");
+    assert.strictEqual(workspaceJumpCommandForIndex(9), "workspace.jump.0");
+    assert.isNull(workspaceJumpCommandForIndex(10));
+    assert.strictEqual(workspaceJumpIndexFromCommand("workspace.jump.1"), 0);
+    assert.strictEqual(workspaceJumpIndexFromCommand("workspace.jump.3"), 2);
+    assert.strictEqual(workspaceJumpIndexFromCommand("workspace.jump.0"), 9);
+    assert.isNull(workspaceJumpIndexFromCommand("thread.jump.1"));
+  });
+
+  it("shows workspace jump hints only when workspace jump shortcuts are active", () => {
+    assert.isTrue(
+      shouldShowWorkspaceJumpHintsForModifiers(event({ metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+    );
+    assert.isFalse(
+      shouldShowWorkspaceJumpHintsForModifiers(event({ metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { aiPaneFocus: true },
       }),
     );
   });
@@ -588,6 +660,45 @@ describe("resolveShortcutCommand", () => {
         },
       ),
       "thread.next",
+    );
+  });
+
+  it("matches the tenth workspace jump outside the AI pane and thread jump inside it", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "0", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+      "workspace.jump.0",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "0", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { aiPaneFocus: true },
+      }),
+      "thread.jump.0",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: ")", code: "Digit0", ctrlKey: true, shiftKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "Linux",
+        },
+      ),
+      null,
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: ")", code: "Digit0", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+      }),
+      "workspace.jump.0",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: ")", code: "Digit0", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { aiPaneFocus: true },
+      }),
+      "thread.jump.0",
     );
   });
 });
