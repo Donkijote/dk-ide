@@ -17,6 +17,7 @@ export const THREAD_JUMP_KEYBINDING_COMMANDS = [
   "thread.jump.7",
   "thread.jump.8",
   "thread.jump.9",
+  "thread.jump.0",
 ] as const;
 export type ThreadJumpKeybindingCommand = (typeof THREAD_JUMP_KEYBINDING_COMMANDS)[number];
 

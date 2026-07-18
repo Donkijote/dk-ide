@@ -123,6 +123,7 @@ const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("1"), command: "thread.jump.1" },
   { shortcut: modShortcut("2"), command: "thread.jump.2" },
   { shortcut: modShortcut("3"), command: "thread.jump.3" },
+  { shortcut: modShortcut("0"), command: "thread.jump.0" },
   {
     shortcut: modShortcut("1"),
     command: "modelPicker.jump.1",
@@ -304,6 +305,10 @@ describe("shortcutLabelForCommand", () => {
       "⌘3",
     );
     assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.jump.0", "MacIntel"),
+      "⌘0",
+    );
+    assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.previous", "Linux"),
       "Ctrl+Shift+[",
     );
@@ -363,9 +368,11 @@ describe("thread navigation helpers", () => {
   it("maps jump commands to visible thread indices", () => {
     assert.strictEqual(threadJumpCommandForIndex(0), "thread.jump.1");
     assert.strictEqual(threadJumpCommandForIndex(2), "thread.jump.3");
-    assert.isNull(threadJumpCommandForIndex(9));
+    assert.strictEqual(threadJumpCommandForIndex(9), "thread.jump.0");
+    assert.isNull(threadJumpCommandForIndex(10));
     assert.strictEqual(threadJumpIndexFromCommand("thread.jump.1"), 0);
     assert.strictEqual(threadJumpIndexFromCommand("thread.jump.3"), 2);
+    assert.strictEqual(threadJumpIndexFromCommand("thread.jump.0"), 9);
     assert.isNull(threadJumpIndexFromCommand("thread.next"));
   });
 
@@ -588,6 +595,31 @@ describe("resolveShortcutCommand", () => {
         },
       ),
       "thread.next",
+    );
+  });
+
+  it("matches the tenth thread jump using the 0 key and physical Digit0 code", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "0", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+      "thread.jump.0",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: ")", code: "Digit0", ctrlKey: true, shiftKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "Linux",
+        },
+      ),
+      null,
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: ")", code: "Digit0", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+      }),
+      "thread.jump.0",
     );
   });
 });

@@ -73,7 +73,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+[", command: "thread.previous" },
   { key: "mod+shift+]", command: "thread.next" },
   ...THREAD_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
-    key: `mod+${index + 1}`,
+    key: `mod+${index === 9 ? 0 : index + 1}`,
     command,
   })),
   ...MODEL_PICKER_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
