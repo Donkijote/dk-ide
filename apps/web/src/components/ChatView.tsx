@@ -159,6 +159,7 @@ import {
   resolveAppModelSelectionForInstance,
 } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { isWorkspaceAiPaneFocused } from "../lib/workspacePaneFocus";
 import { renameThreadTitle } from "../lib/threadTitleRename";
 import { providerRuntimeStatusQueryOptions } from "~/lib/providerReactQuery";
 import {
@@ -4090,6 +4091,7 @@ export default function ChatView(props: ChatViewProps) {
         terminalOpen: Boolean(terminalState.terminalOpen),
         textInputFocus: isTextInputFocused(),
         modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
+        aiPaneFocus: isWorkspaceAiPaneFocused(),
       };
 
       const command = resolveShortcutCommand(event, keybindings, {
@@ -5422,6 +5424,7 @@ export default function ChatView(props: ChatViewProps) {
           terminalOpen: Boolean(terminalState.terminalOpen),
           textInputFocus: isTextInputFocused(),
           modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
+          aiPaneFocus: isWorkspaceAiPaneFocused(),
         },
       });
       if (!command) {

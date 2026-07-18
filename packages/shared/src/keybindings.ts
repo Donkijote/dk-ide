@@ -8,6 +8,7 @@ import {
   type ResolvedKeybindingRule,
   type ResolvedKeybindingsConfig,
   THREAD_JUMP_KEYBINDING_COMMANDS,
+  WORKSPACE_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 
 type WhenToken =
@@ -72,9 +73,15 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   },
   { key: "mod+shift+[", command: "thread.previous" },
   { key: "mod+shift+]", command: "thread.next" },
+  ...WORKSPACE_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
+    key: `mod+${index === 9 ? 0 : index + 1}`,
+    command,
+    when: "!aiPaneFocus && !modelPickerOpen && !previewFocus",
+  })),
   ...THREAD_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
     key: `mod+${index === 9 ? 0 : index + 1}`,
     command,
+    when: "aiPaneFocus && !modelPickerOpen && !previewFocus",
   })),
   ...MODEL_PICKER_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
     key: `mod+${index + 1}`,

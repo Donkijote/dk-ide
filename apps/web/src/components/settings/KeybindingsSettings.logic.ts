@@ -33,6 +33,7 @@ const CORE_WHEN_VARIABLES = [
   "terminalFocus",
   "terminalOpen",
   "textInputFocus",
+  "aiPaneFocus",
   "true",
   "false",
 ] as const;

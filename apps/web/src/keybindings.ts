@@ -7,6 +7,8 @@ import {
   THREAD_JUMP_KEYBINDING_COMMANDS,
   type ModelPickerJumpKeybindingCommand,
   type ThreadJumpKeybindingCommand,
+  WORKSPACE_JUMP_KEYBINDING_COMMANDS,
+  type WorkspaceJumpKeybindingCommand,
 } from "@t3tools/contracts";
 import { isMacPlatform } from "./lib/utils";
 
@@ -31,6 +33,7 @@ export interface ShortcutMatchContext {
   terminalFocus: boolean;
   terminalOpen: boolean;
   textInputFocus: boolean;
+  aiPaneFocus: boolean;
   [key: string]: boolean;
 }
 
@@ -114,6 +117,7 @@ function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatc
     terminalFocus: false,
     terminalOpen: false,
     textInputFocus: false,
+    aiPaneFocus: false,
     ...options?.context,
   };
 }
@@ -268,6 +272,17 @@ export function threadJumpIndexFromCommand(command: string): number | null {
   return index === -1 ? null : index;
 }
 
+export function workspaceJumpCommandForIndex(index: number): WorkspaceJumpKeybindingCommand | null {
+  return WORKSPACE_JUMP_KEYBINDING_COMMANDS[index] ?? null;
+}
+
+export function workspaceJumpIndexFromCommand(command: string): number | null {
+  const index = WORKSPACE_JUMP_KEYBINDING_COMMANDS.indexOf(
+    command as WorkspaceJumpKeybindingCommand,
+  );
+  return index === -1 ? null : index;
+}
+
 export function threadTraversalDirectionFromCommand(
   command: string | null,
 ): "previous" | "next" | null {
@@ -292,6 +307,24 @@ export function shouldShowThreadJumpHintsForModifiers(
   const platform = resolvePlatform(options);
 
   for (const command of THREAD_JUMP_KEYBINDING_COMMANDS) {
+    const shortcut = findEffectiveShortcutForCommand(keybindings, command, options);
+    if (!shortcut) continue;
+    if (matchesShortcutModifiers(modifiers, shortcut, platform)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function shouldShowWorkspaceJumpHintsForModifiers(
+  modifiers: ShortcutModifierStateLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  const platform = resolvePlatform(options);
+
+  for (const command of WORKSPACE_JUMP_KEYBINDING_COMMANDS) {
     const shortcut = findEffectiveShortcutForCommand(keybindings, command, options);
     if (!shortcut) continue;
     if (matchesShortcutModifiers(modifiers, shortcut, platform)) {

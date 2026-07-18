@@ -5747,7 +5747,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
               },
             },
             {
-              command: "thread.jump.1",
+              command: "workspace.jump.1",
               shortcut: {
                 key: "1",
                 metaKey: true,
@@ -7500,7 +7500,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
               },
             },
             {
-              command: "thread.jump.1",
+              command: "workspace.jump.1",
               shortcut: {
                 key: "1",
                 metaKey: false,

@@ -21,6 +21,20 @@ export const THREAD_JUMP_KEYBINDING_COMMANDS = [
 ] as const;
 export type ThreadJumpKeybindingCommand = (typeof THREAD_JUMP_KEYBINDING_COMMANDS)[number];
 
+export const WORKSPACE_JUMP_KEYBINDING_COMMANDS = [
+  "workspace.jump.1",
+  "workspace.jump.2",
+  "workspace.jump.3",
+  "workspace.jump.4",
+  "workspace.jump.5",
+  "workspace.jump.6",
+  "workspace.jump.7",
+  "workspace.jump.8",
+  "workspace.jump.9",
+  "workspace.jump.0",
+] as const;
+export type WorkspaceJumpKeybindingCommand = (typeof WORKSPACE_JUMP_KEYBINDING_COMMANDS)[number];
+
 export const MODEL_PICKER_JUMP_KEYBINDING_COMMANDS = [
   "modelPicker.jump.1",
   "modelPicker.jump.2",
@@ -41,6 +55,9 @@ export const THREAD_KEYBINDING_COMMANDS = [
   ...THREAD_JUMP_KEYBINDING_COMMANDS,
 ] as const;
 export type ThreadKeybindingCommand = (typeof THREAD_KEYBINDING_COMMANDS)[number];
+
+export const WORKSPACE_KEYBINDING_COMMANDS = [...WORKSPACE_JUMP_KEYBINDING_COMMANDS] as const;
+export type WorkspaceKeybindingCommand = (typeof WORKSPACE_KEYBINDING_COMMANDS)[number];
 
 export const MODEL_PICKER_KEYBINDING_COMMANDS = [
   "modelPicker.toggle",
@@ -73,6 +90,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "workspacePane.moveDown",
   "workspacePane.stackAbove",
   "workspacePane.stackBelow",
+  ...WORKSPACE_KEYBINDING_COMMANDS,
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
   ...THREAD_KEYBINDING_COMMANDS,
 ] as const;

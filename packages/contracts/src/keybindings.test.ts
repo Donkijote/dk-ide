@@ -83,6 +83,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedThreadJumpTen.command, "thread.jump.0");
 
+    const parsedWorkspaceJumpTen = yield* decode(KeybindingRule, {
+      key: "mod+0",
+      command: "workspace.jump.0",
+    });
+    assert.strictEqual(parsedWorkspaceJumpTen.command, "workspace.jump.0");
+
     const parsedThreadPrevious = yield* decode(KeybindingRule, {
       key: "mod+shift+[",
       command: "thread.previous",
