@@ -112,7 +112,11 @@ import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { BranchToolbar } from "./BranchToolbar";
-import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
+import {
+  resolveShortcutCommand,
+  shortcutLabelForCommand,
+  threadJumpIndexFromCommand,
+} from "../keybindings";
 import {
   resolveSidebarNewThreadEnvMode,
   resolveSidebarNewThreadSeedContext,
@@ -4099,6 +4103,38 @@ export default function ChatView(props: ChatViewProps) {
       });
       if (!command) return;
 
+      const threadJumpIndex = threadJumpIndexFromCommand(command);
+      if (threadJumpIndex !== null) {
+        const targetThread = activeWorkspaceThreadOptions[threadJumpIndex];
+        if (!targetThread) {
+          return;
+        }
+        const nextThreadKey = scopedThreadKey(
+          scopeThreadRef(targetThread.environmentId, targetThread.id),
+        );
+        const currentActivePaneId =
+          useUiStateStore.getState().workspaceThreadLayoutById[workspaceLayoutKey]?.activePaneId ??
+          activeWorkspaceDockedPaneId;
+        const activePane =
+          workspaceMode === "ai-pane"
+            ? null
+            : workspaceDockedPanes.find((pane) => pane.paneId === currentActivePaneId);
+        if (workspaceMode !== "ai-pane" && activePane?.type !== "ai") {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        if (workspaceMode === "ai-pane" || activePane?.paneId === "ai") {
+          handleAiPaneThreadChange(nextThreadKey);
+          return;
+        }
+        if (activePane) {
+          handleWorkspaceAiPaneThreadChange(activePane.paneId, nextThreadKey);
+        }
+        return;
+      }
+
       if (
         (command === "chat.new" || command === "chat.newLocal") &&
         aiPaneRootRef.current &&
@@ -4170,12 +4206,19 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadId,
     closeActiveWorkspaceTerminal,
     createScopedAiPaneThread,
+    activeWorkspaceDockedPaneId,
+    activeWorkspaceThreadOptions,
+    handleAiPaneThreadChange,
+    handleWorkspaceAiPaneThreadChange,
     createNewTerminalPane,
     setTerminalOpen,
     runProjectScript,
     splitTerminal,
     keybindings,
     onToggleDiff,
+    workspaceDockedPanes,
+    workspaceLayoutKey,
+    workspaceMode,
   ]);
 
   const onRevertToTurnCount = useCallback(
