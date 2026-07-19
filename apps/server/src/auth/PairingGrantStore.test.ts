@@ -137,11 +137,12 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
     }).pipe(Effect.provide(makePairingGrantStoreLayer())),
   );
 
-  it.effect("seeds the desktop bootstrap credential as a reusable local grant", () =>
+  it.effect("seeds the desktop bootstrap credential as a reusable grant", () =>
     Effect.gen(function* () {
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const first = yield* bootstrapCredentials.consume("desktop-bootstrap-token");
       const second = yield* bootstrapCredentials.consume("desktop-bootstrap-token");
+      const third = yield* bootstrapCredentials.consume("desktop-bootstrap-token");
 
       expect(first.method).toBe("desktop-bootstrap");
       expect(first.scopes).toEqual([
@@ -157,6 +158,8 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
       expect(first.subject).toBe("desktop-bootstrap");
       expect(second.method).toBe("desktop-bootstrap");
       expect(second.subject).toBe("desktop-bootstrap");
+      expect(third.method).toBe("desktop-bootstrap");
+      expect(third.subject).toBe("desktop-bootstrap");
     }).pipe(
       Effect.provide(
         makePairingGrantStoreLayer({
@@ -170,7 +173,13 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
     Effect.gen(function* () {
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
 
-      yield* TestClock.adjust(Duration.minutes(6));
+      // The desktop-bootstrap grant lives for 24h. Within that window
+      // it stays reusable.
+      yield* TestClock.adjust(Duration.hours(12));
+      const stillValid = yield* bootstrapCredentials.consume("desktop-bootstrap-token");
+      expect(stillValid.method).toBe("desktop-bootstrap");
+
+      yield* TestClock.adjust(Duration.hours(13));
       const expired = yield* Effect.flip(bootstrapCredentials.consume("desktop-bootstrap-token"));
 
       expect(expired._tag).toBe("ExpiredBootstrapCredentialError");

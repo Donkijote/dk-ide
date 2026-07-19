@@ -9,7 +9,11 @@ export interface PrimaryEnvironmentTarget {
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
 
 function getDesktopLocalEnvironmentBootstrap(): DesktopEnvironmentBootstrap | null {
-  return window.desktopBridge?.getLocalEnvironmentBootstrap() ?? null;
+  return (
+    window.desktopBridge?.getLocalEnvironmentBootstrap?.() ??
+    window.desktopBridge?.getLocalEnvironmentBootstraps?.()[0] ??
+    null
+  );
 }
 
 function normalizeBaseUrl(rawValue: string): string {

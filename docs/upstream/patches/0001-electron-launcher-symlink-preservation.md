@@ -68,3 +68,7 @@ behavior.
   `52b04b947`; upstream's desktop runtime packaging continues to preserve the
   required app-bundle symlink behavior, so no additional launcher changes were
   required for this local patch.
+- Verified during the 2026-07-19 upstream sync against upstream commit
+  `53e3c98a5`; upstream changed desktop pooling, WSL bootstrapping, and
+  launcher-adjacent desktop startup code, but the local Electron app bundle
+  symlink-preservation behavior remains active.

@@ -218,3 +218,10 @@ composition, which are likely to continue evolving upstream.
   so the local web workspace shell was kept as a coherent presentation layer and
   the `projects.listDirectory` editor adapter was reattached to the merged
   server authorization scope table and RPC handler map.
+- Verified during the 2026-07-19 upstream sync against upstream commit
+  `53e3c98a5`; upstream added a broad connection/browser/cloud web shell, but
+  the fork kept `apps/web` on the local workspace-first shell to avoid mixing
+  incompatible presentation models. Runtime, desktop, mobile, contract, and
+  dependency changes were integrated around that boundary, including optional
+  desktop bootstrap compatibility for the local bridge and explicit web test
+  dependencies required by the restored local package layout.

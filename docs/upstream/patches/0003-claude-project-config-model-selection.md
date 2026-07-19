@@ -89,3 +89,7 @@ especially Claude session management and composer model selection.
   `52b04b947`; the local workspace-scoped `server.getProviderRuntimeStatus`
   RPC remains necessary for Claude project-config model detection and was
   restored in the merged server RPC authorization and handler wiring.
+- Verified during the 2026-07-19 upstream sync against upstream commit
+  `53e3c98a5`; upstream provider/runtime changes did not replace the
+  workspace-scoped Claude project-config model detection path, so the local
+  runtime-status behavior remains active.

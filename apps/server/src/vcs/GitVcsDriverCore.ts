@@ -855,6 +855,20 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       }),
     );
 
+  const executeGitWithStableDiagnostics = (
+    operation: string,
+    cwd: string,
+    args: readonly string[],
+    options: ExecuteGitOptions = {},
+  ): Effect.Effect<GitVcsDriver.ExecuteGitResult, GitCommandError> =>
+    executeGit(operation, cwd, args, {
+      ...options,
+      env: {
+        ...options.env,
+        LC_ALL: "C",
+      },
+    });
+
   const runGit = (
     operation: string,
     cwd: string,
@@ -1204,6 +1218,88 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
   });
 
+  const readStatusDetailsRemote = Effect.fn("readStatusDetailsRemote")(function* (cwd: string) {
+    const branchResult = yield* executeGitWithStableDiagnostics(
+      "GitVcsDriver.statusDetailsRemote.branch",
+      cwd,
+      ["rev-parse", "--abbrev-ref", "HEAD"],
+      { allowNonZeroExit: true },
+    ).pipe(
+      Effect.catchTags({
+        GitCommandError: (error) =>
+          isMissingGitCwdError(error) ? Effect.succeed(null) : Effect.fail(error),
+      }),
+    );
+
+    if (branchResult === null) {
+      return NON_REPOSITORY_STATUS_DETAILS;
+    }
+    if (branchResult.exitCode !== 0) {
+      if (branchResult.stderr.toLowerCase().includes("not a git repository")) {
+        return NON_REPOSITORY_STATUS_DETAILS;
+      }
+      return yield* createGitCommandError(
+        "GitVcsDriver.statusDetailsRemote.branch",
+        cwd,
+        ["rev-parse", "--abbrev-ref", "HEAD"],
+        branchResult.stderr.trim() || "Git branch lookup failed.",
+      );
+    }
+
+    const branchValue = branchResult.stdout.trim();
+    const branch = branchValue.length > 0 && branchValue !== "HEAD" ? branchValue : null;
+    const upstream = yield* resolveCurrentUpstream(cwd);
+    const upstreamRef = upstream?.upstreamRef ?? null;
+    let aheadCount = 0;
+    let behindCount = 0;
+
+    if (upstreamRef) {
+      const divergence = yield* executeGit(
+        "GitVcsDriver.statusDetailsRemote.divergence",
+        cwd,
+        ["rev-list", "--left-right", "--count", `HEAD...${upstreamRef}`],
+        { allowNonZeroExit: true },
+      );
+      if (divergence.exitCode === 0) {
+        const [aheadRaw, behindRaw] = divergence.stdout.trim().split(/\s+/);
+        const parsedAhead = Number.parseInt(aheadRaw ?? "0", 10);
+        const parsedBehind = Number.parseInt(behindRaw ?? "0", 10);
+        aheadCount = Number.isFinite(parsedAhead) ? Math.max(0, parsedAhead) : 0;
+        behindCount = Number.isFinite(parsedBehind) ? Math.max(0, parsedBehind) : 0;
+      }
+    } else if (branch) {
+      aheadCount = yield* computeAheadCountAgainstBase(cwd, branch).pipe(
+        Effect.orElseSucceed(() => 0),
+      );
+    }
+
+    const defaultBranch = yield* resolveDefaultBranchName(cwd, "origin");
+    const isDefaultBranch =
+      branch !== null &&
+      (branch === defaultBranch ||
+        (defaultBranch === null && (branch === "main" || branch === "master")));
+    const aheadOfDefaultCount =
+      branch && !isDefaultBranch
+        ? upstreamRef === null
+          ? aheadCount
+          : yield* computeAheadCountAgainstBase(cwd, branch).pipe(Effect.orElseSucceed(() => 0))
+        : 0;
+
+    return {
+      isRepo: true,
+      hasOriginRemote: upstreamRef?.startsWith("origin/") ?? false,
+      isDefaultBranch,
+      branch,
+      upstreamRef,
+      hasWorkingTreeChanges: false,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+      hasUpstream: upstreamRef !== null,
+      aheadCount,
+      behindCount,
+      aheadOfDefaultCount,
+    };
+  });
+
   const readBranchRecency = Effect.fn("readBranchRecency")(function* (cwd: string) {
     const branchRecency = yield* executeGit(
       "GitVcsDriver.readBranchRecency",
@@ -1241,7 +1337,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   });
 
   const readStatusDetailsLocal = Effect.fn("readStatusDetailsLocal")(function* (cwd: string) {
-    const statusResult = yield* executeGit(
+    const statusResult = yield* executeGitWithStableDiagnostics(
       "GitVcsDriver.statusDetails.status",
       cwd,
       ["status", "--porcelain=2", "--branch"],
@@ -1397,7 +1493,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const statusDetailsLocal: GitVcsDriver.GitVcsDriverShape["statusDetailsLocal"] = Effect.fn(
     "statusDetailsLocal",
   )(function* (cwd) {
-    return yield* readStatusDetailsLocal(cwd);
+    return yield* readStatusDetailsRemote(cwd);
   });
 
   const statusDetails: GitVcsDriver.GitVcsDriverShape["statusDetails"] = Effect.fn("statusDetails")(
@@ -1444,9 +1540,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   )(function* (cwd, filePaths) {
     if (filePaths && filePaths.length > 0) {
       yield* runGit("GitVcsDriver.prepareCommitContext.reset", cwd, ["reset"]).pipe(
-        Effect.catch(() => Effect.void),
+        Effect.catchTags({
+          GitCommandError: () => Effect.void,
+        }),
       );
       yield* runGit("GitVcsDriver.prepareCommitContext.addSelected", cwd, [
+        "--literal-pathspecs",
         "add",
         "-A",
         "--",
@@ -1468,7 +1567,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const stagedPatch = yield* runGitStdoutWithOptions(
       "GitVcsDriver.prepareCommitContext.stagedPatch",
       cwd,
-      ["diff", "--cached", "--patch", "--minimal"],
+      ["diff", "--no-ext-diff", "--cached", "--patch", "--minimal"],
       {
         maxOutputBytes: PREPARED_COMMIT_PATCH_MAX_OUTPUT_BYTES,
         appendTruncationMarker: true,
@@ -2005,7 +2104,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const branchRecencyPromise = readBranchRecency(input.cwd).pipe(
         Effect.catch(() => Effect.succeed(new Map<string, number>())),
       );
-      const localBranchResult = yield* executeGit(
+      const localBranchResult = yield* executeGitWithStableDiagnostics(
         "GitVcsDriver.listRefs.branchNoColor",
         input.cwd,
         ["branch", "--no-color", "--no-column"],
@@ -2506,7 +2605,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           { allowNonZeroExit: true, timeoutMs: 5_000 },
         );
         if (result.exitCode === 0) {
-          return { commitSha: result.stdout.trim() };
+          return {
+            commitSha: result.stdout.trim(),
+            remoteRefName: refName.startsWith("refs/remotes/")
+              ? refName.slice("refs/remotes/".length)
+              : refName,
+          };
         }
       }
 
