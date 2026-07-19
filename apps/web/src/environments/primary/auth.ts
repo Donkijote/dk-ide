@@ -105,7 +105,10 @@ export function takePairingTokenFromUrl(): string | null {
 }
 
 function getDesktopBootstrap(): DesktopBootstrapWithToken | null {
-  const bootstrap = window.desktopBridge?.getLocalEnvironmentBootstrap();
+  const bootstrap =
+    window.desktopBridge?.getLocalEnvironmentBootstrap?.() ??
+    window.desktopBridge?.getLocalEnvironmentBootstraps?.()[0] ??
+    null;
   return typeof bootstrap?.bootstrapToken === "string" && bootstrap.bootstrapToken.length > 0
     ? (bootstrap as DesktopBootstrapWithToken)
     : null;
@@ -147,6 +150,8 @@ function readEnvironmentHttpErrorStatus(error: EnvironmentHttpCommonErrorType): 
     case "EnvironmentScopeRequiredError":
     case "EnvironmentOperationForbiddenError":
       return 403;
+    case "EnvironmentResourceNotFoundError":
+      return 404;
     case "EnvironmentInternalError":
       return 500;
   }
@@ -169,6 +174,8 @@ function readHttpApiErrorMessage(error: unknown, fallbackMessage: string): strin
       return `The authenticated token is missing required scope: ${error.requiredScope}.`;
     case "EnvironmentOperationForbiddenError":
       return "This operation is not allowed for the current session.";
+    case "EnvironmentResourceNotFoundError":
+      return fallbackMessage;
     case "EnvironmentInternalError":
       return fallbackMessage;
   }

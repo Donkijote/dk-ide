@@ -171,6 +171,7 @@ export interface GitResolveRemoteTrackingCommitInput {
 
 export interface GitResolveRemoteTrackingCommitResult {
   commitSha: string;
+  remoteRefName: string;
 }
 
 export interface GitSetBranchUpstreamInput {
