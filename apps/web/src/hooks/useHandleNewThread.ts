@@ -45,6 +45,7 @@ function useNewThreadState() {
         getDraftSession,
         getDraftThread,
         applyStickyState,
+        setModelSelection,
         setDraftThreadContext,
         setLogicalProjectDraftThreadId,
       } = useComposerDraftStore.getState();
@@ -163,6 +164,9 @@ function useNewThreadState() {
           runtimeMode: DEFAULT_RUNTIME_MODE,
         });
         applyStickyState(draftId);
+        if (project?.defaultModelSelection) {
+          setModelSelection(draftId, project.defaultModelSelection);
+        }
         bindDraftToWorkspaceAiPane({
           threadId,
           worktreePath: options?.worktreePath ?? null,
