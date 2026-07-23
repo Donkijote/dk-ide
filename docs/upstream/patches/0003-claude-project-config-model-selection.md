@@ -35,6 +35,15 @@ stale SDK/model-session reuse when switching into or out of that mode.
   detected source/model metadata through runtime status
 - map the resolved workspace Claude model to a local sentinel selection in the
   web model picker and composer draft resolution code
+- expose the persisted workspace default provider in the workspace header,
+  resolve unavailable saved providers predictably, and keep provider selection
+  separate from the detected Claude project-config badge
+- prefer the detected Claude project-config sentinel when the workspace
+  default is the built-in Claude instance; selecting any other provider must
+  ignore `.claude/` metadata
+- seed new composer drafts from the persisted workspace default after applying
+  global sticky defaults so reopening or switching workspaces does not silently
+  replace the workspace's provider choice
 - omit explicit Claude SDK `--model` overrides when project config is selected
 - drop persisted Claude resume cursors when the effective selection is the
   project-config sentinel so stale sessions are not reused
@@ -48,8 +57,11 @@ stale SDK/model-session reuse when switching into or out of that mode.
 - `apps/server/src/textGeneration/ClaudeTextGeneration.ts`
 - `apps/web/src/components/ChatView.tsx`
 - `apps/web/src/components/chat/ChatComposer.tsx`
+- `apps/web/src/components/workspace/WorkspaceProviderSelector.tsx`
 - `apps/web/src/composerDraftStore.ts`
+- `apps/web/src/hooks/useHandleNewThread.ts`
 - `apps/web/src/modelSelection.ts`
+- `apps/web/src/projectProviderSelection.ts`
 - `packages/contracts/src/server.ts`
 - `packages/shared/src/model.ts`
 
@@ -70,6 +82,7 @@ especially Claude session management and composer model selection.
 
 - `923da00a`: Claude project-config runtime status, model selection, and stale
   resume protection
+- `33f820e7c`: Workspace provider selection and project-default persistence
 
 ## Sync Notes
 
@@ -80,6 +93,9 @@ especially Claude session management and composer model selection.
   carrying two selection modes
 - future Claude resume or session-import work must keep the "do not reuse stale
   resume cursor for project config" guard intact
+- preserve the distinction between the workspace provider choice and
+  provider-specific detected configuration; `.claude/` detection must never
+  route a workspace away from an explicitly selected non-Claude provider
 - Verified during the 2026-06-01 upstream sync against upstream commit
   `b3e8c033`; upstream touched the Claude provider layer while the repo also
   tightened TSGo rules around ad-hoc JSON parsing, so the local

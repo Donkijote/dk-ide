@@ -3974,6 +3974,130 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("persists the workspace provider separately from detected Claude project config", async () => {
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-workspace-provider-target" as MessageId,
+      targetText: "workspace provider selection",
+    });
+    const claudeProvider = {
+      driver: ProviderDriverKind.make("claudeAgent"),
+      instanceId: ProviderInstanceId.make("claudeAgent"),
+      displayName: "Claude",
+      enabled: true,
+      installed: true,
+      version: "2.1.117",
+      status: "ready" as const,
+      auth: { status: "authenticated" as const },
+      checkedAt: NOW_ISO,
+      models: [
+        {
+          slug: "claude-opus-4-7",
+          name: "Claude Opus 4.7",
+          isCustom: false,
+          capabilities: createModelCapabilities({ optionDescriptors: [] }),
+        },
+      ],
+      slashCommands: [],
+      skills: [],
+    };
+    const openCodeProvider = {
+      driver: ProviderDriverKind.make("opencode"),
+      instanceId: ProviderInstanceId.make("opencode"),
+      displayName: "OpenCode",
+      enabled: true,
+      installed: true,
+      version: "1.2.0",
+      status: "ready" as const,
+      auth: { status: "authenticated" as const },
+      checkedAt: NOW_ISO,
+      models: [
+        {
+          slug: "anthropic/claude-sonnet-4-6",
+          name: "Claude Sonnet 4.6",
+          isCustom: false,
+          capabilities: createModelCapabilities({ optionDescriptors: [] }),
+        },
+      ],
+      slashCommands: [],
+      skills: [],
+    };
+    const mounted = await mountChatView({
+      viewport: WIDE_FOOTER_VIEWPORT,
+      snapshot: {
+        ...snapshot,
+        projects: snapshot.projects.map((project) =>
+          project.id === PROJECT_ID
+            ? {
+                ...project,
+                defaultModelSelection: {
+                  instanceId: ProviderInstanceId.make("claudeAgent"),
+                  model: "claude-opus-4-7",
+                },
+              }
+            : project,
+        ),
+      },
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          providers: [...nextFixture.serverConfig.providers, claudeProvider, openCodeProvider],
+        };
+      },
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.serverGetProviderRuntimeStatus) {
+          return {
+            ...claudeProvider,
+            projectSettingsDetected: true,
+            projectSettingsSource: "project",
+            projectSettingsModel: "claude-opus-4-7",
+          };
+        }
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: fixture.snapshot.snapshotSequence + 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const selector = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('[data-workspace-provider-selector="true"]'),
+        "Unable to find workspace provider selector.",
+      );
+      await vi.waitFor(() => {
+        expect(selector.textContent).toContain("Claude");
+        expect(selector.textContent).toContain("Project");
+      });
+      selector.click();
+
+      const openCodeItem = await waitForSelectItemContainingText("OpenCode");
+      openCodeItem.click();
+
+      await vi.waitFor(
+        () => {
+          const updateRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "project.meta.update",
+          );
+          expect(updateRequest).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+            type: "project.meta.update",
+            projectId: PROJECT_ID,
+            defaultModelSelection: {
+              instanceId: "opencode",
+              model: "anthropic/claude-sonnet-4-6",
+            },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps new-worktree mode on empty server threads and bootstraps the first send", async () => {
     const snapshot = addThreadToSnapshot(createDraftOnlySnapshot(), THREAD_ID);
     const mounted = await mountChatView({

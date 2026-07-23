@@ -210,7 +210,13 @@ import {
 import { WorkspaceEditorActions } from "./workspace/WorkspaceEditorActions";
 import { WorkspacePane } from "./workspace/WorkspacePane";
 import { WorkspacePaneHost } from "./workspace/WorkspacePaneHost";
+import { WorkspaceProviderSelector } from "./workspace/WorkspaceProviderSelector";
 import { TerminalPaneHeaderActions, TerminalPanePath } from "./workspace/TerminalPaneHeader";
+import {
+  resolveProjectProviderSelection,
+  resolveProjectProviderState,
+} from "../projectProviderSelection";
+import { deriveProviderInstanceEntries, sortProviderInstanceEntries } from "../providerInstances";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   applyWorkspaceEditorPaneState,
@@ -2556,6 +2562,20 @@ export default function ChatView(props: ChatViewProps) {
         : provider,
     );
   }, [claudeRuntimeStatusQuery.data, providerStatuses]);
+  const workspaceProviderEntries = useMemo(
+    () => sortProviderInstanceEntries(deriveProviderInstanceEntries(providerStatusesForChat)),
+    [providerStatusesForChat],
+  );
+  const workspaceProviderResolution = useMemo(
+    () =>
+      resolveProjectProviderState({
+        configuredSelection: activeProject?.defaultModelSelection,
+        providers: providerStatusesForChat,
+        settings,
+      }),
+    [activeProject?.defaultModelSelection, providerStatusesForChat, settings],
+  );
+  const [workspaceProviderSaving, setWorkspaceProviderSaving] = useState(false);
   const unlockedSelectedProvider = resolveSelectableProvider(
     providerStatusesForChat,
     selectedProviderByThreadId ?? threadProvider ?? ProviderDriverKind.make("codex"),
@@ -5122,6 +5142,65 @@ export default function ChatView(props: ChatViewProps) {
       settings,
     ],
   );
+  const onWorkspaceProviderChange = useCallback(
+    async (instanceId: ProviderInstanceId) => {
+      if (!activeProject || workspaceProviderSaving) return;
+      const nextSelection = resolveProjectProviderSelection({
+        currentSelection: activeProject.defaultModelSelection,
+        requestedInstanceId: instanceId,
+        providers: providerStatusesForChat,
+        settings,
+      });
+      if (!nextSelection) {
+        toastManager.add({
+          type: "warning",
+          title: "Provider is not available for this workspace",
+        });
+        return;
+      }
+
+      const api = readEnvironmentApi(activeProject.environmentId);
+      if (!api) {
+        toastManager.add({
+          type: "error",
+          title: "Workspace API unavailable",
+        });
+        return;
+      }
+
+      setWorkspaceProviderSaving(true);
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "project.meta.update",
+          commandId: newCommandId(),
+          projectId: activeProject.id,
+          defaultModelSelection: nextSelection,
+        });
+        if (!threadHasStarted(activeThread)) {
+          setComposerDraftModelSelection(composerDraftTarget, nextSelection);
+        }
+      } catch (error) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to update workspace provider",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      } finally {
+        setWorkspaceProviderSaving(false);
+      }
+    },
+    [
+      activeProject,
+      activeThread,
+      composerDraftTarget,
+      providerStatusesForChat,
+      setComposerDraftModelSelection,
+      settings,
+      workspaceProviderSaving,
+    ],
+  );
   const onEnvModeChange = useCallback(
     (mode: DraftThreadEnvMode) => {
       if (canOverrideServerThreadEnvMode) {
@@ -6270,20 +6349,28 @@ export default function ChatView(props: ChatViewProps) {
           }
           activeThreadTitle={activeThread.title}
           workspaceControls={
-            activeWorkspaceNavigationPane ? (
-              <WorkspacePaneHeaderNavigation
-                activePaneIndex={activeWorkspaceNavigationPaneIndex}
-                activePaneTitle={activeWorkspaceNavigationPaneTitle}
-                activePaneType={activeWorkspaceNavigationPane.type}
-                hasNextPane={
-                  activeWorkspaceNavigationPaneIndex < workspaceNavigationPanes.length - 1
-                }
-                hasPreviousPane={activeWorkspaceNavigationPaneIndex > 0}
-                paneCount={workspaceNavigationPanes.length}
-                onNextPane={focusNextWorkspacePane}
-                onPreviousPane={focusPreviousWorkspacePane}
+            <>
+              <WorkspaceProviderSelector
+                entries={workspaceProviderEntries}
+                resolution={workspaceProviderResolution}
+                saving={workspaceProviderSaving}
+                onProviderChange={(instanceId) => void onWorkspaceProviderChange(instanceId)}
               />
-            ) : null
+              {activeWorkspaceNavigationPane ? (
+                <WorkspacePaneHeaderNavigation
+                  activePaneIndex={activeWorkspaceNavigationPaneIndex}
+                  activePaneTitle={activeWorkspaceNavigationPaneTitle}
+                  activePaneType={activeWorkspaceNavigationPane.type}
+                  hasNextPane={
+                    activeWorkspaceNavigationPaneIndex < workspaceNavigationPanes.length - 1
+                  }
+                  hasPreviousPane={activeWorkspaceNavigationPaneIndex > 0}
+                  paneCount={workspaceNavigationPanes.length}
+                  onNextPane={focusNextWorkspacePane}
+                  onPreviousPane={focusPreviousWorkspacePane}
+                />
+              ) : null}
+            </>
           }
           workspaceStatus={
             activeWorkspaceStatus ? (
